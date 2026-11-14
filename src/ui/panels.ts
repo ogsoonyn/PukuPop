@@ -321,10 +321,10 @@ export function bindPanels(app: App): { refresh: () => void } {
 
       const th = document.createElement('canvas');
       // サムネイルは重ね表示と同じレイヤーの色で描く(色は一覧の下から順に決まる。塗っていなくても薄く色が付く)
-      th.width = 44; th.height = 33; th.className = 'shrink-0'; th.title = 'ウェイト(重ね表示と同じ色)';
+      th.width = 44; th.className = 'shrink-0'; th.title = 'ウェイト(重ね表示と同じ色)';
       th.dataset.color = layerColor(index);
-      // 塗っていないレイヤーはサムネイルの色が薄いので、下の縁にもレイヤーの色を付ける
-      th.style.borderBottom = `3px solid ${layerColor(index)}`;
+      // 塗っていないレイヤーはサムネイルの色が薄いので、下の縁にもレイヤーの色を付ける(縁の分だけ絵を低くし、行の高さは変えない)
+      th.height = 30; th.style.borderBottom = `3px solid ${layerColor(index)}`;
       drawWeightThumb(th, layer.weights.data, layer.weights.width, layer.weights.height, layerColor(index));
       thumbs.set(layer.id, th);
 
