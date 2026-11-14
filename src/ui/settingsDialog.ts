@@ -1,6 +1,6 @@
 /**
  * ツール全体の設定(ツールオプションの欄の右端の歯車から開く)。このブラウザに覚え(prefs)、ファイルには書かない。
- * 今あるのは、ブラシの筆圧(#brushPressure。結び付けは ui/panels.ts、覚えるのは main.ts の persistControls)、左のツールバーに出すボタンの選択と、塗るときにウェイトの重ね表示を自動でON・OFFにするか(#vAutoOverlay・#vAutoOverlayOff。結び付けは表示の切り替えと一緒に ui/panels.ts)、
+ * 今あるのは、ブラシの筆圧(#brushPressure。結び付けは ui/panels.ts、覚えるのは main.ts の persistControls)、左のツールバーに出すボタンの選択(スマホのシートの一番上も同じ選択に従う)と、塗るときにウェイトの重ね表示を自動でON・OFFにするか(#vAutoOverlay・#vAutoOverlayOff。結び付けは表示の切り替えと一緒に ui/panels.ts)、
  * ポップ量のスライダーの最大値(#setPopMax。結び付けは ui/panels.ts、目盛りは ui/popSlider.ts)、
  * UIを隠すときにブラウザも全画面にするか(#setHideFull。結び付けは ui/hideUi.ts)。
  * 新しい設定は、この画面に足す。
@@ -27,6 +27,7 @@ function loadHidden(): Set<string> {
  * 前か後ろに出すものが無くなった区切りも隠す(区切りが続いたり端に残ったりしないように)
  */
 function applyToolbar(hidden: ReadonlySet<string>): void {
+  applyMobileNav(hidden);
   const nav = ui.toolNav;
   for (const b of nav.querySelectorAll<HTMLElement>('[data-nav]')) b.classList.toggle('nav-off', hidden.has(b.dataset.nav!));
   for (const g of nav.querySelectorAll<HTMLElement>('.nav-group')) g.classList.toggle('nav-off', !g.querySelector('[data-nav]:not(.nav-off)'));
@@ -46,6 +47,21 @@ function applyToolbar(hidden: ReadonlySet<string>): void {
   }
 }
 
+/** スマホのシートの一番上に映す。前か後ろに出すものが無くなった区切りも隠す */
+function applyMobileNav(hidden: ReadonlySet<string>): void {
+  let seen = false, pending: HTMLElement | null = null;
+  for (const el of [...ui.mNav.children] as HTMLElement[]) {
+    if (el.dataset.nav) {
+      const off = hidden.has(el.dataset.nav);
+      el.classList.toggle('nav-off', off);
+      if (!off) { pending?.classList.remove('nav-off'); pending = null; seen = true; }
+    } else {
+      el.classList.add('nav-off');
+      if (seen && !pending) pending = el;
+    }
+  }
+}
+
 export function bindSettingsDialog(): { open: () => void } {
   let hidden = loadHidden();
   applyToolbar(hidden);
@@ -53,10 +69,11 @@ export function bindSettingsDialog(): { open: () => void } {
   const boxes: HTMLInputElement[] = [];
   ui.setToolbarList.replaceChildren(...TOOLBAR_ITEMS.map(g => {
     const fs = document.createElement('fieldset');
-    fs.className = 'set-group';
+    fs.className = g.desktopOnly ? 'set-group d-only' : 'set-group';
     fs.append(Object.assign(document.createElement('legend'), { textContent: g.group }));
     for (const it of g.items) {
       const label = document.createElement('label');
+      if (it.desktopOnly) label.className = 'd-only';
       const cb = Object.assign(document.createElement('input'), { type: 'checkbox', className: 'checkbox checkbox-xs' });
       cb.dataset.nav = it.id;
       cb.addEventListener('change', () => {

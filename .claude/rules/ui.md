@@ -24,7 +24,7 @@ paths:
 | 項目の説明(「?」で開く。`data-help` に説明の id) | `src/ui/help.ts` |
 | 開いている作業のタブ(PC はメニューバーの右、スマホは上の見出しから開く一覧) | `src/ui/docTabs.ts` |
 | スマホのシートへ移す部品(`index.html` の `data-m-slot` と、移す先のタブ) | `src/ui/mobile.ts` の `MOBILE_SLOTS` |
-| スマホのシートの一番上の操作(左のツールバーの操作を横1列に。出さないものは `MOBILE_NAV_SKIP` と `defaultHidden`) | `src/ui/actions.ts` の `NAV_ACTIONS` |
+| スマホのシートの一番上の操作(左のツールバーの操作を横1列に。出さないものは `MOBILE_NAV_SKIP`。出す・隠すは左のツールバーと同じ設定で、映すのは `src/ui/settingsDialog.ts`) | `src/ui/actions.ts` の `NAV_ACTIONS` |
 
 ## 説明の出し方
 

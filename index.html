@@ -620,12 +620,12 @@
       <div class="toggle-row"><span class="prop-name"><label for="setHideFull">ブラウザも全画面にする</label><button type="button" class="help-btn" data-help="setHideFullHelp"></button></span><input id="setHideFull" type="checkbox" class="toggle toggle-sm"></div>
       <p id="setHideFullHelp" class="help-text" hidden>「UIを隠す」(Tab)を使ったときに、ブラウザのタブやアドレスバーも隠して画面全体に出します。Esc で全画面をやめると、UIも戻ります。</p>
     </section>
-    <section class="d-only flex flex-col gap-2 mt-4">
+    <section class="flex flex-col gap-2 mt-4">
       <div class="flex items-center gap-2">
-        <h4 class="font-bold"><span id="setToolbarLabel">左のツールバーに出すボタン</span></h4><button type="button" class="help-btn" data-help="setToolbarHelp"></button>
+        <h4 class="font-bold"><span id="setToolbarLabel"><span class="d-only">左のツールバーに出すボタン</span><span class="m-only">シートの一番上に出すボタン</span></span></h4><button type="button" class="help-btn" data-help="setToolbarHelp"></button>
         <button id="setToolbarReset" type="button" class="btn btn-xs btn-ghost ml-auto">すべて出す</button>
       </div>
-      <p id="setToolbarHelp" class="help-text" hidden>チェックを外したボタンは左のツールバーから隠します。隠してもショートカットとメニューからは使えます(隠したツールを選んでいる間は、ツールバーに選んだ印が出ません)。</p>
+      <p id="setToolbarHelp" class="help-text" hidden>チェックを外したボタンは左のツールバーから隠します。スマホでは、下から引き上げるシートの一番上の並びも同じ選択に従います(ツールと3面図はスマホでは出しません)。隠してもショートカットとメニューからは使えます(隠したツールを選んでいる間は、ツールバーに選んだ印が出ません)。</p>
       <div id="setToolbarList" class="set-list" role="group" aria-labelledby="setToolbarLabel"></div>
     </section>
     <div class="modal-action"><form method="dialog"><button class="btn btn-sm">閉じる</button></form></div>
