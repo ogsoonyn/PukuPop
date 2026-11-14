@@ -170,7 +170,19 @@ test('シートのスライダーは横に引くと動き、縦に動かす・�
   b = (await range.boundingBox())!;
   await swipe(cdp, [[b.x + b.width * 0.2, b.y + b.height / 2]], [[b.x + b.width * 0.5, b.y + b.height / 2]], 10);
   expect(await pop()).toBeGreaterThan(v0);
-  expect(await page.evaluate(() => (window as any).popstage.history.canUndo)).toBe(true);
+  // 1回のドラッグは1手で戻る
+  await page.evaluate(() => (window as any).popstage.history.undo());
+  expect(await pop()).toBe(v0);
+  // 引いてから元の所まで戻して離しても、次のドラッグは今のレイヤーに効き、1手で戻る
+  const x0 = b.x + b.width * 0.2, yy = b.y + b.height / 2;
+  await touch(cdp, 'touchStart', [[x0, yy]]);
+  for (let i = 1; i <= 6; i++) await touch(cdp, 'touchMove', [[x0 + i * 15, yy]]);
+  for (let i = 5; i >= 0; i--) await touch(cdp, 'touchMove', [[x0 + i * 15 + 10, yy]]);
+  await touch(cdp, 'touchEnd', []);
+  await swipe(cdp, [[x0, yy]], [[x0 + b.width * 0.2, yy]], 10);
+  expect(await pop()).toBeGreaterThan(v0);
+  await page.evaluate(() => (window as any).popstage.history.undo());
+  expect(await pop()).toBeLessThanOrEqual(v0 + 1);
 });
 
 test('上のメニューから設定を開ける。左のツールバーが無いので、その欄は出さない', async ({ page }) => {

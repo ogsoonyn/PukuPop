@@ -208,11 +208,9 @@ test('キーフレーム: 視点を追加・登録・見る・削除し、つな
   await page.locator('#takeCam').click();
   expect(await app(page, a => [a.takeState, a.project.camera.yaw])).toEqual(['playing', start]);
   await expect(page.locator('#keyMake')).toHaveText(/停止/);
-  await expect(page.locator('#keyMake')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('#keyMake').click();
   expect(await app(page, a => a.takeState)).toBe('idle');
   await expect(page.locator('#keyMake')).toHaveText(/再生/);
-  await expect(page.locator('#keyMake')).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('#takeCam')).toBeDisabled();
   await app(page, a => a.playTake());
   expect(await app(page, a => a.takeState)).toBe('playing');

@@ -92,7 +92,7 @@ persistControls('brush', [ui.brushSize, ui.brushStrength, ui.brushHardness, ui.b
   const popMax = prefs.get<number>('popMax');
   if (typeof popMax === 'number') app.popMax = clampPopMax(popMax);
   // 塗るツールのために自動で入れたまま閉じた重ね表示は、起動したときは切っておく(ツールは移動で始まるため)
-  if (app.view.overlay && app.autoOverlay && saved.overlayAuto === true) { app.view.overlay = false; app.view.overlayAll = false; }
+  if (app.view.overlay && app.autoOverlay && app.autoOverlayOff && saved.overlayAuto === true) { app.view.overlay = false; app.view.overlayAll = false; }
   app.syncView();
   app.on('view', () => { const v = app.view; prefs.set('view', { overlay: v.overlay, overlayAll: v.overlayAll, grid: v.grid, fade: v.fade, multi: v.multi, autoOverlay: app.autoOverlay, autoOverlayOff: app.autoOverlayOff, overlayAuto: app.overlayAutoShown }); });
 }

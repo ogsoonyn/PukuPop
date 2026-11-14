@@ -10,7 +10,7 @@
 /** 向きを決めるまでの動き(px) */
 const DECIDE = 8;
 /** スライダーの上下にはみ出して触っても拾う幅(px) */
-const SLOP = 10;
+const SLOP = 4;
 
 /** 指の位置にあるスライダー(はみ出しの幅を含む。重なるときは縦の中心がいちばん近いもの) */
 function sliderAt(root: HTMLElement, x: number, y: number): HTMLInputElement | null {
@@ -34,14 +34,14 @@ function snap(el: HTMLInputElement, v: number): number {
 }
 
 export function bindTouchSliders(root: HTMLElement, active: () => boolean): void {
-  let g: { id: number; el: HTMLInputElement; x: number; y: number; v: number; w: number; range: number; on: boolean } | null = null;
+  let g: { id: number; el: HTMLInputElement; x: number; y: number; v: number; w: number; range: number; on: boolean; sent: boolean } | null = null;
 
   root.addEventListener('pointerdown', e => {
     if (!active() || g || !e.isPrimary || e.button !== 0) return;
     const el = sliderAt(root, e.clientX, e.clientY);
     if (!el) return;
     const min = el.min === '' ? 0 : +el.min, max = el.max === '' ? 100 : +el.max;
-    g = { id: e.pointerId, el, x: e.clientX, y: e.clientY, v: +el.value, w: Math.max(1, el.getBoundingClientRect().width), range: max - min, on: false };
+    g = { id: e.pointerId, el, x: e.clientX, y: e.clientY, v: +el.value, w: Math.max(1, el.getBoundingClientRect().width), range: max - min, on: false, sent: false };
   });
   root.addEventListener('pointermove', e => {
     if (!g || e.pointerId !== g.id) return;
@@ -56,16 +56,20 @@ export function bindTouchSliders(root: HTMLElement, active: () => boolean): void
       g.el.focus({ preventScroll: true });
       return;
     }
-    const v = snap(g.el, g.v + dx / g.w * g.range);
-    if (+g.el.value === v) return;
-    g.el.value = String(v);
+    e.preventDefault(); // マウスで引いたときに文字を選ばない
+    // 比べるのは入れた後の値どうし(小数の刻みは計算の誤差で一致しないため)
+    const prev = g.el.value;
+    g.el.value = String(snap(g.el, g.v + dx / g.w * g.range));
+    if (g.el.value === prev) return;
+    g.sent = true;
     g.el.dispatchEvent(new Event('input', { bubbles: true }));
   });
   const end = (e: PointerEvent) => {
     if (!g || e.pointerId !== g.id) return;
-    const { el, on, v } = g;
+    const { el, sent } = g;
     g = null;
-    if (on && +el.value !== v) el.dispatchEvent(new Event('change', { bubbles: true }));
+    // input を送ったら、元の値に戻して離したときも change を送る(受け手は input の始まりから change までを1手にまとめるため)
+    if (sent) el.dispatchEvent(new Event('change', { bubbles: true }));
   };
   root.addEventListener('pointerup', end);
   root.addEventListener('pointercancel', end);

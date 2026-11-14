@@ -211,7 +211,6 @@ export function bindTakeControls(app: App): void {
     make.disabled = playing ? app.exporting : keys.length < 2 || total < TAKE_MIN_SECONDS - 1e-9 || !app.doc || app.exporting || app.takeState === 'recording';
     make.querySelector('[data-icon]')!.textContent = playing ? '■' : '▶';
     label(make).textContent = playing ? '停止' : '再生';
-    make.setAttribute('aria-pressed', String(playing));
     ui.keyTotal.textContent = keys.length < 2 ? '2つ以上' : total < TAKE_MIN_SECONDS - 1e-9 ? `1周 ${TAKE_MIN_SECONDS}秒以上` : `1周 ${sec(total)}`;
   }
 
