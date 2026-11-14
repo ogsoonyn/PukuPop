@@ -106,10 +106,10 @@ function defineActions(app: App, d: ActionDeps) {
       desc: 'ズームと位置はそのままで、向きと傾きだけを正面に戻す',
     },
     // 視点の傾き。押し続けると続けて回る(キーの繰り返し)。Alt+右ドラッグ・2本指のひねりでも傾けられる
-    rollLeft: { label: '視点を左に傾ける', keys: ['ArrowLeft'], run: () => app.rollBy(-ROLL_STEP), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を 15° 傾ける' },
-    rollRight: { label: '視点を右に傾ける', keys: ['ArrowRight'], run: () => app.rollBy(ROLL_STEP), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を 15° 傾ける' },
-    rollLeftFine: { label: '視点を左に少し傾ける', keys: ['Shift+ArrowLeft'], run: () => app.rollBy(-ROLL_FINE), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を 1° 傾ける' },
-    rollRightFine: { label: '視点を右に少し傾ける', keys: ['Shift+ArrowRight'], run: () => app.rollBy(ROLL_FINE), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を 1° 傾ける' },
+    rollLeft: { label: '視点を左に傾ける', keys: ['ArrowLeft'], run: () => app.rollBy(-ROLL_STEP), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 15° 傾ける' },
+    rollRight: { label: '視点を右に傾ける', keys: ['ArrowRight'], run: () => app.rollBy(ROLL_STEP), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 15° 傾ける' },
+    rollLeftFine: { label: '視点を左に少し傾ける', keys: ['Shift+ArrowLeft'], run: () => app.rollBy(-ROLL_FINE), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 1° 傾ける' },
+    rollRightFine: { label: '視点を右に少し傾ける', keys: ['Shift+ArrowRight'], run: () => app.rollBy(ROLL_FINE), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 1° 傾ける' },
     toggleUi: {
       label: 'UIを隠す', helpLabel: 'UIを隠す・戻す', keys: ['Tab'], desc: '3Dビューのほかを隠して、画面いっぱいに見せる。もう一度押すか Esc で戻す',
       run: () => app.setUiHidden(!app.uiHidden), duringPreview: true,
@@ -272,8 +272,11 @@ export function keyString(e: KeyboardEvent): string {
 /** 視点を傾けるキーの1回の角度(15°と1°) */
 const ROLL_STEP = Math.PI / 12, ROLL_FINE = Math.PI / 180;
 
-/** 矢印キーを自分で使う部品(ここにフォーカスがあるときは、矢印キーをショートカットに使わない) */
-const ARROW_WIDGETS = 'input, select, textarea, [role=tab], [role=tablist], [role=slider], [role=listbox], [role=option], [role=radio], [role=menuitem]';
+/**
+ * 左右の矢印キーを自分で使う部品(ここにフォーカスがあるときは、矢印キーをショートカットに使わない)。
+ * チェックボックス・ボタン・レイヤー一覧(↑↓だけ使う)では傾ける。メニュー・作業のタブ・シークバーは自分で defaultPrevented にする
+ */
+const ARROW_WIDGETS = 'input:not([type=checkbox]):not([type=button]):not([type=submit]):not([type=color]), select, textarea, [role=tab], [role=tablist], [role=slider], [role=radio], [role=menuitem]';
 
 /** スライダーにフォーカスがあるときは、スライダーを動かすキーをショートカットに使わない */
 const SLIDER_KEYS = new Set(['Home', 'End', 'PageUp', 'PageDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);

@@ -555,7 +555,7 @@ export class App extends Emitter<AppEvents> {
     this.emit('status', undefined);
   }
 
-  /** 視点の傾きを delta(ラジアン)だけ、なめらかに回す(Q / E)。正で画像が時計回りに傾く */
+  /** 視点の傾きを delta(ラジアン)だけ、なめらかに回す(← / →)。正で画像が時計回りに傾く */
   rollBy(delta: number): void { this.rollEase.add(delta); }
   private rollEase = smoothRoll({ get: () => this.project.camera.roll, set: r => this.setRoll(r), owner: () => this.project.camera });
 

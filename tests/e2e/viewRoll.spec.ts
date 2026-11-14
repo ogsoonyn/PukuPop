@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { boot, watchGlErrors, nextFrames } from './helpers';
+import { boot, watchGlErrors, nextFrames, openTab, dragOnStage } from './helpers';
 
 watchGlErrors();
 
@@ -63,11 +63,33 @@ test('キーフレームに傾きが入り、そのフレームへ動かすと�
   await nextFrames(page);
 });
 
-test('矢印キーは、スライダーにフォーカスがあるときはスライダーに使う', async ({ page }) => {
+test('矢印キーは、矢印を使う部品(スライダー・作業のタブ)では部品に使い、チェックボックスやレイヤー一覧では傾ける', async ({ page }) => {
   await boot(page);
+  await openTab(page, 'layer');
   const slider = page.locator('input[type=range]:visible').first();
   await slider.focus();
   await page.keyboard.press('ArrowRight');
   await nextFrames(page, 20);
   expect(await roll(page)).toBe(0);
+  // 作業のタブ(タブの上の ← / → はタブの切り替えに使う)
+  await page.locator('#docTabs [role=tab]').first().focus();
+  await page.keyboard.press('ArrowRight');
+  await nextFrames(page, 20);
+  expect(await roll(page)).toBe(0);
+  // チェックボックス・レイヤー一覧の行では傾ける
+  await page.locator('#pSwing').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => roll(page)).toBeCloseTo(15 * D, 4);
+  await page.locator('#layerList [role=option]').first().focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(() => roll(page)).toBeCloseTo(0, 4);
+});
+
+test('傾けていても、右ドラッグは画面の向きどおりに回る(90° 傾けて横に動かすと、上下に回る)', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => { const a = (window as any).popstage; a.project.camera = { ...a.project.camera, yaw: 0, pitch: 0, roll: Math.PI / 2 }; });
+  await dragOnStage(page, [0.45, 0.5], [0.55, 0.5], 'right');
+  const c = await page.evaluate(() => (window as any).popstage.project.camera);
+  expect(Math.abs(c.yaw)).toBeLessThan(1e-6);
+  expect(c.pitch).toBeLessThan(-0.05);
 });

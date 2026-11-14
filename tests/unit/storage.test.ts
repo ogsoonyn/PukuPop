@@ -3,6 +3,8 @@ import { zlibSync, zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { encodeGrayPng, decodePngToGray } from '../../src/storage/png';
 import { serializeProject, deserializeProject, migrate, FORMAT_VERSION, UNZIP_LIMITS } from '../../src/storage/popstage';
 import { createDocument, createProject, createLayer, defaultMultiCamera } from '../../src/model/project';
+import { captureFavorite } from '../../src/model/favorites';
+import { takeFromKeys } from '../../src/physics/take';
 
 describe('PNG', () => {
   it('グレースケールの往復', () => {
@@ -123,6 +125,34 @@ describe('.pukupop', () => {
     expect(project.documents[0].layers[1].pop).toBe(0);
     expect(project.documents[0].layers[0].physics.hardness).toBe(1);
     expect(project.documents[0].layers[0].physics.preset).toBe('custom');
+  });
+
+  it('視点・お気に入り・キーフレームの傾きを保存して戻す。傾きの無い古いファイルは 0°、範囲外は丸め、3面図の視点は傾けない', async () => {
+    const p = makeProject();
+    p.camera.roll = 0.5;
+    p.favorites = [captureFavorite(p, p.documents[0], { name: 'a', playing: false })];
+    p.camera.roll = -0.25;
+    const keys = [0.4, -3].map(roll => ({ view: { yaw: 0, pitch: 0, roll, zoom: 1, target: { x: 0, y: 0, z: 0 } }, seconds: 1, mode: 'smooth' as const }));
+    p.take = takeFromKeys(keys, p.camera.fov);
+    p.multiCamera = { ...p.multiCamera, roll: 1 };
+    const { project: q } = await deserializeProject(serializeProject(p));
+    expect(q.camera.roll).toBeCloseTo(-0.25);
+    expect(q.favorites[0].camera.roll).toBeCloseTo(0.5);
+    expect(q.take!.keys!.map(k => k.view.roll)).toEqual([0.4, -3]);
+    expect(q.take!.samples[0].camera.roll).toBeCloseTo(0.4);
+    expect(q.multiCamera.roll).toBe(0);
+    // 項目の無い古いファイル(視点とお気に入り)
+    const doc = { name: 'x', image: { path: 'images/doc-0.png', width: 10, height: 10 }, layers: [{ id: 'L1', name: 'L', weights: { path: 'none.png' } }] };
+    const fav = { id: 'F1', name: 'f', createdAt: new Date(0).toISOString(), layers: [], autoSwing: { enabled: false, period: 2, strength: 0.5 }, camera: { yaw: 0.2, pitch: 0, zoom: 1 }, take: null, playing: false };
+    const old = zipSync({ 'project.json': strToU8(JSON.stringify({ formatVersion: 1, app: 'PopStage', project: { camera: { yaw: 0.3 }, favorites: [fav] }, documents: [doc] })), 'images/doc-0.png': new Uint8Array([1]) });
+    const r = (await deserializeProject(old)).project;
+    expect(r.camera.roll).toBe(0); expect(r.camera.yaw).toBeCloseTo(0.3);
+    expect(r.favorites[0].camera.roll).toBe(0);
+    // 範囲外・数でない値
+    const big = zipSync({ 'project.json': strToU8(JSON.stringify({ formatVersion: 1, app: 'PukuPop', project: { camera: { roll: 7 }, favorites: [{ ...fav, camera: { roll: 'x' } }] }, documents: [doc] })), 'images/doc-0.png': new Uint8Array([1]) });
+    const b = (await deserializeProject(big)).project;
+    expect(b.camera.roll).toBeCloseTo(7 - 2 * Math.PI);
+    expect(b.favorites[0].camera.roll).toBe(0);
   });
 
   it('3面図の自由角度の視点を保存して戻す。古いファイルや不正な値では初めの視点・範囲内にする', async () => {

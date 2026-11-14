@@ -235,8 +235,10 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
       drag.lx = e.clientX; drag.ly = e.clientY;
       const cam = app.project.camera;
       if (drag.mode === 'orbit') {
-        cam.yaw -= dx * 0.008;
-        cam.pitch = Math.max(-1.45, Math.min(1.45, cam.pitch + dy * 0.008));
+        // 傾けているときも画面の向きどおりに回るよう、ドラッグの向きを傾きの分だけ戻してから向きに入れる
+        const c = Math.cos(cam.roll), s = Math.sin(cam.roll), ox = dx * c + dy * s, oy = dy * c - dx * s;
+        cam.yaw -= ox * 0.008;
+        cam.pitch = Math.max(-1.45, Math.min(1.45, cam.pitch + oy * 0.008));
       } else if (drag.mode === 'roll') {
         // 主ビューの中央(注視点)から見た向きの変わり分だけ傾ける。中央のすぐ近くは向きが暴れるので使わない
         const r = canvas.getBoundingClientRect(), m = app.stage.mainView(), cx = r.left + m.x + m.w / 2, cy = r.top + m.y + m.h / 2;

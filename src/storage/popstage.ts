@@ -263,7 +263,8 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
   project.background = typeof p.background === 'string' && HEX_COLOR.test(p.background) ? p.background : null;
   project.camera = cameraOf(p.camera, defaultCamera());
   // 3面図の自由角度の視点(古いファイルには無いので、そのときは初めの視点)
-  project.multiCamera = cameraOf(p.multiCamera, defaultMultiCamera());
+  // 3面図の自由角度の視点は傾けられないので、傾きは 0 にする
+  project.multiCamera = { ...cameraOf(p.multiCamera, defaultMultiCamera()), roll: 0 };
   project.fps = 60;
   project.autoSwing = autoSwingOf(p.autoSwing);
   // 操作の記録。読めなければ記録なしとして開く(画像やウェイトは開けるので、ファイルごと諦めない)。

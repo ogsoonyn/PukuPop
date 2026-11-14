@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { zipSync, strToU8 } from 'fflate';
-import { wrapAngle, createDocument, createProject, type Layer } from '../../src/model/project';
+import * as THREE from 'three';
+import { Stage } from '../../src/stage/stage';
+import { wrapAngle, createDocument, type Layer } from '../../src/model/project';
 import { keyCurve, takeToJson, takeFromJson, finalizeTake, type KeyFrame } from '../../src/physics/take';
 import { PhysicsWorld, pose } from '../../src/physics/world';
-import { serializeProject, deserializeProject } from '../../src/storage/popstage';
 import { smoothRoll } from '../../src/ui/smoothRoll';
 import type { RecordSample } from '../../src/physics/recorder';
 
@@ -25,6 +25,17 @@ describe('視点の傾き(ロール)', () => {
     expect(b.r.x).toBeCloseTo(a.u.x); expect(b.r.y).toBeCloseTo(a.u.y);
     expect(b.u.x).toBeCloseTo(-a.r.x); expect(b.u.y).toBeCloseTo(-a.r.y);
     expect(b.b).toEqual(a.b);
+  });
+
+  it('描画のカメラ(stage の applyCamera)と、揺れに使う向き(pose)の右・上が一致する', () => {
+    for (const v of [{ yaw: 0, pitch: 0, roll: 0.6 }, { yaw: 0.8, pitch: -0.4, roll: -1.2 }, { yaw: -2, pitch: 1, roll: 3 }]) {
+      const cam = new THREE.PerspectiveCamera();
+      const fake = { imageSize: { w: 100, h: 100 }, camera: cam, cameraDistance: Stage.prototype.cameraDistance };
+      Stage.prototype.applyCamera.call(fake as unknown as Stage, { fov: 30, zoom: 1, target: { x: 0, y: 0, z: 0 }, ...v }, 1, cam);
+      const e = cam.matrixWorld.elements, p = pose({ x: 0, y: 0, z: 0 }, { ...v, zoom: 1 });
+      expect(e[0]).toBeCloseTo(p.r.x, 9); expect(e[1]).toBeCloseTo(p.r.y, 9); expect(e[2]).toBeCloseTo(p.r.z, 9);
+      expect(e[4]).toBeCloseTo(p.u.x, 9); expect(e[5]).toBeCloseTo(p.u.y, 9); expect(e[6]).toBeCloseTo(p.u.z, 9);
+    }
   });
 
   it('傾けた勢いで揺れる。中心から遠いほど大きく揺れる', () => {
@@ -50,13 +61,11 @@ describe('視点の傾き(ロール)', () => {
     // 170° → -170° は 180° を通る(0° を通って逆回りしない)
     expect(Math.abs(c.at(0.5).roll)).toBeCloseTo(Math.PI, 1);
     expect(Math.abs(c.at(1.5).roll)).toBeCloseTo(Math.PI, 1);
-    // 3つで1周するときも、どの区間も 180° より遠回りしない
+    // 3つで1周するときも、どの区間も近いほうの弧の真ん中あたりを通る(最後の -90° → 150° は -180° を通って -150° 付近)
     const c3 = keyCurve([key(150), key(-150), key(-90)], 30)!;
-    const n = 300;
-    for (let i = 0; i < n; i++) {
-      const a = c3.at((i / n) * c3.total).roll, b = c3.at(((i + 1) / n) * c3.total - 1e-9).roll;
-      expect(Math.abs(wrapAngle(b - a))).toBeLessThan(10 * D);
-    }
+    expect(Math.abs(wrapAngle(c3.at(0.5).roll - Math.PI))).toBeLessThan(15 * D);
+    expect(Math.abs(wrapAngle(c3.at(1.5).roll + 120 * D))).toBeLessThan(15 * D);
+    expect(Math.abs(wrapAngle(c3.at(2.5).roll + 150 * D))).toBeLessThan(15 * D);
   });
 
   it('記録の末尾も近いほうの回り方で初めへ寄せる', () => {
@@ -78,21 +87,6 @@ describe('視点の傾き(ロール)', () => {
     back.samples.forEach((s, i) => expect(wrapAngle(s.camera.roll - samples[i].camera.roll)).toBeCloseTo(0, 5));
     const old = { ...json, samples: json.samples.map(a => a.slice(0, 14)) };
     expect(takeFromJson(old, 30)!.samples.every(s => s.camera.roll === 0)).toBe(true);
-  });
-
-  it('.pukupop に視点・お気に入り・キーフレームの傾きを保存して戻す。古いファイルは 0°', async () => {
-    const p = createProject(createDocument(image, 'd'));
-    p.camera.roll = 0.5;
-    const { project: q } = await deserializeProject(serializeProject(p));
-    expect(q.camera.roll).toBeCloseTo(0.5);
-    // 項目の無い古いファイル
-    const doc = { name: 'x', image: { path: 'images/doc-0.png', width: 10, height: 10 }, layers: [{ name: 'L', weights: { path: 'none.png' } }] };
-    const old = zipSync({ 'project.json': strToU8(JSON.stringify({ formatVersion: 1, app: 'PopStage', project: { camera: { yaw: 0.3 }, favorites: [] }, documents: [doc] })), 'images/doc-0.png': new Uint8Array([1]) });
-    const r = (await deserializeProject(old)).project;
-    expect(r.camera.roll).toBe(0); expect(r.camera.yaw).toBeCloseTo(0.3);
-    // 範囲外の値は丸める
-    const big = zipSync({ 'project.json': strToU8(JSON.stringify({ formatVersion: 1, app: 'PukuPop', project: { camera: { roll: 7 } }, documents: [doc] })), 'images/doc-0.png': new Uint8Array([1]) });
-    expect((await deserializeProject(big)).project.camera.roll).toBeCloseTo(wrapAngle(7));
   });
 
   it('なめらかに回す: 続けて押した分も取りこぼさず、ほかの操作が角度を変えたらやめる', () => {
