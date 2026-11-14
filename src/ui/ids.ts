@@ -33,7 +33,7 @@ export const UI_IDS = {
   mSheet: 'section', mGrip: 'div', mPresets: 'div', mPanes: 'div', mToolDesc: 'p', mBrushOpts: 'div', mInflOpts: 'div', mPaintMode: 'button',
   mModeBar: 'div', mTools: 'nav', mPaintDone: 'button',
   // ステータスバー
-  sFps: 'span', sVerts: 'span', sZoom: 'span', sImage: 'span', sRec: 'span', sSave: 'span',
+  sFps: 'span', sVerts: 'span', sZoom: 'span', sRoll: 'button', sImage: 'span', sRec: 'span', sSave: 'span',
   fileProject: 'input',
   // 書き出し
   exportDialog: 'dialog', exFormat: 'select', exW: 'input', exH: 'input', exSizePreset: 'select', exDur: 'input', exLoop: 'input',

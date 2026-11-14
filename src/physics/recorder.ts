@@ -26,7 +26,7 @@ export function applySample(world: PhysicsWorld, smp: RecordSample): void {
   world.viewTarget = smp.viewTarget ?? smp.camera.target;
   // 視点の向きとズーム(回転・ズームでも揺らす)
   const c = smp.camera;
-  world.viewAngles = { yaw: c.yaw, pitch: c.pitch, zoom: c.zoom };
+  world.viewAngles = { yaw: c.yaw, pitch: c.pitch, roll: c.roll, zoom: c.zoom };
   if (smp.viewCut) world.cutView();
 }
 

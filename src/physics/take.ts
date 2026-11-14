@@ -7,7 +7,7 @@
  *   長さを書き出しのコマにそろえ、終わりを初めの位置へなめらかに寄せて、ループの継ぎ目で視点が飛ばないようにする。
  * - DOM に依存しない。
  */
-import { LIMITS, type CameraState, type Vec3 } from '../model/project';
+import { LIMITS, wrapAngle, type CameraState, type Vec3 } from '../model/project';
 import { PHYSICS_DT } from './world';
 import type { RecordSample } from './recorder';
 
@@ -17,8 +17,8 @@ export interface Take {
   readonly keys?: readonly KeyFrame[];
 }
 
-/** 視点(回転・ズーム・注視点)。注視点を動かすと画像が画面上を動き、その勢いで揺れる */
-export interface ViewKey { yaw: number; pitch: number; zoom: number; target: Vec3 }
+/** 視点(回転・傾き・ズーム・注視点)。注視点を動かすと画像が画面上を動き、その勢いで揺れる */
+export interface ViewKey { yaw: number; pitch: number; roll: number; zoom: number; target: Vec3 }
 /** なめらか: そのフレームで止まらず、曲線で通り抜ける / 弾む: 同じ速さのまま来て、そのフレームで急に止まる(その勢いで揺れる) */
 export type KeyMode = 'smooth' | 'bounce';
 /** キーフレーム。seconds は次のフレームまでの時間(最後のフレームは最初のフレームへ戻るまで) */
@@ -44,7 +44,7 @@ export const takeSeconds = (t: Take | null | undefined): number => (t ? t.sample
 const sameVec = (a: Vec3 | null | undefined, b: Vec3 | null | undefined) =>
   a === b || (!!a && !!b && a.x === b.x && a.y === b.y && a.z === b.z);
 const sameCam = (a: CameraState, b: CameraState) =>
-  a.yaw === b.yaw && a.pitch === b.pitch && a.zoom === b.zoom && sameVec(a.target, b.target);
+  a.yaw === b.yaw && a.pitch === b.pitch && a.roll === b.roll && a.zoom === b.zoom && sameVec(a.target, b.target);
 /** a から b へ何も変わっていない(つかんでおらず、視点も注視点も同じ) */
 function idle(a: RecordSample, b: RecordSample): boolean {
   return !a.grab && !b.grab && !b.viewCut && sameCam(a.camera, b.camera) && sameVec(a.viewTarget ?? a.camera.target, b.viewTarget ?? b.camera.target);
@@ -88,8 +88,10 @@ function blendTail(s: RecordSample[]): void {
   const yawTo = first.camera.yaw + TAU * Math.round((lastYaw - first.camera.yaw) / TAU);
   for (let j = 0; j < F; j++) {
     const smp = s[n - F + j], t = smooth((j + 1) / (F + 1)), c = smp.camera;
+    // 傾きは -π〜π でつながるので、近いほうの回り方で寄せる
+    const roll = wrapAngle(c.roll + wrapAngle(first.camera.roll - c.roll) * t);
     smp.camera = {
-      ...c, yaw: lerp(c.yaw, yawTo, t), pitch: lerp(c.pitch, first.camera.pitch, t), zoom: lerp(c.zoom, first.camera.zoom, t),
+      ...c, yaw: lerp(c.yaw, yawTo, t), pitch: lerp(c.pitch, first.camera.pitch, t), roll, zoom: lerp(c.zoom, first.camera.zoom, t),
       target: lerpVec(c.target, first.camera.target, t),
     };
     smp.viewTarget = lerpVec(smp.viewTarget!, first.viewTarget!, t);
@@ -100,8 +102,9 @@ function blendTail(s: RecordSample[]): void {
 
 /* ---------- キーフレームから作る ---------- */
 
-/** 補間する値の並び: [yaw, pitch, log(zoom), tx, ty, tz]。ズームは比で補間する(拡大・縮小の速さが見た目でそろう) */
-const channels = (v: ViewKey): number[] => [v.yaw, v.pitch, Math.log(v.zoom), v.target.x, v.target.y, v.target.z];
+/** 補間する値の並び: [yaw, pitch, log(zoom), tx, ty, tz, roll]。ズームは比で補間する(拡大・縮小の速さが見た目でそろう) */
+const channels = (v: ViewKey): number[] => [v.yaw, v.pitch, Math.log(v.zoom), v.target.x, v.target.y, v.target.z, v.roll];
+const ROLL = 6;
 
 /** キーフレームの動きの曲線。at(t) は1周の始まりから t 秒の視点(0 ≦ t < total) */
 export interface KeyCurve {
@@ -127,9 +130,21 @@ export function keyCurve(input: readonly KeyFrame[], fov: number): KeyCurve | nu
   const P = keys.map(k => channels(k.view)), D = keys.map(k => k.seconds);
   const total = D.reduce((a, b) => a + b, 0);
   const at = (i: number) => (i + n) % n;
+  // 傾きは -π〜π でつながるので、隣のフレームへは近いほうの回り方で進むよう、続けた値に直す。
+  // 最後から最初へ戻る区間も近いほうで回るよう、1周で回った分(2π の倍数)を W に持ち、周の外のフレームに足し引きする
+  for (let i = 1; i < n; i++) P[i][ROLL] = P[i - 1][ROLL] + wrapAngle(P[i][ROLL] - P[i - 1][ROLL]);
+  const W = P[n - 1][ROLL] + wrapAngle(P[0][ROLL] - P[n - 1][ROLL]) - P[0][ROLL];
+  /** i 番目のフレームの値(-1 は最初の1つ前 = 最後、n は最後の次 = 最初) */
+  const pt = (i: number): number[] => {
+    const p = P[at(i)];
+    if (i >= 0 && i < n) return p;
+    const q = [...p];
+    q[ROLL] += i < 0 ? -W : W;
+    return q;
+  };
   // 各フレームの出ていく速さ(1秒あたり)。なめらかは前後を結ぶ向き、弾むは 0
   const out = P.map((p, i) => keys[i].mode === 'bounce' ? p.map(() => 0)
-    : p.map((_, c) => (P[at(i + 1)][c] - P[at(i - 1)][c]) / (D[at(i - 1)] + D[i])));
+    : p.map((_, c) => (pt(i + 1)[c] - pt(i - 1)[c]) / (D[at(i - 1)] + D[i])));
   const starts: number[] = []; let acc = 0;
   for (const d of D) { starts.push(acc); acc += d; }
   return {
@@ -137,7 +152,7 @@ export function keyCurve(input: readonly KeyFrame[], fov: number): KeyCurve | nu
     at(t: number): CameraState {
       let seg = 0;
       while (seg < n - 1 && t >= starts[seg + 1]) seg++;
-      const d = D[seg], u = Math.max(0, Math.min(1, (t - starts[seg]) / d)), a = P[seg], b = P[at(seg + 1)], next = keys[at(seg + 1)];
+      const d = D[seg], u = Math.max(0, Math.min(1, (t - starts[seg]) / d)), a = P[seg], b = pt(seg + 1), next = keys[at(seg + 1)];
       const v = a.map((p0, c) => {
         const m0 = out[seg][c] * d, delta = b[c] - p0;
         // 着く側の速さ。弾むは出発の速さから加速して着く(2次の動き)、なめらかは次のフレームの速さ
@@ -145,7 +160,7 @@ export function keyCurve(input: readonly KeyFrame[], fov: number): KeyCurve | nu
         const u2 = u * u, u3 = u2 * u;
         return (2 * u3 - 3 * u2 + 1) * p0 + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * b[c] + (u3 - u2) * m1;
       });
-      return { fov, yaw: v[0], pitch: Math.max(-1.45, Math.min(1.45, v[1])), zoom: Math.exp(v[2]), target: { x: v[3], y: v[4], z: v[5] } };
+      return { fov, yaw: v[0], pitch: Math.max(-1.45, Math.min(1.45, v[1])), roll: wrapAngle(v[ROLL]), zoom: Math.exp(v[2]), target: { x: v[3], y: v[4], z: v[5] } };
     },
   };
 }
@@ -171,13 +186,13 @@ export function takeFromKeys(input: readonly KeyFrame[], fov: number): Take | nu
 const keyOf = (v: unknown, def: ViewKey): ViewKey => {
   const o = (v && typeof v === 'object' ? v : {}) as Partial<ViewKey>, t = (o.target ?? {}) as Partial<Vec3>;
   return {
-    yaw: fin(o.yaw, -1e3, 1e3, def.yaw), pitch: fin(o.pitch, -1.5, 1.5, def.pitch), zoom: fin(o.zoom, 0.05, 20, def.zoom),
+    yaw: fin(o.yaw, -1e3, 1e3, def.yaw), pitch: fin(o.pitch, -1.5, 1.5, def.pitch), roll: wrapAngle(fin(o.roll, -1e3, 1e3, def.roll)), zoom: fin(o.zoom, 0.05, 20, def.zoom),
     target: { x: fin(t.x, -BIG, BIG), y: fin(t.y, -BIG, BIG), z: fin(t.z, -BIG, BIG) },
   };
 };
 /** 範囲外・知らない値を丸め、上限の数まで残す(読み込み・作る前に通す) */
 export function normalizeKeys(v: unknown): KeyFrame[] {
-  const def: ViewKey = { yaw: 0, pitch: 0, zoom: 1.5, target: { x: 0, y: 0, z: 0 } };
+  const def: ViewKey = { yaw: 0, pitch: 0, roll: 0, zoom: 1.5, target: { x: 0, y: 0, z: 0 } };
   return (Array.isArray(v) ? v : []).slice(0, MAX_KEYS).map(k => {
     const o = (k && typeof k === 'object' ? k : {}) as Partial<KeyFrame>;
     return { view: keyOf(o.view, def), seconds: fin(o.seconds, KEY_SECONDS.min, KEY_SECONDS.max, KEY_SECONDS.def), mode: o.mode === 'bounce' ? 'bounce' : 'smooth' };
@@ -187,8 +202,9 @@ export function normalizeKeys(v: unknown): KeyFrame[] {
 /* ---------- 保存の形(.pukupop の motion/take.json) ---------- */
 
 /**
- * 1件を数の並びにする: [yaw, pitch, zoom, tx, ty, tz, vx, vy, vz, gx, gy, gz, gains, cut]
+ * 1件を数の並びにする: [yaw, pitch, zoom, tx, ty, tz, vx, vy, vz, gx, gy, gz, gains, cut, roll]
  * つかんでいないときは gx・gy・gz が null。gains はつかみの効き具合の組(gainSets)の番号(無ければ -1)。cut は 1 で視点を測り直す。
+ * roll(傾き)は後から足したので末尾に置く。無い記録(古いファイル)は 0 として読む。版(version)は上げない(古いアプリでも傾き以外は読める)。
  * 画角は記録しない(再生ではその時のプロジェクトの画角を使う)。
  */
 export interface TakeJson { version: 1; dt: number; gainSets: [string, number][][]; samples: (number | null)[][]; keys?: KeyFrame[] }
@@ -207,7 +223,7 @@ export function takeToJson(take: Take): TakeJson {
     const c = s.camera, v = s.viewTarget ?? c.target, g = s.grab;
     return [
       r6(c.yaw), r6(c.pitch), r6(c.zoom), r6(c.target.x), r6(c.target.y), r6(c.target.z), r6(v.x), r6(v.y), r6(v.z),
-      g ? r6(g.x) : null, g ? r6(g.y) : null, g ? r6(g.z) : null, gi, s.viewCut ? 1 : 0,
+      g ? r6(g.x) : null, g ? r6(g.y) : null, g ? r6(g.z) : null, gi, s.viewCut ? 1 : 0, r6(c.roll),
     ];
   });
   return { version: 1, dt: PHYSICS_DT, gainSets: sets, samples, ...(take.keys ? { keys: [...take.keys] } : {}) };
@@ -245,7 +261,7 @@ export function takeFromJson(v: unknown, fov: number): Take | null {
     const grab = typeof a[9] === 'number' ? { x: n(9, -10, 10), y: n(10, -10, 10), z: n(11, -10, 10) } : null;
     const gi = a[12];
     samples.push({
-      camera: { fov, yaw: n(0, -1e3, 1e3), pitch: n(1, -1.5, 1.5), zoom: n(2, 0.05, 20) || 1, target },
+      camera: { fov, yaw: n(0, -1e3, 1e3), pitch: n(1, -1.5, 1.5), roll: wrapAngle(n(14, -1e3, 1e3)), zoom: n(2, 0.05, 20) || 1, target },
       viewTarget: { x: n(6), y: n(7), z: n(8) },
       grab,
       grabGains: typeof gi === 'number' && Number.isInteger(gi) && sets[gi] ? sets[gi] : [],

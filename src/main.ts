@@ -193,6 +193,9 @@ function refreshStatus(): void {
     ui.sVerts.textContent = `${app.stage.vertexCount.toLocaleString()} 頂点`;
   }
   ui.sZoom.textContent = `ズーム ${Math.round(100 / app.project.camera.zoom)}%`;
+  const roll = app.project.camera.roll;
+  if (ui.sRoll.hidden !== !roll) ui.sRoll.hidden = !roll;
+  if (roll) ui.sRoll.textContent = `↻ ${Math.round((roll * 180) / Math.PI)}°`;
   ui.sImage.textContent = d ? `${d.image.width}×${d.image.height}px・ウェイト ${d.layers[0]?.weights.width ?? 0}×${d.layers[0]?.weights.height ?? 0}` : '-';
   if (!app.exporting) ui.sRec.textContent = [app.view.flat && 'ポップOFF', app.paused && '揺れ一時停止中'].filter(Boolean).join('・');
   ui.sSave.textContent = app.autosaveError ? `自動保存に失敗しました(${app.autosaveError})。こまめに保存してください。` : app.dirty ? (app.lastAutosave ? `未保存の変更あり(${app.lastAutosave.toLocaleTimeString()} に自動保存)` : '未保存の変更あり') : app.lastSaved ? `保存済み ${app.lastSaved.toLocaleTimeString()}` : '';
@@ -202,6 +205,7 @@ function refreshTitle(): void {
   document.title = `${app.dirty ? '* ' : ''}${name ? name + ' - ' : ''}PukuPop`;
   refreshStatus();
 }
+ui.sRoll.addEventListener('click', () => app.resetRoll());
 app.on('status', refreshStatus);
 app.on('fps', refreshStatus); // ズームの表示など、イベントの無い変化もここで拾う(ステータスバーだけを書き直す)
 app.on('view', refreshStatus);

@@ -367,6 +367,8 @@ export class Stage {
     c.near = Math.max(0.1, d * 0.01); c.far = d * 100;
     c.position.set(cam.target.x + d * Math.sin(cam.yaw) * cp, cam.target.y + d * Math.sin(cam.pitch), cam.target.z + d * Math.cos(cam.yaw) * cp);
     c.lookAt(cam.target.x, cam.target.y, cam.target.z);
+    // 傾き: カメラを見る向きの軸のまわりに回す。正でカメラが反時計回りに回り、画像は時計回りに傾いて見える
+    if (cam.roll) c.rotateZ(cam.roll);
     c.updateProjectionMatrix(); c.updateMatrixWorld();
   }
 

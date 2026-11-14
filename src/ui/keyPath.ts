@@ -12,6 +12,7 @@
  */
 import type { App } from '../app';
 import { keyCurve, type KeyMode, type ViewKey } from '../physics/take';
+import { wrapAngle } from '../model/project';
 import { prefs } from '../storage/prefs';
 import { ui } from './ids';
 
@@ -37,7 +38,7 @@ const PREF = 'keyPath';
 const GHOST_PREF = 'keyGhost';
 
 const near = (a: number, b: number, eps: number) => Math.abs(a - b) <= eps;
-const sameView = (a: ViewKey, b: ViewKey) => near(a.yaw, b.yaw, 1e-4) && near(a.pitch, b.pitch, 1e-4) && near(a.zoom, b.zoom, 1e-4)
+const sameView = (a: ViewKey, b: ViewKey) => near(a.yaw, b.yaw, 1e-4) && near(a.pitch, b.pitch, 1e-4) && near(wrapAngle(a.roll - b.roll), 0, 1e-4) && near(a.zoom, b.zoom, 1e-4)
   && near(a.target.x, b.target.x, 1e-3) && near(a.target.y, b.target.y, 1e-3) && near(a.target.z, b.target.z, 1e-3);
 const fmt = (v: number) => v.toFixed(1);
 const sec = (v: number) => `${v.toFixed(1)}秒`;
@@ -187,7 +188,7 @@ export function bindKeyPath(app: App): void {
     const m = app.stage.mainView(), c = app.project.camera, d = app.doc!;
     if (hover >= app.keyDraft.length) hover = -1;
     const ss = JSON.stringify([app.keyDraft, c.fov, m.w, m.h, d.position, d.rotation, d.scale]);
-    const sig = `${ss}|${m.x},${m.y}|${c.yaw},${c.pitch},${c.zoom},${c.target.x},${c.target.y},${c.target.z}|${hover}|${app.keyOverlay.ghost}|${app.keyOverlay.path}`;
+    const sig = `${ss}|${m.x},${m.y}|${c.yaw},${c.pitch},${c.roll},${c.zoom},${c.target.x},${c.target.y},${c.target.z}|${hover}|${app.keyOverlay.ghost}|${app.keyOverlay.path}`;
     if (sig === last) return;
     last = sig;
     if (ss !== shapeSig || !shape) { shapeSig = ss; shape = buildShape(c.fov); }

@@ -127,7 +127,7 @@ describe('.pukupop', () => {
 
   it('3面図の自由角度の視点を保存して戻す。古いファイルや不正な値では初めの視点・範囲内にする', async () => {
     const p = makeProject();
-    p.multiCamera = { fov: 30, yaw: -1.2, pitch: 0.3, zoom: 2.5, target: { x: 12, y: -4, z: 7 } };
+    p.multiCamera = { fov: 30, yaw: -1.2, pitch: 0.3, roll: 0, zoom: 2.5, target: { x: 12, y: -4, z: 7 } };
     const { project: q } = await deserializeProject(serializeProject(p));
     expect(q.multiCamera).toEqual(p.multiCamera);
     // 項目の無い古いファイル

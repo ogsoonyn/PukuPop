@@ -69,6 +69,7 @@ export function hintText(parts: readonly HintPart[]): string {
  */
 export const HELP_OPS: readonly { label: string; parts: readonly HintPart[] }[] = [
   { label: '回転', parts: [{ mouse: 'rdrag' }] },
+  { label: '傾ける', parts: [{ mods: 'Alt', mouse: 'rdrag' }] },
   { label: '平行移動', parts: [{ mouse: 'mdrag' }, { mods: 'Space', mouse: 'drag' }] },
   { label: 'ズーム', parts: [{ mouse: 'wheel' }] },
   { label: '押しながら動かすと 1/5 に', parts: [{ mods: 'Ctrl' }, { mods: 'Shift' }] },

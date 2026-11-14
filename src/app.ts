@@ -2,7 +2,7 @@
  * アプリ本体。モデル・コマンド・描画・物理・保存・書き出しをつなぐ。
  * 画面の部品(ui/)はここを経由して状態を読み書きする。
  */
-import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegments, alphaSpreadPx, frontCamera, defaultOrthoView, LIMITS, PRESETS, applyPreset, type PresetName, type CameraState, type Vec3, type OrthoView, type Project, type Document, type Layer } from './model/project';
+import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegments, alphaSpreadPx, frontCamera, wrapAngle, defaultOrthoView, LIMITS, PRESETS, applyPreset, type PresetName, type CameraState, type Vec3, type OrthoView, type Project, type Document, type Layer } from './model/project';
 import { History, emptyHistory, shrinkHistory, type HistoryState } from './commands/history';
 import type { Rect } from './model/weightmap';
 import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation, diffTiles } from './commands/commands';
@@ -24,6 +24,7 @@ import { decodeForDisplay, canvasAlpha, browserDecodeGray, fileToAsset, rgbaToPn
 import { createSampleDocument } from './ui/sample';
 import { POP_MAX_SETTING, clampPopMax } from './ui/popSlider';
 import { ask, saveFile, setBusy, toast } from './ui/dom';
+import { smoothRoll } from './ui/smoothRoll';
 
 export type Tool = 'brush' | 'erase' | 'smooth' | 'inflate' | 'grab' | 'shake' | 'view' | 'pan';
 /** ウェイトを塗るツール */
@@ -537,11 +538,35 @@ export class App extends Emitter<AppEvents> {
   /** 向きだけを正面に戻す。ズームと平行移動(画面の上下左右の位置)は保つ */
   resetRotation(): void {
     const c = this.project.camera;
-    if (c.yaw === 0 && c.pitch === 0 && c.target.z === 0) return;
-    // 回した視点で平行移動すると奥行き(z)にもずれるので、正面から見て同じに見えるよう 0 に戻す
-    this.project.camera = { ...c, yaw: 0, pitch: 0, target: { ...c.target, z: 0 } };
+    if (c.yaw === 0 && c.pitch === 0 && c.roll === 0 && c.target.z === 0) return;
+    // 回した視点で平行移動すると奥行き(z)にもずれるので、正面から見て同じに見えるよう 0 に戻す。傾きも 0 に戻す
+    this.project.camera = { ...c, yaw: 0, pitch: 0, roll: 0, target: { ...c.target, z: 0 } };
     this.world.cutView();
     this.cameraChanged();
+  }
+
+  /**
+   * 視点の傾き(ラジアン)をその場で変える。Alt+右ドラッグ・2本指のひねりから続けて呼ぶ。
+   * 動かした勢いで揺らす(回転・ズームと同じ)。保存の予約は cameraChanged が間引く
+   */
+  setRoll(r: number): void {
+    this.project.camera.roll = wrapAngle(r);
+    this.cameraChanged();
+    this.emit('status', undefined);
+  }
+
+  /** 視点の傾きを delta(ラジアン)だけ、なめらかに回す(Q / E)。正で画像が時計回りに傾く */
+  rollBy(delta: number): void { this.rollEase.add(delta); }
+  private rollEase = smoothRoll({ get: () => this.project.camera.roll, set: r => this.setRoll(r), owner: () => this.project.camera });
+
+  /** 視点の傾きだけを 0 に戻す(ステータスバーの角度を押したとき)。飛ぶだけなので揺らさない */
+  resetRoll(): void {
+    const c = this.project.camera;
+    if (c.roll === 0) return;
+    this.project.camera = { ...c, roll: 0, target: { ...c.target } };
+    this.world.cutView();
+    this.cameraChanged();
+    this.emit('status', undefined);
   }
 
   /**
@@ -1436,7 +1461,7 @@ export class App extends Emitter<AppEvents> {
       // 揺れは、動く画像を今の視点(見る人が動かしてよい)から見た動きで決める
       const i = this.playIndex % take.samples.length, smp = take.samples[i], from = this.playFrom!;
       applySample(w, smp);
-      const angles = (a: CameraState) => ({ yaw: a.yaw, pitch: a.pitch, zoom: a.zoom });
+      const angles = (a: CameraState) => ({ yaw: a.yaw, pitch: a.pitch, roll: a.roll, zoom: a.zoom });
       w.viewRig = { from: { target: { ...from.target }, view: angles(from) }, to: { target: { ...(smp.viewTarget ?? smp.camera.target) }, view: angles(smp.camera) } };
       w.viewTarget = { ...c.target };
       w.viewAngles = angles(c);
@@ -1458,19 +1483,19 @@ export class App extends Emitter<AppEvents> {
     // 平行移動・回転・ズームでも、「揺らす」で振っても揺らす
     const s = this.shake;
     w.viewTarget = { x: c.target.x + s.x, y: c.target.y + s.y, z: c.target.z + s.z };
-    w.viewAngles = { yaw: c.yaw, pitch: c.pitch, zoom: c.zoom };
+    w.viewAngles = { yaw: c.yaw, pitch: c.pitch, roll: c.roll, zoom: c.zoom };
     this.recorder.record({
       viewCut: w.viewCut,
       viewTarget: { ...w.viewTarget },
       grab: w.grab ? { ...w.grab } : null,
       grabGains: [...w.grabGains],
-      camera: { fov: c.fov, yaw: c.yaw, pitch: c.pitch, zoom: c.zoom, target: { ...c.target } },
+      camera: { fov: c.fov, yaw: c.yaw, pitch: c.pitch, roll: c.roll, zoom: c.zoom, target: { ...c.target } },
     }, () => w.snapshot());
     if (this.takeState === 'recording') {
       // 1フレームで何刻みも進むことがあるので、最長に達したあとの刻みは積まない
       if (this.takeRaw.length < Math.round(TAKE_MAX_SECONDS / PHYSICS_DT)) this.takeRaw.push({
         grab: w.grab ? { ...w.grab } : null, grabGains: [...w.grabGains], viewTarget: { ...w.viewTarget }, viewCut: w.viewCut || undefined,
-        camera: { fov: c.fov, yaw: c.yaw, pitch: c.pitch, zoom: c.zoom, target: { ...c.target } },
+        camera: { fov: c.fov, yaw: c.yaw, pitch: c.pitch, roll: c.roll, zoom: c.zoom, target: { ...c.target } },
       });
       // 最長まで記録したら止める(物理を進めている途中なので、止めるのは刻みのあと)
       if (this.takeRaw.length >= Math.round(TAKE_MAX_SECONDS / PHYSICS_DT)) queueMicrotask(() => this.stopRecording(true));
@@ -1551,7 +1576,7 @@ export class App extends Emitter<AppEvents> {
     this.playPaused = false;
     // 視点を記録の初めへ動かし、そこを画像を動かす基準にする(始めは画像が元の置き場所にある)
     const c = this.project.camera, s0 = take.samples[0].camera;
-    c.yaw = s0.yaw; c.pitch = s0.pitch; c.zoom = s0.zoom; c.target = { ...s0.target };
+    c.yaw = s0.yaw; c.pitch = s0.pitch; c.roll = s0.roll; c.zoom = s0.zoom; c.target = { ...s0.target };
     this.playFrom = { ...c, target: { ...c.target } };
     this.playCam = { ...this.playFrom, target: { ...c.target } };
     this.world.cutView(); // 今の視点から記録の初めへ飛ぶ分では揺らさない
@@ -1568,7 +1593,7 @@ export class App extends Emitter<AppEvents> {
   stopTake(): void {
     if (this.takeState !== 'playing') return;
     const c = this.project.camera, from = this.playFrom, at = this.playCam;
-    if (from && at && sameView(c, from)) { c.yaw = at.yaw; c.pitch = at.pitch; c.zoom = at.zoom; c.target = { ...at.target }; }
+    if (from && at && sameView(c, from)) { c.yaw = at.yaw; c.pitch = at.pitch; c.roll = at.roll; c.zoom = at.zoom; c.target = { ...at.target }; }
     this.playFrom = this.playCam = null;
     this.playPaused = false;
     this.world.viewRig = null;
@@ -1587,7 +1612,7 @@ export class App extends Emitter<AppEvents> {
     const from = this.playFrom;
     if (this.takeState !== 'playing' || !from) return;
     const c = this.project.camera;
-    c.yaw = from.yaw; c.pitch = from.pitch; c.zoom = from.zoom; c.target = { ...from.target };
+    c.yaw = from.yaw; c.pitch = from.pitch; c.roll = from.roll; c.zoom = from.zoom; c.target = { ...from.target };
     this.world.cutView(); // 視点が飛ぶだけなので揺らさない
     this.emit('status', undefined);
     this.cameraChanged();
@@ -1608,7 +1633,7 @@ export class App extends Emitter<AppEvents> {
 
   private viewKey(): ViewKey {
     const c = this.project.camera;
-    return { yaw: c.yaw, pitch: c.pitch, zoom: c.zoom, target: { ...c.target } };
+    return { yaw: c.yaw, pitch: c.pitch, roll: c.roll, zoom: c.zoom, target: { ...c.target } };
   }
 
   /** 今の視点を末尾のキーフレームとして足す。時間とつなぎ方は1つ前のフレームに合わせる */
@@ -1641,7 +1666,7 @@ export class App extends Emitter<AppEvents> {
     if (!k) return;
     this.stopTake();
     const c = this.project.camera;
-    c.yaw = k.yaw; c.pitch = k.pitch; c.zoom = k.zoom; c.target = { ...k.target };
+    c.yaw = k.yaw; c.pitch = k.pitch; c.roll = k.roll; c.zoom = k.zoom; c.target = { ...k.target };
     this.world.cutView();
     this.cameraChanged();
     this.emit('status', undefined);
@@ -1792,7 +1817,7 @@ function freshBase() {
 
 /** 視点(回転・ズーム・注視点)が同じか。画角は見ない */
 function sameView(a: CameraState, b: CameraState): boolean {
-  return a.yaw === b.yaw && a.pitch === b.pitch && a.zoom === b.zoom && a.target.x === b.target.x && a.target.y === b.target.y && a.target.z === b.target.z;
+  return a.yaw === b.yaw && a.pitch === b.pitch && a.roll === b.roll && a.zoom === b.zoom && a.target.x === b.target.x && a.target.y === b.target.y && a.target.z === b.target.z;
 }
 
 /** 膨らませるで作るレイヤーの名前(膨らみ1, 膨らみ2, …のうち、まだ無いもの) */

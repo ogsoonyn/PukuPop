@@ -16,14 +16,19 @@ import type { PaintMode } from '../paint/stroke';
 import { fineFactor, wheelFineFactor, wheelDelta, isPinchWheel, FINE, isFineLocked } from './fine';
 import { smoothZoom } from './smoothZoom';
 import { toast } from './dom';
+import { wrapAngle as wrapRad } from '../model/project';
 import { hitFrame, frameCursor, setRotSide, type FrameHit } from './inflateFrame';
 import { moveArea as shiftArea, resizeArea, roundArea, turnBetween, flippedAt, wrapAngle, type Area } from '../paint/areaEdit';
 
 /** 主ビューの拡大率の範囲(ホイール・ピンチ共通) */
 const ZOOM_MIN = 0.05, ZOOM_MAX = 10;
 const clampZoom = (z: number) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+/** 2本指のひねりで傾け始める角度(15°)と、0° に吸い付く範囲(3°) */
+const TWIST_START = Math.PI / 12, ROLL_SNAP = Math.PI / 60;
+/** Alt+ドラッグで傾けるとき、画面の中央からこれより近い所(px)は使わない */
+const ROLL_DEAD = 12;
 
-type DragMode = 'orbit' | 'pan' | 'shake' | 'grab' | 'paint' | 'area' | 'frame' | null;
+type DragMode = 'orbit' | 'roll' | 'pan' | 'shake' | 'grab' | 'paint' | 'area' | 'frame' | null;
 
 export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDown: () => boolean } {
   /** gx, gy: つかんだまま動かした量(px、Ctrl・Shift で細かくした分を含む) */
@@ -47,7 +52,7 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     const showBrush = isPaintTool() && !space && (drag.mode === null || drag.mode === 'paint');
     app.stage.setBrush(showBrush ? hover : null, app.brush.size / 2);
     canvas.style.cursor = space || drag.mode === 'pan' ? 'move'
-      : drag.mode === 'orbit' ? 'grabbing'
+      : drag.mode === 'orbit' || drag.mode === 'roll' ? 'grabbing'
       : app.tool === 'grab' || app.tool === 'shake' ? (drag.mode === 'grab' || drag.mode === 'shake' ? 'grabbing' : 'grab')
       // ブラシの円は画像の上にしか描けないので、画像の外では十字のカーソルを出して見失わないようにする
       : app.tool === 'view' || app.tool === 'pan' ? 'move' : showBrush && hover?.inside ? 'none' : frameHover() ?? 'crosshair';
@@ -65,8 +70,13 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
 
   /* ---------- 指(タッチ)の操作 ---------- */
   const touches = new Map<number, { x: number; y: number }>();
-  /** 2本以上の指を置いている間の、指の中心と間隔 */
-  let gesture: { x: number; y: number; d: number } | null = null;
+  /**
+   * 2本以上の指を置いている間の、指の中心と間隔と、最初の2本を結ぶ向き(a)。
+   * ひねり(傾き)は、ピンチや平行移動のつもりで少し回ったくらいでは傾かないよう、ひねった量(twist)が TWIST_START を越えてから効かせる。
+   * 効かせ始めたら(rolling)、傾きを続けた値(raw)で持ち、0° の近く(ROLL_SNAP)では 0° に吸い付ける
+   */
+  let gesture: { x: number; y: number; d: number; a: number; twist: number; rolling: boolean; raw: number } | null = null;
+  const newGesture = () => ({ ...touchCenter(), d: touchSpread(), a: touchAngle(), twist: 0, rolling: false, raw: 0 });
   /** 触り始めてから全部の指を離すまでの記録(タップの判定に使う) */
   let tap: { t: number; n: number; moved: number; x: number; y: number; orbit: boolean } | null = null;
   /** 指ごとの置いた位置(タップかどうかは、それぞれの指が置いた所からどれだけ動いたかで決める) */
@@ -85,6 +95,10 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     const [a, b] = [...touches.values()];
     return a && b ? Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)) : 1;
   };
+  const touchAngle = () => {
+    const [a, b] = [...touches.values()];
+    return a && b ? Math.atan2(b.y - a.y, b.x - a.x) : 0;
+  };
   /** 1本指で始めた操作をやめる(塗りと範囲は無かったことにする) */
   function cancelDrag(): void {
     if (drag.mode === 'paint') { app.cancelStroke(); app.holdImage(false); }
@@ -97,7 +111,7 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
       const f = frameDrag; frameDrag = null; app.holdImage(false);
       if (f && app.previewingInflate) app.updateInflate({ area: f.area, settings: { angle: f.angle } });
     } else if (drag.mode === 'grab') { app.world.grab = null; app.world.grabGains.clear(); }
-    else if (drag.mode === 'orbit' || drag.mode === 'pan') app.cameraChanged();
+    else if (drag.mode === 'orbit' || drag.mode === 'roll' || drag.mode === 'pan') app.cameraChanged();
     drag.mode = null; drag.id = -1;
   }
   canvas.addEventListener('pointerdown', e => {
@@ -114,7 +128,7 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     e.stopImmediatePropagation();
     canvas.setPointerCapture(e.pointerId);
     if (drag.mode) cancelDrag();
-    gesture = { ...touchCenter(), d: touchSpread() };
+    gesture = newGesture();
     updateCursor();
   });
   canvas.addEventListener('pointermove', e => {
@@ -133,14 +147,25 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     cam.target.z += -dx * k * right.z + dy * k * up.z;
     // 指を広げると近づく(zoom は小さいほど大きく見える)
     cam.zoom = clampZoom(cam.zoom * Math.pow(gesture.d / d, f));
-    gesture = { ...c, d };
+    // ひねると傾く(画面の y は下向きなので、時計回りにひねると角度が増え、画像も時計回りに傾く)
+    const a = touchAngle(), da = wrapRad(a - gesture.a);
+    if (!gesture.rolling) {
+      gesture.twist += da;
+      if (Math.abs(gesture.twist) > TWIST_START) {
+        // 越えた分だけ傾ける(しきい値の分で跳ばないように)
+        gesture.rolling = true;
+        gesture.raw = cam.roll + (gesture.twist - Math.sign(gesture.twist) * TWIST_START) * f;
+      }
+    } else gesture.raw += da * f;
+    if (gesture.rolling) cam.roll = Math.abs(wrapRad(gesture.raw)) < ROLL_SNAP ? 0 : wrapRad(gesture.raw);
+    gesture.x = c.x; gesture.y = c.y; gesture.d = d; gesture.a = a;
     app.emit('status', undefined);
   });
   const touchEnd = (e: PointerEvent) => {
     touchStart.delete(e.pointerId);
     if (!touches.delete(e.pointerId)) return;
     if (gesture) {
-      if (touches.size >= 2) gesture = { ...touchCenter(), d: touchSpread() };
+      if (touches.size >= 2) gesture = newGesture();
       else { gesture = null; app.cameraChanged(); }
     }
     if (touches.size > 0 || !tap) return;
@@ -173,7 +198,8 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     canvas.setPointerCapture(e.pointerId);
     drag.id = e.pointerId; drag.lx = drag.sx = e.clientX; drag.ly = drag.sy = e.clientY;
     alt = e.altKey;
-    if (orbit) drag.mode = 'orbit';
+    // Alt を押しながらの回転(右ドラッグ、「視点」ツールの左ドラッグ)は、画面の中央のまわりに円を描くように傾ける
+    if (orbit) drag.mode = e.altKey && e.pointerType !== 'touch' ? 'roll' : 'orbit';
     else if (pan) { drag.mode = 'pan'; e.preventDefault(); }
     // 振る向きは主ビューの画面の向きで決まるので、主ビューの中から始めたときだけ振る
     else if (e.button === 0 && app.tool === 'shake') { if (app.stage.inMainView(e.clientX, e.clientY)) drag.mode = 'shake'; }
@@ -205,12 +231,18 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     last = { x: e.clientX, y: e.clientY };
     if (drag.mode && e.pointerId === drag.id) {
       // 回転・平行移動・揺らす・つかむは、Ctrl か Shift を押している間だけ細かく動かす(押し直しても跳ばない)
-      const f = fineFactor(e), dx = (e.clientX - drag.lx) * f, dy = (e.clientY - drag.ly) * f;
+      const f = fineFactor(e), dx = (e.clientX - drag.lx) * f, dy = (e.clientY - drag.ly) * f, px = drag.lx, py = drag.ly;
       drag.lx = e.clientX; drag.ly = e.clientY;
       const cam = app.project.camera;
       if (drag.mode === 'orbit') {
         cam.yaw -= dx * 0.008;
         cam.pitch = Math.max(-1.45, Math.min(1.45, cam.pitch + dy * 0.008));
+      } else if (drag.mode === 'roll') {
+        // 主ビューの中央(注視点)から見た向きの変わり分だけ傾ける。中央のすぐ近くは向きが暴れるので使わない
+        const r = canvas.getBoundingClientRect(), m = app.stage.mainView(), cx = r.left + m.x + m.w / 2, cy = r.top + m.y + m.h / 2;
+        if (Math.hypot(px - cx, py - cy) > ROLL_DEAD && Math.hypot(e.clientX - cx, e.clientY - cy) > ROLL_DEAD) {
+          cam.roll = wrapRad(cam.roll + wrapRad(Math.atan2(e.clientY - cy, e.clientX - cx) - Math.atan2(py - cy, px - cx)) * f);
+        }
       } else if (drag.mode === 'pan' || drag.mode === 'shake') {
         // 「揺らす」はカメラを画像に付けたまま振る。画面上の位置は変えず、物理にだけ平行移動と同じ動きを伝える
         const k = app.stage.pixelToWorld(cam), { right, up } = app.stage.screenAxes();
@@ -244,7 +276,7 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     if (drag.mode === 'area') areaStart = null;
     if (drag.mode === 'frame') frameDrag = null;
     if (drag.mode === 'paint' || drag.mode === 'area' || drag.mode === 'frame') app.holdImage(false);
-    if ((drag.mode === 'orbit' || drag.mode === 'pan') && (e.clientX !== drag.sx || e.clientY !== drag.sy)) app.cameraChanged();
+    if ((drag.mode === 'orbit' || drag.mode === 'roll' || drag.mode === 'pan') && (e.clientX !== drag.sx || e.clientY !== drag.sy)) app.cameraChanged();
     drag.mode = null; drag.id = -1;
     updateCursor();
   };

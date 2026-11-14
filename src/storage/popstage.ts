@@ -5,7 +5,7 @@
 import { unzipSync, strToU8, strFromU8 } from 'fflate';
 import { zipParts, concatParts, type ZipEntry } from './zip';
 import {
-  LIMITS, PRESETS, MOTIONS, BLENDS, MOTION_PARAMS, createProject, createLayer, defaultCamera, defaultMultiCamera, newId,
+  LIMITS, PRESETS, MOTIONS, BLENDS, MOTION_PARAMS, createProject, createLayer, defaultCamera, defaultMultiCamera, newId, wrapAngle,
   type Project, type CameraState, type Document, type Layer, type PhysicsParams, type PresetName, type MotionPattern, type BlendMode,
   type Favorite, type FavoriteLayer, type AutoSwing,
 } from '../model/project';
@@ -257,7 +257,7 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
     const c = (isObj(v) ? v : {}) as Partial<CameraState>;
     return {
       fov: num(c.fov, LIMITS.fov.min, LIMITS.fov.max, def.fov), yaw: num(c.yaw, -1e3, 1e3, def.yaw),
-      pitch: num(c.pitch, -1.5, 1.5, def.pitch), zoom: num(c.zoom, 0.05, 20, def.zoom), target: vec(c.target),
+      pitch: num(c.pitch, -1.5, 1.5, def.pitch), roll: wrapAngle(num(c.roll, -1e3, 1e3, 0)), zoom: num(c.zoom, 0.05, 20, def.zoom), target: vec(c.target),
     };
   };
   project.background = typeof p.background === 'string' && HEX_COLOR.test(p.background) ? p.background : null;
@@ -376,7 +376,7 @@ function favoritesFrom(
     out.push({
       id, name: str(fj.name, '').trim().slice(0, FAVORITE_NAME_MAX) || `お気に入り ${out.length + 1}`, createdAt, layers,
       autoSwing: autoSwingOf(fj.autoSwing),
-      camera: { fov, yaw: num(c.yaw, -1e3, 1e3, camera.yaw), pitch: num(c.pitch, -1.5, 1.5, camera.pitch), zoom: num(c.zoom, 0.05, 20, camera.zoom), target: vec(c.target) },
+      camera: { fov, yaw: num(c.yaw, -1e3, 1e3, camera.yaw), pitch: num(c.pitch, -1.5, 1.5, camera.pitch), roll: wrapAngle(num(c.roll, -1e3, 1e3, 0)), zoom: num(c.zoom, 0.05, 20, camera.zoom), target: vec(c.target) },
       take, playing: fj.playing === true && !!take,
     });
   }

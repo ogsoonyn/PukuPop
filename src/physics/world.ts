@@ -45,7 +45,7 @@ export function coefficients(p: PhysicsParams): { k: number; m: number; c: numbe
 }
 
 /** 物理に伝える視点(注視点は viewTarget で別に入れる)。画角は使わない */
-export interface ViewAngles { yaw: number; pitch: number; zoom: number }
+export interface ViewAngles { yaw: number; pitch: number; roll: number; zoom: number }
 /** 視点(注視点はワールド座標)。viewRig で使う */
 export interface ViewPoint { target: Vec3; view: ViewAngles }
 /** 1刻み前のカメラの位置と向き(正規化座標)と、レイヤーごとのならした速度(カメラから見た向き) */
@@ -67,7 +67,7 @@ export class PhysicsWorld {
    */
   viewTarget: Vec3 = v3();
   /** 視点の向きとズーム。回転とズームでも揺らす。刻みの前に毎回入れる */
-  viewAngles: ViewAngles = { yaw: 0, pitch: 0, zoom: 1 };
+  viewAngles: ViewAngles = { yaw: 0, pitch: 0, roll: 0, zoom: 1 };
   /**
    * 記録の再生中に画像のほうを動かすときの、画像の動き。画像から見た視点が from から to へ動いたのと同じだけ画像が動き、
    * それを viewTarget・viewAngles の視点(見る人の視点)から見る。null なら画像は動かない。
@@ -274,7 +274,11 @@ export interface Pose { e: Vec3; r: Vec3; u: Vec3; b: Vec3 }
 export function pose(target: Vec3, view: ViewAngles): Pose {
   const sy = Math.sin(view.yaw), cy = Math.cos(view.yaw), sp = Math.sin(view.pitch), cp = Math.cos(view.pitch);
   const b = v3(sy * cp, sp, cy * cp), d = ZOOM_DEPTH * Math.log(Math.max(1e-3, view.zoom));
-  return { e: v3(target.x + d * b.x, target.y + d * b.y, target.z + d * b.z), r: v3(cy, 0, -sy), u: v3(-sy * sp, cp, -cy * sp), b };
+  // 傾き(ロール)は、画面の右・上を手前の軸のまわりに回す(stage.ts の applyCamera の rotateZ と同じ向き)
+  const r0 = v3(cy, 0, -sy), u0 = v3(-sy * sp, cp, -cy * sp), sr = Math.sin(view.roll ?? 0), cr = Math.cos(view.roll ?? 0);
+  const r = v3(r0.x * cr + u0.x * sr, r0.y * cr + u0.y * sr, r0.z * cr + u0.z * sr);
+  const u = v3(u0.x * cr - r0.x * sr, u0.y * cr - r0.y * sr, u0.z * cr - r0.z * sr);
+  return { e: v3(target.x + d * b.x, target.y + d * b.y, target.z + d * b.z), r, u, b };
 }
 
 const copyPose = (p: Pose): Pose => ({ e: { ...p.e }, r: { ...p.r }, u: { ...p.u }, b: { ...p.b } });

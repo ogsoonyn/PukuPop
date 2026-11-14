@@ -323,7 +323,7 @@ test('右ドラッグで視点が回り、Home で正面に戻る', async ({ pag
   await page.locator('#view').focus();
   await page.keyboard.press('Home');
   // 画角はそのまま、回転・平行移動・ズームは正面の等倍へ
-  expect(await cam()).toEqual({ fov: 50, yaw: 0, pitch: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } });
+  expect(await cam()).toEqual({ fov: 50, yaw: 0, pitch: 0, roll: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } });
 });
 
 test('見た目の基準画像(揺れ停止・正面寄りの視点)', async ({ page }) => {

@@ -6,7 +6,7 @@ import { PHYSICS_DT } from '../../src/physics/world';
 import { serializeProject, deserializeProject, TAKE_PATH } from '../../src/storage/popstage';
 import { createDocument, createProject } from '../../src/model/project';
 
-const cam = (yaw = 0, tx = 0) => ({ fov: 30, yaw, pitch: 0.1, zoom: 1.5, target: { x: tx, y: 0, z: 0 } });
+const cam = (yaw = 0, tx = 0) => ({ fov: 30, yaw, pitch: 0.1, roll: 0, zoom: 1.5, target: { x: tx, y: 0, z: 0 } });
 const smp = (yaw: number, tx = 0, grab: RecordSample['grab'] = null): RecordSample => ({
   grab, grabGains: grab ? [['L1', 0.5]] : [], camera: cam(yaw, tx), viewTarget: { x: tx, y: 0, z: 0 },
 });
@@ -106,7 +106,7 @@ describe('操作の記録の保存', () => {
 });
 
 describe('キーフレームから動きを作る', () => {
-  const view = (yaw: number, zoom = 1, tx = 0) => ({ yaw, pitch: 0, zoom, target: { x: tx, y: 0, z: 0 } });
+  const view = (yaw: number, zoom = 1, tx = 0) => ({ yaw, pitch: 0, roll: 0, zoom, target: { x: tx, y: 0, z: 0 } });
 
   it('なめらか2つは往復になり、端でゆっくり止まる。ズームは比で補間する', async () => {
     const { takeFromKeys, TAKE_STEP_MULTIPLE } = await import('../../src/physics/take');
