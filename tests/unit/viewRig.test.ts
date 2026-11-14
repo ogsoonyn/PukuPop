@@ -4,7 +4,7 @@ import { createDocument, type Layer } from '../../src/model/project';
 
 const image = { bytes: new Uint8Array(), mime: 'image/png', ext: 'png', width: 100, height: 100 };
 const layer = (): Layer => { const l = createDocument(image, 'd').layers[0]; l.physics = { ...l.physics, weight: 0 }; l.pop = 30; return l; };
-const ang = (yaw: number, pitch: number, zoom: number) => ({ yaw, pitch, zoom });
+const ang = (yaw: number, pitch: number, zoom: number, roll = 0) => ({ yaw, pitch, roll, zoom });
 
 describe('再生中に画像を動かす(viewRig)', () => {
   it('見る視点が基準のままなら、画像から見た視点は記録の視点と同じ', () => {

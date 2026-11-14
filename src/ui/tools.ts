@@ -38,7 +38,7 @@ export const TOOL_GROUPS: readonly (readonly ToolDef[])[] = [
     },
   ],
   [
-    { id: 'view', key: 'V', label: '視点', hint: [{ mouse: 'drag', text: '回転' }, { mods: 'Space', mouse: 'drag', text: '平行移動' }] },
+    { id: 'view', key: 'V', label: '視点', hint: [{ mouse: 'drag', text: '回転' }, { mods: 'Alt', mouse: 'drag', text: '傾ける' }, { mods: 'Space', mouse: 'drag', text: '平行移動' }] },
     {
       id: 'pan', key: 'H', label: '移動', desc: '左ドラッグで画像を画面の上で動かす(中ドラッグ・Space+ドラッグと同じ。動かした勢いで揺れる)',
       hint: [{ mouse: 'drag', text: '動かして揺らす' }, { mouse: 'rdrag', text: '回転' }, { mouse: 'wheel', text: 'ズーム' }],

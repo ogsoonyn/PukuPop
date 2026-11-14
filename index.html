@@ -436,6 +436,8 @@
   <span id="sFps" hidden>- fps</span>
   <span id="sVerts" hidden>- 頂点</span>
   <span id="sZoom">-</span>
+  <!-- 視点の傾き。0° 以外のときだけ出し、押すと 0° に戻す(main.ts) -->
+  <button id="sRoll" type="button" class="link link-hover" title="視点の傾き。押すと 0° に戻す" hidden></button>
   <span id="sImage">-</span>
   <span id="sRec" class="ml-auto"></span>
   <span id="sSave"></span>
@@ -635,7 +637,7 @@
     <div class="m-only grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm mb-4">
       <span class="font-bold">1本指</span><span>下で選んだツールで操作</span>
       <span class="font-bold">画像の外</span><span>なぞると回転、ダブルタップで視点を戻す</span>
-      <span class="font-bold">2本指</span><span>動かすと平行移動、つまむとズーム</span>
+      <span class="font-bold">2本指</span><span>動かすと平行移動、つまむとズーム、ひねると傾く</span>
       <span class="font-bold">2本指タップ</span><span>元に戻す</span>
       <span class="font-bold">3本指タップ</span><span>やり直す</span>
       <span class="font-bold">微調整</span><span>右上のボタンでオンにすると、動きが 1/5 になる</span>

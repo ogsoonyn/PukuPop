@@ -12,7 +12,7 @@ const makeProject = () => {
   doc.layers.push(createLayer(doc, '顔'));
   return createProject(doc);
 };
-const view = (yaw: number) => ({ yaw, pitch: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } });
+const view = (yaw: number) => ({ yaw, pitch: 0, roll: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } });
 const makeTake = (yaw: number): Take => takeFromKeys([{ view: view(0), seconds: 1, mode: 'smooth' }, { view: view(yaw), seconds: 1, mode: 'bounce' }], 40)!;
 
 describe('お気に入り', () => {

@@ -141,6 +141,28 @@ test('2本指で平行移動とピンチズームができ、画像の外をな�
   expect((await cam()).x).not.toBeCloseTo(pinched.x, 5);
 });
 
+test('2本指でひねると傾く。少しひねっただけでは傾かず、0° の近くでは 0° に吸い付く', async ({ page }) => {
+  await boot(page);
+  const cdp = await page.context().newCDPSession(page);
+  const roll = () => page.evaluate(() => (window as any).popstage.project.camera.roll as number);
+  const [cx, cy] = await viewCenter(page), r = 60, D = Math.PI / 180;
+  /** 中心のまわりに置いた2本の指を、a0° から a1° までひねる(指は離さない) */
+  const at = (deg: number): Pt[] => [[cx - r * Math.cos(deg * D), cy - r * Math.sin(deg * D)], [cx + r * Math.cos(deg * D), cy + r * Math.sin(deg * D)]];
+  const twist = async (a0: number, a1: number) => { for (let i = 1; i <= 12; i++) await touch(cdp, 'touchMove', at(a0 + (a1 - a0) * i / 12)); };
+  await touch(cdp, 'touchStart', at(0));
+  // 10° ではまだ傾かない
+  await twist(0, 10);
+  expect(await roll()).toBe(0);
+  // 60° ひねると、15° を越えた分の 45° 傾く(時計回り)
+  // 指の動きはフレームに合わせて届くので、届き終わるのを待つ
+  await twist(10, 60);
+  await expect.poll(roll).toBeCloseTo(45 * D, 1);
+  // 戻して 0° の近く(2°)では 0° に吸い付く
+  await twist(60, 17);
+  await expect.poll(roll).toBe(0);
+  await touch(cdp, 'touchEnd', []);
+});
+
 test('2本指タップで戻し、3本指タップでやり直す', async ({ page }) => {
   await boot(page);
   const cdp = await page.context().newCDPSession(page);

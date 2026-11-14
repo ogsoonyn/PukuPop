@@ -108,8 +108,13 @@ function defineActions(app: App, d: ActionDeps) {
     },
     resetRotation: {
       label: '回転だけリセット', keys: ['Ctrl+Home'], run: () => app.resetRotation(), duringPreview: true,
-      desc: 'ズームと位置はそのままで、向きだけを正面に戻す',
+      desc: 'ズームと位置はそのままで、向きと傾きだけを正面に戻す',
     },
+    // 視点の傾き。押し続けると続けて回る(キーの繰り返し)。Alt+右ドラッグ・2本指のひねりでも傾けられる
+    rollLeft: { label: '視点を左に傾ける', keys: ['ArrowLeft'], run: () => app.rollBy(-ROLL_STEP), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 15° 傾ける' },
+    rollRight: { label: '視点を右に傾ける', keys: ['ArrowRight'], run: () => app.rollBy(ROLL_STEP), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 15° 傾ける' },
+    rollLeftFine: { label: '視点を左に少し傾ける', keys: ['Shift+ArrowLeft'], run: () => app.rollBy(-ROLL_FINE), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 1° 傾ける' },
+    rollRightFine: { label: '視点を右に少し傾ける', keys: ['Shift+ArrowRight'], run: () => app.rollBy(ROLL_FINE), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 1° 傾ける' },
     toggleUi: {
       label: 'UIを隠す', helpLabel: 'UIを隠す・戻す', keys: ['Tab'], desc: '3Dビューのほかを隠して、画面いっぱいに見せる。もう一度押すか Esc で戻す',
       run: () => app.setUiHidden(!app.uiHidden), duringPreview: true,
@@ -269,6 +274,15 @@ export function keyString(e: KeyboardEvent): string {
   return [(e.ctrlKey || e.metaKey) && 'Ctrl', e.shiftKey && 'Shift', e.altKey && 'Alt', k].filter(Boolean).join('+');
 }
 
+/** 視点を傾けるキーの1回の角度(15°と1°) */
+const ROLL_STEP = Math.PI / 12, ROLL_FINE = Math.PI / 180;
+
+/**
+ * 左右の矢印キーを自分で使う部品(ここにフォーカスがあるときは、矢印キーをショートカットに使わない)。
+ * チェックボックス・ボタン・レイヤー一覧(↑↓だけ使う)では傾ける。メニュー・作業のタブ・シークバーは自分で defaultPrevented にする
+ */
+const ARROW_WIDGETS = 'input:not([type=checkbox]):not([type=button]):not([type=submit]):not([type=color]), select, textarea, [role=tab], [role=tablist], [role=slider], [role=radio], [role=menuitem]';
+
 /** スライダーにフォーカスがあるときは、スライダーを動かすキーをショートカットに使わない */
 const SLIDER_KEYS = new Set(['Home', 'End', 'PageUp', 'PageDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
 
@@ -291,6 +305,9 @@ function keyboardFocus(): boolean {
   if (!el || el === document.body || el === pointerFocused) return false;
   return el.matches(':focus-visible');
 }
+
+/** 画面に出すキーの書き方(矢印キーは矢印で) */
+const keyLabel = (k: string) => k.replace(/\bArrow(Left|Right|Up|Down)\b/g, (_, d: string) => ({ Left: '←', Right: '→', Up: '↑', Down: '↓' })[d]!);
 
 const ariaKeys = (keys: string[]) => keys.map(k => k.replace(/\bCtrl\b/g, 'Control').replace(/\bEsc\b/g, 'Escape')).join(' ');
 
@@ -322,7 +339,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
     void Promise.resolve(table[name].run()).catch(e => { console.error(e); toast(String(e instanceof Error ? e.message : e), 'error'); });
   };
   /** ツールチップ: 「名前 (キー補足): 説明」 */
-  const tooltip = (a: Action, keyNote = '') => `${a.label}${a.keys ? ` (${a.keys[0]}${keyNote})` : ''}${a.desc ? `: ${a.desc}` : ''}`;
+  const tooltip = (a: Action, keyNote = '') => `${a.label}${a.keys ? ` (${keyLabel(a.keys[0])}${keyNote})` : ''}${a.desc ? `: ${a.desc}` : ''}`;
 
   /* ---------- 左のツールバーを作る(ツール → 区切り → その場で効く操作のまとまり) ---------- */
   const navItems: Node[] = [];
@@ -404,7 +421,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
       if (b.closest('.menu') && !b.closest('.m-only') && !b.querySelector('kbd')) {
         const kbd = document.createElement('kbd');
         kbd.className = b.querySelector('[data-check], [data-tool-check]') ? 'kbd kbd-xs' : 'kbd kbd-xs ml-auto';
-        kbd.textContent = a.keys[0];
+        kbd.textContent = keyLabel(a.keys[0]);
         b.append(kbd);
       }
     }
@@ -433,7 +450,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
     // キーもマウスの操作と同じ書き方(キーの札)で出す
     ui.helpKeys.replaceChildren(...[...rows].flatMap(([label, keys]) => [
       Object.assign(document.createElement('span'), { textContent: label }),
-      Object.assign(document.createElement('span'), { className: 'help-op', innerHTML: hintHtml(keys.map(k => ({ mods: k }))) }),
+      Object.assign(document.createElement('span'), { className: 'help-op', innerHTML: hintHtml(keys.map(k => ({ mods: keyLabel(k) }))) }),
     ]));
   }
 
@@ -451,6 +468,8 @@ export function bindActions(app: App, deps: ActionDeps): void {
     if (isTyping(e) || modalOpen()) return;
     if (e.target instanceof HTMLInputElement && e.target.type === 'range' && SLIDER_KEYS.has(e.key) && !e.ctrlKey && !e.metaKey) return;
     if (e.key === 'Tab' && keyboardFocus()) return;
+    // 矢印キーは、メニュー・作業のタブ・シークバーなどが先に使っていれば(defaultPrevented)、それに任せる
+    if (e.key.startsWith('Arrow') && (e.defaultPrevented || (e.target instanceof Element && e.target.matches(ARROW_WIDGETS)))) return;
     const name = byKey.get(keyString(e));
     if (!name) return;
     // Esc はほかの部品も使うので、すでに使われたときと、いま使えないときは触らない

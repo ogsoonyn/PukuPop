@@ -149,7 +149,7 @@ describe('ピストン(画像全体が動く揺らし方)', () => {
     for (let i = 0; i < n; i++) {
       if (i % 2 === 0 && i < 300) camera.target = { x: Math.sin(i / 30) * 40, y: 0, z: 0 }; // 平行移動の揺れも重なる
       live.viewTarget = camera.target;
-      live.viewAngles = { yaw: camera.yaw, pitch: camera.pitch, zoom: camera.zoom };
+      live.viewAngles = { yaw: camera.yaw, pitch: camera.pitch, roll: 0, zoom: camera.zoom };
       rec.record({ grab: i > 400 && i < 450 ? { x: 0.1, y: 0.05, z: 0 } : null, grabGains: [], camera: structuredClone(camera), viewTarget: { ...live.viewTarget }, viewCut: live.viewCut }, () => live.snapshot());
       live.grab = i > 400 && i < 450 ? { x: 0.1, y: 0.05, z: 0 } : null;
       live.step([l]);
