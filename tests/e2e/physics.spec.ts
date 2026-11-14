@@ -264,7 +264,7 @@ test('ピストン: 動いている間に塗っても線はまっすぐで、ブ
   await boot(page);
   await openTab(page, 'layer');
   await page.selectOption('#pPreset', 'zun');
-  await page.evaluate(() => { const a = (window as any).popstage; a.weightOp('全消去', (wm: any) => wm.clear()); a.setViewOption('overlay', false); a.setPaused(false); });
+  await page.evaluate(() => { const a = (window as any).popstage; a.weightOp('全消去', (wm: any) => wm.clear()); a.setTool('brush', false); a.setViewOption('overlay', false); a.setPaused(false); });
   await page.waitForTimeout(600);
   const k = await page.evaluate(() => (window as any).popstage.imageLong / 2);
   const box = (await page.locator('#view').boundingBox())!;

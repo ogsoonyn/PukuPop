@@ -410,12 +410,12 @@ test('塗るツールを選ぶと重ね表示を自動でONにし、離れると
   await page.locator('#view').focus();
   await page.keyboard.press('b');
 
-  // 起動して前回の塗るツールを戻すだけでは入れない
+  // 起動しても入れない(ツールは移動で始まる)
   await page.locator('#view').focus();
   await overlayOff();
   expect(await overlay()).toBe(false);
   await reboot();
-  expect(await app(a => [a.tool, a.view.overlay, a.autoOverlay])).toEqual(['brush', false, true]);
+  expect(await app(a => [a.tool, a.view.overlay, a.autoOverlay])).toEqual(['pan', false, true]);
 
   // 設定を切ると入らない。切ったことは覚える
   await openSettings();
