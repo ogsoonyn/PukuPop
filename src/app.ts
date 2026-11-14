@@ -3,6 +3,7 @@
  * 画面の部品(ui/)はここを経由して状態を読み書きする。
  */
 import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegments, alphaSpreadPx, frontCamera, defaultOrthoView, LIMITS, PRESETS, applyPreset, type PresetName, type CameraState, type Vec3, type OrthoView, type Project, type Document, type Layer } from './model/project';
+import { projectDataBytes, sumMemory, type MemoryUsage, type TabMemory } from './model/memory';
 import { History, emptyHistory, shrinkHistory, type HistoryState } from './commands/history';
 import type { Rect } from './model/weightmap';
 import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation, diffTiles } from './commands/commands';
@@ -710,6 +711,24 @@ export class App extends Emitter<AppEvents> {
     this.trimHiddenHistory();
     this.emit('tabs', undefined);
     return true;
+  }
+
+  /** メモリの使用量の見積もり(ステータスバー)。全部のタブの分を数える。JS のヒープは Chrome 系だけ */
+  memoryUsage(): MemoryUsage {
+    const tabs: TabMemory[] = this.tabs.map(t => {
+      const active = t === this.tab;
+      let png = 0;
+      for (const e of t.pngCache.values()) png += e.png.byteLength;
+      const c = t.imageCanvas;
+      return {
+        name: this.tabName(t), active,
+        data: projectDataBytes(t.project, png),
+        history: active ? this.history.bytes : t.history.bytes,
+        render: (c ? c.width * c.height * 4 : 0) + (active ? this.stage.gpuBytes : 0),
+      };
+    });
+    const m = (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
+    return sumMemory(tabs, m ? { used: m.usedJSHeapSize, limit: m.jsHeapSizeLimit } : null);
   }
 
   /** どれかのタブに保存していない変更があるか(ページを閉じるときの確認) */

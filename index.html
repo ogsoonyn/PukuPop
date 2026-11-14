@@ -430,6 +430,11 @@
   <span id="sImage">-</span>
   <span id="sRec" class="ml-auto"></span>
   <span id="sSave"></span>
+  <!-- メモリの使用量の見積もり。押すと内訳(main.ts) -->
+  <div class="dropdown dropdown-top dropdown-end">
+    <div id="sMem" tabindex="0" role="button" class="cursor-pointer hover:underline" title="メモリの使用量(見積もり)。押すと内訳">-</div>
+    <div id="sMemDetail" tabindex="-1" class="dropdown-content bg-base-100 rounded-box z-50 w-80 p-3 mb-1 shadow-lg border border-base-300 text-xs"></div>
+  </div>
 </footer>
 
 <input id="fileProject" type="file" accept=".pukupop,.popstage,application/zip,image/png,image/jpeg,image/webp" class="hidden">
