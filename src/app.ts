@@ -12,7 +12,7 @@ import { captureFavorite, copyPhysics, sameLayer, nextFavoriteName, applyView, F
 import { Stage, type ViewOptions } from './stage/stage';
 import { PhysicsWorld, PHYSICS_DT } from './physics/world';
 import { MotionRecorder, applySample, type RecordSample } from './physics/recorder';
-import { finalizeTake, takeFromKeys, takeSeconds, TAKE_MAX_SECONDS, TAKE_MIN_SECONDS, KEY_SECONDS, MAX_KEYS, normalizeKeys, type ViewKey, type KeyFrame } from './physics/take';
+import { finalizeTake, takeFromKeys, takeSeconds, TAKE_MAX_SECONDS, TAKE_MIN_SECONDS, KEY_SECONDS, MAX_KEYS, normalizeKeys, moveKey as movedKeys, type ViewKey, type KeyFrame } from './physics/take';
 import { Stroke, type PaintMode } from './paint/stroke';
 import { inflateShape, type InflateProfile, type InflateBlend } from './paint/inflate';
 import { serializeProject, serializeProjectBlob, deserializeProject, FILE_EXTENSION, type PngCacheEntry } from './storage/popstage';
@@ -1651,6 +1651,14 @@ export class App extends Emitter<AppEvents> {
   removeKey(i: number): void {
     if (!this.keyDraft[i]) return;
     this.keyDraft.splice(i, 1);
+    this.emit('take', this.takeState);
+  }
+
+  /** from 番目のキーフレームを to 番目へ動かす(秒数は場所に残す。physics/take.ts の moveKey) */
+  moveKey(from: number, to: number): void {
+    const n = this.keyDraft.length;
+    if (from === to || from < 0 || from >= n || to < 0 || to >= n) return;
+    this.keyDraft = movedKeys(this.keyDraft, from, to);
     this.emit('take', this.takeState);
   }
 
