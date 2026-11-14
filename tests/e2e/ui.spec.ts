@@ -1010,3 +1010,24 @@ test('右パネルは3Dビューの右上のボタン・Shift+P・表示メニ�
   await page.evaluate(() => (window as any).popstage.setUiHidden(true));
   await expect(tab).toBeHidden();
 });
+
+test('上のメニューの「ツール」: 左のツールバーと同じツールを選べ、選んでいるツールに ✓ とキーを出す', async ({ page }) => {
+  await boot(page);
+  const dd = page.locator('#menubar .dropdown', { hasText: 'ツール' });
+  const menu = page.locator('#toolMenu');
+  await dd.locator('[role=button]').click();
+  // 並びと名前は左のツールバーと同じ
+  const names = await page.locator('#toolNav .tool').evaluateAll(bs => bs.map(b => b.getAttribute('data-tool')));
+  expect(await menu.locator('button').evaluateAll(bs => bs.map(b => (b as HTMLElement).dataset.cmd!.replace('tool.', '')))).toEqual(names);
+  await expect(menu.locator('[data-cmd="tool.inflate"]')).toContainText('膨らませる');
+  await expect(menu.locator('[data-cmd="tool.inflate"] kbd')).toHaveText('I');
+  await expect(menu.locator('[role=menuitem]')).toHaveCount(names.length);
+  const current = await page.evaluate(() => (window as any).popstage.tool as string);
+  await expect(menu.locator(`[data-tool-check=${current}]`)).toHaveText('✓');
+  // 押すとそのツールになり、✓ が移る
+  await menu.locator('[data-cmd="tool.smooth"]').click();
+  expect(await page.evaluate(() => (window as any).popstage.tool)).toBe('smooth');
+  await expect(page.locator('#toolNav [data-tool=smooth]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(menu.locator('[data-tool-check=smooth]')).toHaveText('✓');
+  await expect(menu.locator('[data-tool-check]', { hasText: '✓' })).toHaveCount(1);
+});

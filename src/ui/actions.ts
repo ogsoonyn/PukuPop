@@ -5,7 +5,7 @@
  * 名前・ショートカット・使える条件はこの表だけに書き、メニューの <kbd>・ボタンのツールチップ・aria-keyshortcuts・
  * ヘルプのショートカット一覧・キーの処理は、すべて表から作る。
  */
-import type { App } from '../app';
+import { TABS_FULL_NOTE, type App } from '../app';
 import { ui } from './ids';
 import { toast } from './dom';
 import { isTyping } from './input';
@@ -31,6 +31,8 @@ export interface Action {
   helpRow?: string;
   /** ヘルプに出さない */
   hidden?: boolean;
+  /** 使えないときの理由(ショートカットで押したときに知らせ、ボタンのツールチップに足す)。理由を出すほどでないときは null */
+  blocked?: () => string | null;
 }
 
 /** 画面の部品のうち、コマンドから開くもの */
@@ -51,6 +53,9 @@ let pointerHeld = false;
 function defineActions(app: App, d: ActionDeps) {
   const layer = () => !!app.activeLayer;
   const tabsFree = () => !app.busy && !pointerHeld;
+  // タブが上限なら開く系は使えなくする(ファイルを選んだ後で断るのではなく、選ぶ前に分かるように)
+  const roomForTab = () => app.canOpenTab;
+  const tabsFull = () => (app.canOpenTab ? null : TABS_FULL_NOTE);
   const brushStep = (dir: 1 | -1) => () => {
     const el = ui.brushSize, step = Math.max(2, Math.round(app.brush.size * 0.15));
     el.value = String(app.brush.size + dir * step);
@@ -59,12 +64,12 @@ function defineActions(app: App, d: ActionDeps) {
   return {
     // ファイル
     // プロジェクト(.pukupop)も画像も同じ「開く」で開く(中身で見分ける)。Ctrl+Shift+O は前の「画像を開く」のキー
-    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O', 'Ctrl+Shift+O'], run: d.openProject },
-    recent: { label: '最近開いたファイル', run: d.openRecent },
+    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O', 'Ctrl+Shift+O'], run: d.openProject, enabled: roomForTab, blocked: tabsFull },
+    recent: { label: '最近開いたファイル', run: d.openRecent, enabled: roomForTab, blocked: tabsFull },
     save: { label: '保存', keys: ['Ctrl+S'], run: () => app.save(false), enabled: () => !!app.doc },
     saveAs: { label: '名前を付けて保存', keys: ['Ctrl+Shift+S'], run: () => app.save(true), enabled: () => !!app.doc },
     export: { label: '書き出し', keys: ['Ctrl+E'], run: d.openExport, enabled: () => !!app.doc },
-    sample: { label: 'サンプルを開く', run: () => app.whileOpening(() => app.loadSample()), enabled: () => !app.busy },
+    sample: { label: 'サンプルを開く', run: () => app.whileOpening(() => app.loadSample()), enabled: () => !app.busy && roomForTab(), blocked: tabsFull },
     // タブ。Ctrl+W・Ctrl+Tab はブラウザが使うので Alt と組み合わせる
     closeTab: { label: 'タブを閉じる', keys: ['Alt+W'], run: () => app.closeTab(), enabled: tabsFree },
     nextTab: { label: '次のタブ', keys: ['Alt+PageDown'], run: () => app.stepTab(1), enabled: () => app.tabs.length > 1 && tabsFree(), helpRow: '次のタブ・前のタブ' },
@@ -309,7 +314,11 @@ export function bindActions(app: App, deps: ActionDeps): void {
     return !a.enabled || a.enabled();
   };
   const run = (name: string): void => {
-    if (!enabled(name)) return;
+    if (!enabled(name)) {
+      const why = !app.previewing && table[name]?.blocked?.();
+      if (why) toast(why, 'warning', 5000);
+      return;
+    }
     void Promise.resolve(table[name].run()).catch(e => { console.error(e); toast(String(e instanceof Error ? e.message : e), 'error'); });
   };
   /** ツールチップ: 「名前 (キー補足): 説明」 */
@@ -364,6 +373,19 @@ export function bindActions(app: App, deps: ActionDeps): void {
   for (const g of NAV_ACTIONS) navItems.push(actionGroup(g));
   ui.toolNav.replaceChildren(...navItems);
 
+  /* ---------- 上のメニューの「ツール」(左のツールバーと同じ並び。まとまりの間に区切りを入れる) ---------- */
+  ui.toolMenu.replaceChildren(...TOOL_GROUPS.flatMap((group, gi) => {
+    const items = group.map(t => {
+      const li = document.createElement('li'), b = document.createElement('button');
+      b.dataset.cmd = `tool.${t.id}`; // キーの表記と結び付けは、下の data-cmd の処理で付ける
+      b.append(t.name ?? t.label, Object.assign(document.createElement('span'), { className: 'ml-auto' }));
+      b.lastElementChild!.setAttribute('data-tool-check', t.id);
+      li.append(b);
+      return li;
+    });
+    return gi ? [Object.assign(document.createElement('li'), { className: 'menu-sep' }), ...items] : items;
+  }));
+
   /* ---------- data-cmd の部品に、キーの表記・ツールチップを付けて結び付ける ---------- */
   const cmdButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-cmd]')];
   for (const b of cmdButtons) {
@@ -381,13 +403,13 @@ export function bindActions(app: App, deps: ActionDeps): void {
       // キーの表記は PC のメニューにだけ付ける(スマホの上のメニューにはキーボードが無い)
       if (b.closest('.menu') && !b.closest('.m-only') && !b.querySelector('kbd')) {
         const kbd = document.createElement('kbd');
-        kbd.className = b.querySelector('[data-check]') ? 'kbd kbd-xs' : 'kbd kbd-xs ml-auto';
+        kbd.className = b.querySelector('[data-check], [data-tool-check]') ? 'kbd kbd-xs' : 'kbd kbd-xs ml-auto';
         kbd.textContent = a.keys[0];
         b.append(kbd);
       }
     }
     // スマホの部品とメニューは文字で分かるので、ツールチップは PC のボタンにだけ付ける
-    if (!b.closest('.menu, .m-only')) b.title = tooltip(a);
+    if (!b.closest('.menu, .m-only')) { b.title = tooltip(a); b.dataset.tip = b.title; }
     const inDropdown = !!b.closest('.dropdown');
     b.addEventListener('click', () => {
       // ドロップダウンの中ならフォーカスを外して閉じる。ほかのボタンはキーボードで続けて押せるようフォーカスを残す
@@ -440,13 +462,30 @@ export function bindActions(app: App, deps: ActionDeps): void {
   /* ---------- 状態 → 画面 ---------- */
   const undoLabel = document.querySelector('[data-label=undo]')!, redoLabel = document.querySelector('[data-label=redo]')!;
   const checks = [...document.querySelectorAll<HTMLElement>('[data-check]')];
+  /** 使えない理由の注意書き(data-blocked にコマンドの名前。メニューやダイアログの中に置き、使えない間だけ出す) */
+  const blockedNotes = [...document.querySelectorAll<HTMLElement>('[data-blocked]')];
+  for (const el of blockedNotes) if (!table[el.dataset.blocked!]?.blocked) throw new Error(`コマンド「${el.dataset.blocked}」に使えない理由がありません`);
   const pressables = [...ui.toolNav.querySelectorAll<HTMLElement>('[data-pressed]')];
   const keyPlayButtons = [...ui.toolNav.querySelectorAll<HTMLElement>('[data-cmd=toggleKeyPlay]')];
   const overlayBadges = [...ui.toolNav.querySelectorAll<HTMLElement>('[data-pressed=overlay] .nav-badge')];
   /** 'status' でも呼ぶ(0.5 秒ごと)ので、変わったときだけ書く */
   const setText = (el: Element, text: string) => { if (el.textContent !== text) el.textContent = text; };
   function refresh(): void {
-    for (const b of cmdButtons) { const off = !enabled(b.dataset.cmd!); if (b.disabled !== off) b.disabled = off; }
+    for (const b of cmdButtons) {
+      const off = !enabled(b.dataset.cmd!);
+      if (b.disabled !== off) b.disabled = off;
+      // ツールチップのあるボタンは、使えない理由を足す
+      if (b.dataset.tip !== undefined) {
+        const why = off ? table[b.dataset.cmd!].blocked?.() : null;
+        const tip = why ? `${b.dataset.tip}\n${why}` : b.dataset.tip;
+        if (b.title !== tip) b.title = tip;
+      }
+    }
+    for (const el of blockedNotes) {
+      const why = enabled(el.dataset.blocked!) ? null : table[el.dataset.blocked!].blocked!();
+      el.hidden = !why;
+      setText(el, why ?? '');
+    }
     setText(undoLabel, app.history.undoLabel ? `(${app.history.undoLabel})` : '');
     setText(redoLabel, app.history.redoLabel ? `(${app.history.redoLabel})` : '');
     const on: Record<ViewCheck, boolean> = {
@@ -484,6 +523,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
   app.on('blur', refresh);
   app.on('take', refresh);
   app.on('tabs', refresh);
+  app.on('file', refresh); // 「未保存」になると、置き換えて開けたサンプルのタブが置き換えられなくなる
   app.on('status', refresh); // 書き出しの始まり・終わりなど(fps の更新は別のイベントなので、ここでは拾わない)
   app.store.on('layers', refresh);
   app.store.on('replace', refresh);
@@ -491,8 +531,10 @@ export function bindActions(app: App, deps: ActionDeps): void {
 
   /* ---------- ツールの表示(ツールオプションの欄は ui/toolOptions.ts) ---------- */
   const toolButtons = [...ui.toolNav.querySelectorAll<HTMLButtonElement>('.tool')];
+  const toolChecks = [...ui.toolMenu.querySelectorAll<HTMLElement>('[data-tool-check]')];
   function refreshTool(): void {
     for (const b of toolButtons) b.setAttribute('aria-pressed', String(b.dataset.tool === app.tool));
+    for (const el of toolChecks) setText(el, el.dataset.toolCheck === app.tool ? '✓' : '');
   }
   app.on('tool', refreshTool);
 
