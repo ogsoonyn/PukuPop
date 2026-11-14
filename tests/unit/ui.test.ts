@@ -33,6 +33,7 @@ describe('ショートカットの読み取り', () => {
     expect(keyString(ev({ key: 'b', code: 'KeyB' }))).toBe('B');
     expect(keyString(ev({ key: 'Z', code: 'KeyZ', ctrlKey: true, shiftKey: true }))).toBe('Ctrl+Shift+Z');
     expect(keyString(ev({ key: 'Home', code: 'Home' }))).toBe('Home');
+    expect(keyString(ev({ key: 'Escape', code: 'Escape' }))).toBe('Esc');
     expect(keyString(ev({ key: '[', code: 'BracketRight' }))).toBe('[');
   });
 

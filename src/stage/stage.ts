@@ -3,7 +3,7 @@
  * 単位は元画像の 1 ピクセル = 1、画像の中心が原点。
  */
 import * as THREE from 'three';
-import { LAYER_COLORS, type CameraState, type Document, type Layer, type OrthoView, type Vec3 } from '../model/project';
+import { LAYER_COLORS, meshSegments, type CameraState, type Document, type Layer, type OrthoView, type Vec3 } from '../model/project';
 import type { Rect } from '../model/weightmap';
 import { vertexShader, fragmentShader, MAX_LAYERS } from './shaders';
 
@@ -123,6 +123,19 @@ export class Stage {
   get maxTextureSize(): number { return this.renderer.capabilities.maxTextureSize; }
   get hasDocument(): boolean { return !!this.mesh; }
 
+  /**
+   * 画像・ウェイト・メッシュのために持っているメモリの見積もり(バイト)。
+   * 画像のテクスチャはミップマップの分で 4/3 倍。ウェイトは GPU と CPU 側の写しの2つ分。画面の描画先は数えない
+   */
+  get gpuBytes(): number {
+    const img = this.mapTex?.image as { width?: number; height?: number } | undefined;
+    const map = img?.width && img.height ? img.width * img.height * 4 * 4 / 3 : 0;
+    const weights = this.weightTex ? this.weightSize.w * this.weightSize.h * MAX_LAYERS * 2 : 0;
+    // 頂点ごとに位置・法線・UV(8 個の float)、マスごとに三角形2つの添字(6 個、4 バイト)
+    const mesh = this.mesh ? this.vertexCount * 8 * 4 + this.gridN.x * this.gridN.y * 6 * 4 : 0;
+    return Math.round(map + weights + mesh);
+  }
+
   /* ---------- ドキュメント ---------- */
 
   /** 画像を差し替える。source は縮小済みでもよい(メッシュは元画像のピクセル単位)。 */
@@ -144,8 +157,7 @@ export class Stage {
 
   rebuildMesh(density: number): void {
     const { w, h } = this.imageSize;
-    const nx = w >= h ? density : Math.max(2, Math.round((density * w) / h));
-    const ny = h > w ? density : Math.max(2, Math.round((density * h) / w));
+    const { nx, ny } = meshSegments(w, h, density);
     if (this.mesh) { this.rig.remove(this.mesh); this.mesh.geometry.dispose(); }
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h, nx, ny), this.material);
     this.mesh.frustumCulled = false;
@@ -368,6 +380,8 @@ export class Stage {
     c.near = Math.max(0.1, d * 0.01); c.far = d * 100;
     c.position.set(cam.target.x + d * Math.sin(cam.yaw) * cp, cam.target.y + d * Math.sin(cam.pitch), cam.target.z + d * Math.cos(cam.yaw) * cp);
     c.lookAt(cam.target.x, cam.target.y, cam.target.z);
+    // 傾き: カメラを見る向きの軸のまわりに回す。正でカメラが反時計回りに回り、画像は時計回りに傾いて見える
+    if (cam.roll) c.rotateZ(cam.roll);
     c.updateProjectionMatrix(); c.updateMatrixWorld();
   }
 

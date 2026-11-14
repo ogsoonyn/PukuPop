@@ -392,3 +392,35 @@ test('全体をぼかす: プレビュー中も視点は回せる。塗る・ツ
   expect(await weightSum(page)).toBe(original);
   expect(await app(a => a.previewingBlur)).toBe(false);
 });
+
+test('アルファから生成: 不透明な画素を含むメッシュのマスは、どの頂点も塗った側に入る(横から見て輪郭が伸びない)', async ({ page }) => {
+  await boot(page);
+  const r = await page.evaluate(async () => {
+    // 透明な背景に半径 80px の円を描いた画像(ウェイトマップも 400px)
+    const c = document.createElement('canvas'); c.width = 400; c.height = 400;
+    const g = c.getContext('2d')!; g.fillStyle = '#e33'; g.beginPath(); g.arc(200, 200, 80, 0, Math.PI * 2); g.fill();
+    const b: Blob = await new Promise(res => c.toBlob(x => res(x!), 'image/png'));
+    const a = (window as any).popstage;
+    a.dirty = false;
+    await a.openFile(new File([b], 'disc.png', { type: 'image/png' }));
+    a.store.patchDocument(a.doc.id, { meshDensity: 40 }); // 1マス 10px
+    a.fromAlpha();
+    const wm = a.activeLayer.weights, n = a.doc.meshDensity, alpha = g.getImageData(0, 0, 400, 400).data;
+    let bad = 0, opaqueCells = 0;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      let any = false;
+      for (let y = j * 400 / n; y < (j + 1) * 400 / n && !any; y++) for (let x = i * 400 / n; x < (i + 1) * 400 / n; x++) if (alpha[(y * 400 + x) * 4 + 3] > 0) { any = true; break; }
+      if (!any) continue;
+      opaqueCells++;
+      for (const [u, v] of [[i, j], [i + 1, j], [i, j + 1], [i + 1, j + 1]]) if (wm.sampleUV(u / n, 1 - v / n) < 0.99) bad++; // 円の上下左右の端の行は、いちばん濃くてもアルファ 254
+    }
+    // 広げすぎていないこと: 円から 1マス + 3px より外は塗らない
+    let far = 0;
+    for (let y = 0; y < 400; y++) for (let x = 0; x < 400; x++) if (wm.data[y * 400 + x] > 0 && Math.max(Math.abs(x + 0.5 - 200), Math.abs(y + 0.5 - 200)) > 80 + 10 + 3) far++;
+    return { density: n, bad, opaqueCells, far };
+  });
+  expect(r.density).toBe(40);
+  expect(r.opaqueCells).toBeGreaterThan(100);
+  expect(r.bad).toBe(0);
+  expect(r.far).toBe(0);
+});

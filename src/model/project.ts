@@ -207,8 +207,17 @@ export interface CameraState {
   fov: number;
   yaw: number;
   pitch: number;
+  /** 視点の傾き(ラジアン、-π 以上 π 未満)。正で画像が画面上で時計回りに傾く。古いファイルには無く、0 として読む */
+  roll: number;
   zoom: number;
   target: Vec3; // 元画像のピクセル単位
+}
+
+/** 角度を -π 以上 π 未満へ丸める(視点の傾きに使う) */
+export function wrapAngle(a: number): number {
+  const TAU = Math.PI * 2;
+  const r = a - TAU * Math.floor((a + Math.PI) / TAU);
+  return r >= Math.PI ? r - TAU : r;
 }
 
 export interface AutoSwing {
@@ -262,6 +271,22 @@ export const LIMITS = {
   /** お気に入りの数 */
   favorites: 30,
 } as const;
+
+/** メッシュの分割数。長い辺を density 分割し、短い辺はマスがほぼ正方形になるよう決める(stage のメッシュと同じ)。 */
+export function meshSegments(imageW: number, imageH: number, density: number): { nx: number; ny: number } {
+  const nx = imageW >= imageH ? density : Math.max(2, Math.round((density * imageW) / imageH));
+  const ny = imageH > imageW ? density : Math.max(2, Math.round((density * imageH) / imageW));
+  return { nx, ny };
+}
+
+/**
+ * 「アルファから生成」でウェイトを輪郭の外へ広げる幅(ウェイトマップの画素)。
+ * 頂点の位置でしかウェイトを読まないので、境目はメッシュ1マス分の斜面になる。
+ * 不透明な画素を含むマスの頂点がどれも塗った側に入るよう、1マス分に、頂点で読むときに隣の画素と混ざる分の1画素を足す。
+ */
+export function alphaSpreadPx(weightW: number, weightH: number, seg: { nx: number; ny: number }): number {
+  return Math.ceil(Math.max(weightW / seg.nx, weightH / seg.ny)) + 1;
+}
 
 export interface Preset {
   label: string;
@@ -339,17 +364,17 @@ export function createDocument(image: ImageAsset, name: string): Document {
 }
 
 export function defaultCamera(): CameraState {
-  return { fov: LIMITS.fov.def, yaw: -0.35, pitch: 0.25, zoom: 1, target: { x: 0, y: 0, z: 0 } };
+  return { fov: LIMITS.fov.def, yaw: -0.35, pitch: 0.25, roll: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } };
 }
 
 /** 視点リセットで戻す正面の視点(回転・平行移動なし、等倍) */
 export function frontCamera(fov: number = LIMITS.fov.def): CameraState {
-  return { fov, yaw: 0, pitch: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } };
+  return { fov, yaw: 0, pitch: 0, roll: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } };
 }
 
 /** 3面図の「自由角度」の初期視点。膨らみが分かるよう斜め上から見る */
 export function defaultMultiCamera(): CameraState {
-  return { fov: LIMITS.fov.def, yaw: 0.7, pitch: 0.45, zoom: 1.5, target: { x: 0, y: 0, z: 0 } };
+  return { fov: LIMITS.fov.def, yaw: 0.7, pitch: 0.45, roll: 0, zoom: 1.5, target: { x: 0, y: 0, z: 0 } };
 }
 
 /** 3面図の正投影の図(正面・右から・下から)の見え方。3つの図で共有し、縮尺と位置の対応をそろえる */

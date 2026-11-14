@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { WeightMap, weightSizeFor, TILE } from '../../src/model/weightmap';
-import { Store, createDocument, createProject, createLayer, LIMITS, scalePops, layerColor, LAYER_COLORS } from '../../src/model/project';
+import { Store, createDocument, createProject, createLayer, LIMITS, scalePops, layerColor, LAYER_COLORS, meshSegments, alphaSpreadPx } from '../../src/model/project';
 import { History, shrinkHistory } from '../../src/commands/history';
 import { PatchLayer, InsertLayer, RemoveLayer, MoveLayer, WeightEdit, weightOperation, diffTiles } from '../../src/commands/commands';
 import { Stroke, falloff } from '../../src/paint/stroke';
@@ -41,6 +41,44 @@ describe('WeightMap', () => {
     const wm = new WeightMap(2, 2);
     wm.setFromAlpha(new Uint8Array([0, 255, 128, 0]), 2, 2);
     expect([...wm.data]).toEqual([0, 255, 128, 0]);
+  });
+
+  it('外へ広げる: 縦横 radius 以内の最大値になり、中の値は残る', () => {
+    const wm = new WeightMap(7, 5);
+    wm.data[2 * 7 + 3] = 200; // 真ん中
+    wm.data[0] = 50;          // 左上の隅
+    wm.dilate(1);
+    const at = (x: number, y: number) => wm.data[y * 7 + x];
+    for (let y = 1; y <= 3; y++) for (let x = 2; x <= 4; x++) expect(at(x, y)).toBe(200); // 斜めも含む正方形に広がる
+    expect(at(1, 2)).toBe(0);
+    expect(at(5, 2)).toBe(0);
+    expect(at(3, 0)).toBe(0);
+    expect(at(3, 4)).toBe(0);
+    expect([at(0, 0), at(1, 0), at(0, 1), at(1, 1)]).toEqual([50, 50, 50, 50]);
+    expect(at(2, 0)).toBe(0);
+  });
+
+  it('外へ広げる: 広い半径でも端で止まり、0 以下は何もしない', () => {
+    const wm = new WeightMap(4, 3, new Uint8Array([0, 0, 0, 0, 0, 255, 128, 0, 0, 0, 0, 0]));
+    const before = [...wm.data];
+    wm.dilate(0);
+    expect([...wm.data]).toEqual(before);
+    wm.dilate(10);
+    expect([...wm.data].every(v => v === 255)).toBe(true);
+  });
+
+  it('外へ広げる: 半透明の縁は外へずれるだけ', () => {
+    const wm = new WeightMap(6, 1, new Uint8Array([255, 255, 128, 0, 0, 0]));
+    wm.dilate(2);
+    expect([...wm.data]).toEqual([255, 255, 255, 255, 128, 0]);
+  });
+
+  it('アルファから広げる幅はメッシュ1マス + 1画素', () => {
+    const seg = meshSegments(1000, 500, 128);
+    expect(seg).toEqual({ nx: 128, ny: 64 });
+    expect(alphaSpreadPx(1024, 512, seg)).toBe(9); // 1マス 8px
+    expect(alphaSpreadPx(1024, 512, meshSegments(1000, 500, 16))).toBe(65);
+    expect(meshSegments(300, 900, 100)).toEqual({ nx: 33, ny: 100 });
   });
 
   it('UV の向き(v=1 が上)', () => {

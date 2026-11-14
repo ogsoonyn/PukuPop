@@ -49,6 +49,30 @@ test('レイヤーの追加・複製・削除・名前の変更', async ({ page 
   await expect(page.locator('#layerList li')).toHaveCount(1);
 });
 
+test('レイヤー名の変更中、日本語の変換を確定する Enter・取り消す Esc では欄を抜けない', async ({ page }) => {
+  await boot(page);
+  await page.locator('#layerList li[aria-selected=true] span.truncate').dblclick();
+  const input = page.locator('#layerList input.input');
+  await input.fill('かお');
+  // 変換中のキー(isComposing)は、Enter でも Esc でも欄を残す
+  for (const key of ['Enter', 'Escape']) {
+    await input.dispatchEvent('keydown', { key, isComposing: true, bubbles: true });
+    await expect(input).toBeVisible();
+    await expect(input).toHaveValue('かお');
+  }
+  // Safari は確定後に isComposing を外し、keyCode 229 で送る
+  await input.evaluate(el => {
+    const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+    Object.defineProperty(ev, 'keyCode', { get: () => 229 });
+    el.dispatchEvent(ev);
+  });
+  await expect(input).toBeVisible();
+  // 変換を終えた後の Enter で確定する
+  await input.press('Enter');
+  await expect(input).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).popstage.activeLayer.name)).toBe('かお');
+});
+
 test('スライダーの変更は1手として元に戻せる', async ({ page }) => {
   await boot(page);
   const pop0 = await page.evaluate(() => (window as any).popstage.activeLayer.pop);
@@ -789,11 +813,11 @@ test('fps・頂点数は ?debug のときだけ出す。キーフレームの上
   await expect(page.locator('#sFps')).toBeHidden();
   await expect(page.locator('#sVerts')).toBeHidden();
   await expect(page.locator('#sZoom')).toBeVisible();
-  // キーフレームの行: 番号・通り方・上書き・削除の順(次までの秒数は行の間)
+  // キーフレームの行: 並べ替えのつまみ・番号・通り方・上書き・削除の順(次までの秒数は行の間)
   await openTab(page, 'anim');
   await page.locator('#keyAdd').click();
   const acts = await page.locator('#keyList > li.key-row:not(.key-back)').first().locator('[data-act]').evaluateAll(els => els.map(e => (e as HTMLElement).dataset.act));
-  expect(acts).toEqual(['go', 'mode', 'set', 'del']);
+  expect(acts).toEqual(['drag', 'go', 'mode', 'set', 'del']);
   await expect(page.locator('#keyList [data-act=set]').first()).toHaveAttribute('aria-label', '今の視点で上書き');
   // メニュー: ↓ で最初の項目へ、↓↑ で前後へ、→ で隣のメニューへ、Esc で閉じる
   const file = page.locator('#menubar .dropdown').first();
@@ -985,4 +1009,25 @@ test('右パネルは3Dビューの右上のボタン・Shift+P・表示メニ�
   // UIを隠すと開閉のボタンも隠れる
   await page.evaluate(() => (window as any).popstage.setUiHidden(true));
   await expect(tab).toBeHidden();
+});
+
+test('上のメニューの「ツール」: 左のツールバーと同じツールを選べ、選んでいるツールに ✓ とキーを出す', async ({ page }) => {
+  await boot(page);
+  const dd = page.locator('#menubar .dropdown', { hasText: 'ツール' });
+  const menu = page.locator('#toolMenu');
+  await dd.locator('[role=button]').click();
+  // 並びと名前は左のツールバーと同じ
+  const names = await page.locator('#toolNav .tool').evaluateAll(bs => bs.map(b => b.getAttribute('data-tool')));
+  expect(await menu.locator('button').evaluateAll(bs => bs.map(b => (b as HTMLElement).dataset.cmd!.replace('tool.', '')))).toEqual(names);
+  await expect(menu.locator('[data-cmd="tool.inflate"]')).toContainText('膨らませる');
+  await expect(menu.locator('[data-cmd="tool.inflate"] kbd')).toHaveText('I');
+  await expect(menu.locator('[role=menuitem]')).toHaveCount(names.length);
+  const current = await page.evaluate(() => (window as any).popstage.tool as string);
+  await expect(menu.locator(`[data-tool-check=${current}]`)).toHaveText('✓');
+  // 押すとそのツールになり、✓ が移る
+  await menu.locator('[data-cmd="tool.smooth"]').click();
+  expect(await page.evaluate(() => (window as any).popstage.tool)).toBe('smooth');
+  await expect(page.locator('#toolNav [data-tool=smooth]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(menu.locator('[data-tool-check=smooth]')).toHaveText('✓');
+  await expect(menu.locator('[data-tool-check]', { hasText: '✓' })).toHaveCount(1);
 });

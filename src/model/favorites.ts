@@ -18,7 +18,7 @@ export function captureFavorite(
     createdAt: opts.createdAt ?? new Date().toISOString(),
     layers: doc.layers.map((l): FavoriteLayer => ({ id: l.id, pop: l.pop, blend: l.blend, physics: copyPhysics(l.physics) })),
     autoSwing: { ...project.autoSwing },
-    camera: { fov: c.fov, yaw: c.yaw, pitch: c.pitch, zoom: c.zoom, target: { ...c.target } },
+    camera: { fov: c.fov, yaw: c.yaw, pitch: c.pitch, roll: c.roll, zoom: c.zoom, target: { ...c.target } },
     take: project.take,
     playing: opts.playing && !!project.take,
   };
@@ -65,5 +65,5 @@ export function nextFavoriteName(list: readonly Favorite[]): string {
 
 /** 視点(回転・ズーム・注視点)を当てる。画角は別にアンドゥできる形で変える */
 export function applyView(c: CameraState, from: CameraState): void {
-  c.yaw = from.yaw; c.pitch = from.pitch; c.zoom = from.zoom; c.target = { ...from.target };
+  c.yaw = from.yaw; c.pitch = from.pitch; c.roll = from.roll; c.zoom = from.zoom; c.target = { ...from.target };
 }

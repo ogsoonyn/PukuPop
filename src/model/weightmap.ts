@@ -116,6 +116,19 @@ export class WeightMap {
     }
   }
 
+  /**
+   * ウェイトを外へ広げる(グレースケールの膨張。各画素を、縦横 radius 画素以内の最大値にする)。
+   * 塗った所の中の値は小さくならず、境目だけが外へ動く。
+   */
+  dilate(radius: number): void {
+    const r = Math.floor(radius);
+    if (r <= 0) return;
+    const { width: w, height: h } = this;
+    const tmp = new Uint8Array(w * h);
+    maxFilter1D(this.data, tmp, w, h, 1, w, r);   // 横
+    maxFilter1D(tmp, this.data, h, w, w, 1, r);   // 縦
+  }
+
   /** 別サイズのマップから最近傍で写す(読み込み時のサイズ違い対策)。 */
   static resampled(src: WeightMap, w: number, h: number): WeightMap {
     if (src.width === w && src.height === h) return src.clone();
@@ -156,6 +169,28 @@ function boxV(src: Float32Array, dst: Float32Array, w: number, h: number, r: num
     for (let y = 0; y < h; y++) {
       dst[y * w + x] = acc / (2 * r + 1);
       acc += src[Math.min(h - 1, y + r + 1) * w + x] - src[Math.max(0, y - r) * w + x];
+    }
+  }
+}
+
+/**
+ * 1方向の最大値フィルタ(単調キューで、半径によらず画素数に比例する手間)。
+ * 長さ n の列が lines 本並ぶ。列の中の隣は step、次の列は lineStep 離れている。
+ */
+function maxFilter1D(src: Uint8Array, dst: Uint8Array, n: number, lines: number, step: number, lineStep: number, r: number): void {
+  const q = new Int32Array(n);
+  for (let l = 0; l < lines; l++) {
+    const base = l * lineStep;
+    let head = 0, tail = 0, next = 0;
+    for (let i = 0; i < n; i++) {
+      // 窓 [i - r, i + r] の右端まで入れる
+      for (const end = Math.min(n - 1, i + r); next <= end; next++) {
+        const v = src[base + next * step];
+        while (tail > head && src[base + q[tail - 1] * step] <= v) tail--;
+        q[tail++] = next;
+      }
+      while (q[head] < i - r) head++;
+      dst[base + i * step] = src[base + q[head] * step];
     }
   }
 }

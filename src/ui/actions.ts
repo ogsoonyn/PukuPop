@@ -5,7 +5,7 @@
  * 名前・ショートカット・使える条件はこの表だけに書き、メニューの <kbd>・ボタンのツールチップ・aria-keyshortcuts・
  * ヘルプのショートカット一覧・キーの処理は、すべて表から作る。
  */
-import type { App } from '../app';
+import { TABS_FULL_NOTE, type App } from '../app';
 import { ui } from './ids';
 import { toast } from './dom';
 import { isTyping } from './input';
@@ -31,6 +31,8 @@ export interface Action {
   helpRow?: string;
   /** ヘルプに出さない */
   hidden?: boolean;
+  /** 使えないときの理由(ショートカットで押したときに知らせ、ボタンのツールチップに足す)。理由を出すほどでないときは null */
+  blocked?: () => string | null;
 }
 
 /** 画面の部品のうち、コマンドから開くもの */
@@ -51,6 +53,9 @@ let pointerHeld = false;
 function defineActions(app: App, d: ActionDeps) {
   const layer = () => !!app.activeLayer;
   const tabsFree = () => !app.busy && !pointerHeld;
+  // タブが上限なら開く系は使えなくする(ファイルを選んだ後で断るのではなく、選ぶ前に分かるように)
+  const roomForTab = () => app.canOpenTab;
+  const tabsFull = () => (app.canOpenTab ? null : TABS_FULL_NOTE);
   const brushStep = (dir: 1 | -1) => () => {
     const el = ui.brushSize, step = Math.max(2, Math.round(app.brush.size * 0.15));
     el.value = String(app.brush.size + dir * step);
@@ -59,12 +64,12 @@ function defineActions(app: App, d: ActionDeps) {
   return {
     // ファイル
     // プロジェクト(.pukupop)も画像も同じ「開く」で開く(中身で見分ける)。Ctrl+Shift+O は前の「画像を開く」のキー
-    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O', 'Ctrl+Shift+O'], run: d.openProject },
-    recent: { label: '最近開いたファイル', run: d.openRecent },
+    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O', 'Ctrl+Shift+O'], run: d.openProject, enabled: roomForTab, blocked: tabsFull },
+    recent: { label: '最近開いたファイル', run: d.openRecent, enabled: roomForTab, blocked: tabsFull },
     save: { label: '保存', keys: ['Ctrl+S'], run: () => app.save(false), enabled: () => !!app.doc },
     saveAs: { label: '名前を付けて保存', keys: ['Ctrl+Shift+S'], run: () => app.save(true), enabled: () => !!app.doc },
     export: { label: '書き出し', keys: ['Ctrl+E'], run: d.openExport, enabled: () => !!app.doc },
-    sample: { label: 'サンプルを開く', run: () => app.whileOpening(() => app.loadSample()), enabled: () => !app.busy },
+    sample: { label: 'サンプルを開く', run: () => app.whileOpening(() => app.loadSample()), enabled: () => !app.busy && roomForTab(), blocked: tabsFull },
     // タブ。Ctrl+W・Ctrl+Tab はブラウザが使うので Alt と組み合わせる
     closeTab: { label: 'タブを閉じる', keys: ['Alt+W'], run: () => app.closeTab(), enabled: tabsFree },
     nextTab: { label: '次のタブ', keys: ['Alt+PageDown'], run: () => app.stepTab(1), enabled: () => app.tabs.length > 1 && tabsFree(), helpRow: '次のタブ・前のタブ' },
@@ -75,7 +80,7 @@ function defineActions(app: App, d: ActionDeps) {
     smoothAll: { label: '全体をぼかす(ガウス)', desc: '選んでいるレイヤー全体にガウスぼかしをかける', run: d.openBlur, enabled: layer },
     normalize: { label: '正規化', desc: '選んでいるレイヤーの最大値が100%になるよう全体を拡大', run: () => app.weightOp('正規化', wm => wm.normalize()), enabled: layer },
     invert: { label: '反転', desc: '選んでいるレイヤーのウェイトを反転', run: () => app.weightOp('反転', wm => wm.invert()), enabled: layer },
-    fromAlpha: { label: 'アルファから生成', run: () => app.fromAlpha(), enabled: layer },
+    fromAlpha: { label: 'アルファから生成', desc: '画像の不透明な所を塗る。横から見ても輪郭が伸びないよう、メッシュ1マス分だけ外へ広げる(後でメッシュ密度を下げたら、生成し直す)', run: () => app.fromAlpha(), enabled: layer },
     clearWeights: { label: '全消去', run: () => app.weightOp('全消去', wm => wm.clear()), enabled: layer },
     brushSmaller: { label: 'ブラシを小さく', keys: ['['], run: brushStep(-1), duringPreview: true, helpRow: 'ブラシを小さく・大きく' },
     brushLarger: { label: 'ブラシを大きく', keys: [']'], run: brushStep(1), duringPreview: true, helpRow: 'ブラシを小さく・大きく' },
@@ -103,8 +108,13 @@ function defineActions(app: App, d: ActionDeps) {
     },
     resetRotation: {
       label: '回転だけリセット', keys: ['Ctrl+Home'], run: () => app.resetRotation(), duringPreview: true,
-      desc: 'ズームと位置はそのままで、向きだけを正面に戻す',
+      desc: 'ズームと位置はそのままで、向きと傾きだけを正面に戻す',
     },
+    // 視点の傾き。押し続けると続けて回る(キーの繰り返し)。Alt+右ドラッグ・2本指のひねりでも傾けられる
+    rollLeft: { label: '視点を左に傾ける', keys: ['ArrowLeft'], run: () => app.rollBy(-ROLL_STEP), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 15° 傾ける' },
+    rollRight: { label: '視点を右に傾ける', keys: ['ArrowRight'], run: () => app.rollBy(ROLL_STEP), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 15° 傾ける' },
+    rollLeftFine: { label: '視点を左に少し傾ける', keys: ['Shift+ArrowLeft'], run: () => app.rollBy(-ROLL_FINE), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 1° 傾ける' },
+    rollRightFine: { label: '視点を右に少し傾ける', keys: ['Shift+ArrowRight'], run: () => app.rollBy(ROLL_FINE), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 1° 傾ける' },
     toggleUi: {
       label: 'UIを隠す', helpLabel: 'UIを隠す・戻す', keys: ['Tab'], desc: '3Dビューのほかを隠して、画面いっぱいに見せる。もう一度押すか Esc で戻す',
       run: () => app.setUiHidden(!app.uiHidden), duringPreview: true,
@@ -155,6 +165,11 @@ function defineActions(app: App, d: ActionDeps) {
     layerUp: { label: '上へ', run: () => app.moveLayer(1), enabled: () => !app.multiSelected && app.activeIndex >= 0 && app.activeIndex < (app.doc?.layers.length ?? 0) - 1 },
     layerDown: { label: '下へ', run: () => app.moveLayer(-1), enabled: () => !app.multiSelected && app.activeIndex > 0 },
     selectAllLayers: { label: 'すべてのレイヤーを選ぶ', keys: ['Ctrl+A'], run: () => app.selectAllLayers(), enabled: () => (app.doc?.layers.length ?? 0) > 1 },
+    // Esc はほかの役(ダイアログ・膨らませる/ぼかすの途中・UIを隠す・メニュー・文字の入力)を先にする。使えないときは Esc を横取りしない
+    selectOneLayer: {
+      label: '選択を1枚に戻す', keys: ['Esc'], desc: '複数選んだレイヤーを、塗りの先の1枚だけにする',
+      run: () => { if (app.activeLayerId) app.setActiveLayer(app.activeLayerId); }, enabled: () => app.multiSelected && !app.uiHidden,
+    },
     // お気に入り
     addFavorite: {
       label: 'お気に入りに追加', keys: ['K'], desc: '今の揺れと動きの組み合わせをお気に入りに追加する(画像とウェイトは入れない)',
@@ -255,8 +270,18 @@ export function keyString(e: KeyboardEvent): string {
   // 日本語入力がオンのときは key が 'Process'、Mac の Option は別の文字になるので、キーの位置(code)から読む
   let k = (e.key === 'Process' || e.altKey) && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : e.key;
   if (k.length === 1) k = k.toUpperCase();
+  if (k === 'Escape') k = 'Esc';
   return [(e.ctrlKey || e.metaKey) && 'Ctrl', e.shiftKey && 'Shift', e.altKey && 'Alt', k].filter(Boolean).join('+');
 }
+
+/** 視点を傾けるキーの1回の角度(15°と1°) */
+const ROLL_STEP = Math.PI / 12, ROLL_FINE = Math.PI / 180;
+
+/**
+ * 左右の矢印キーを自分で使う部品(ここにフォーカスがあるときは、矢印キーをショートカットに使わない)。
+ * チェックボックス・ボタン・レイヤー一覧(↑↓だけ使う)では傾ける。メニュー・作業のタブ・シークバーは自分で defaultPrevented にする
+ */
+const ARROW_WIDGETS = 'input:not([type=checkbox]):not([type=button]):not([type=submit]):not([type=color]), select, textarea, [role=tab], [role=tablist], [role=slider], [role=radio], [role=menuitem]';
 
 /** スライダーにフォーカスがあるときは、スライダーを動かすキーをショートカットに使わない */
 const SLIDER_KEYS = new Set(['Home', 'End', 'PageUp', 'PageDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
@@ -281,7 +306,10 @@ function keyboardFocus(): boolean {
   return el.matches(':focus-visible');
 }
 
-const ariaKeys = (keys: string[]) => keys.map(k => k.replace(/\bCtrl\b/g, 'Control')).join(' ');
+/** 画面に出すキーの書き方(矢印キーは矢印で) */
+const keyLabel = (k: string) => k.replace(/\bArrow(Left|Right|Up|Down)\b/g, (_, d: string) => ({ Left: '←', Right: '→', Up: '↑', Down: '↓' })[d]!);
+
+const ariaKeys = (keys: string[]) => keys.map(k => k.replace(/\bCtrl\b/g, 'Control').replace(/\bEsc\b/g, 'Escape')).join(' ');
 
 const TOOL_BTN = 'tool relative btn btn-sm w-[4.5rem] flex-col h-auto py-1 gap-0.5 whitespace-nowrap';
 const ACT_BTN = 'nav-act relative btn btn-xs btn-ghost w-[4.5rem] flex-col h-auto py-1 gap-0.5 whitespace-nowrap font-normal';
@@ -303,11 +331,15 @@ export function bindActions(app: App, deps: ActionDeps): void {
     return !a.enabled || a.enabled();
   };
   const run = (name: string): void => {
-    if (!enabled(name)) return;
+    if (!enabled(name)) {
+      const why = !app.previewing && table[name]?.blocked?.();
+      if (why) toast(why, 'warning', 5000);
+      return;
+    }
     void Promise.resolve(table[name].run()).catch(e => { console.error(e); toast(String(e instanceof Error ? e.message : e), 'error'); });
   };
   /** ツールチップ: 「名前 (キー補足): 説明」 */
-  const tooltip = (a: Action, keyNote = '') => `${a.label}${a.keys ? ` (${a.keys[0]}${keyNote})` : ''}${a.desc ? `: ${a.desc}` : ''}`;
+  const tooltip = (a: Action, keyNote = '') => `${a.label}${a.keys ? ` (${keyLabel(a.keys[0])}${keyNote})` : ''}${a.desc ? `: ${a.desc}` : ''}`;
 
   /* ---------- 左のツールバーを作る(ツール → 区切り → その場で効く操作のまとまり) ---------- */
   const navItems: Node[] = [];
@@ -358,6 +390,19 @@ export function bindActions(app: App, deps: ActionDeps): void {
   for (const g of NAV_ACTIONS) navItems.push(actionGroup(g));
   ui.toolNav.replaceChildren(...navItems);
 
+  /* ---------- 上のメニューの「ツール」(左のツールバーと同じ並び。まとまりの間に区切りを入れる) ---------- */
+  ui.toolMenu.replaceChildren(...TOOL_GROUPS.flatMap((group, gi) => {
+    const items = group.map(t => {
+      const li = document.createElement('li'), b = document.createElement('button');
+      b.dataset.cmd = `tool.${t.id}`; // キーの表記と結び付けは、下の data-cmd の処理で付ける
+      b.append(t.name ?? t.label, Object.assign(document.createElement('span'), { className: 'ml-auto' }));
+      b.lastElementChild!.setAttribute('data-tool-check', t.id);
+      li.append(b);
+      return li;
+    });
+    return gi ? [Object.assign(document.createElement('li'), { className: 'menu-sep' }), ...items] : items;
+  }));
+
   /* ---------- data-cmd の部品に、キーの表記・ツールチップを付けて結び付ける ---------- */
   const cmdButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-cmd]')];
   for (const b of cmdButtons) {
@@ -375,13 +420,13 @@ export function bindActions(app: App, deps: ActionDeps): void {
       // キーの表記は PC のメニューにだけ付ける(スマホの上のメニューにはキーボードが無い)
       if (b.closest('.menu') && !b.closest('.m-only') && !b.querySelector('kbd')) {
         const kbd = document.createElement('kbd');
-        kbd.className = b.querySelector('[data-check]') ? 'kbd kbd-xs' : 'kbd kbd-xs ml-auto';
-        kbd.textContent = a.keys[0];
+        kbd.className = b.querySelector('[data-check], [data-tool-check]') ? 'kbd kbd-xs' : 'kbd kbd-xs ml-auto';
+        kbd.textContent = keyLabel(a.keys[0]);
         b.append(kbd);
       }
     }
     // スマホの部品とメニューは文字で分かるので、ツールチップは PC のボタンにだけ付ける
-    if (!b.closest('.menu, .m-only')) b.title = tooltip(a);
+    if (!b.closest('.menu, .m-only')) { b.title = tooltip(a); b.dataset.tip = b.title; }
     const inDropdown = !!b.closest('.dropdown');
     b.addEventListener('click', () => {
       // ドロップダウンの中ならフォーカスを外して閉じる。ほかのボタンはキーボードで続けて押せるようフォーカスを残す
@@ -405,7 +450,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
     // キーもマウスの操作と同じ書き方(キーの札)で出す
     ui.helpKeys.replaceChildren(...[...rows].flatMap(([label, keys]) => [
       Object.assign(document.createElement('span'), { textContent: label }),
-      Object.assign(document.createElement('span'), { className: 'help-op', innerHTML: hintHtml(keys.map(k => ({ mods: k }))) }),
+      Object.assign(document.createElement('span'), { className: 'help-op', innerHTML: hintHtml(keys.map(k => ({ mods: keyLabel(k) }))) }),
     ]));
   }
 
@@ -423,8 +468,12 @@ export function bindActions(app: App, deps: ActionDeps): void {
     if (isTyping(e) || modalOpen()) return;
     if (e.target instanceof HTMLInputElement && e.target.type === 'range' && SLIDER_KEYS.has(e.key) && !e.ctrlKey && !e.metaKey) return;
     if (e.key === 'Tab' && keyboardFocus()) return;
+    // 矢印キーは、メニュー・作業のタブ・シークバーなどが先に使っていれば(defaultPrevented)、それに任せる
+    if (e.key.startsWith('Arrow') && (e.defaultPrevented || (e.target instanceof Element && e.target.matches(ARROW_WIDGETS)))) return;
     const name = byKey.get(keyString(e));
     if (!name) return;
+    // Esc はほかの部品も使うので、すでに使われたときと、いま使えないときは触らない
+    if (e.key === 'Escape' && (e.defaultPrevented || !enabled(name))) return;
     e.preventDefault();
     run(name);
   });
@@ -432,13 +481,30 @@ export function bindActions(app: App, deps: ActionDeps): void {
   /* ---------- 状態 → 画面 ---------- */
   const undoLabel = document.querySelector('[data-label=undo]')!, redoLabel = document.querySelector('[data-label=redo]')!;
   const checks = [...document.querySelectorAll<HTMLElement>('[data-check]')];
+  /** 使えない理由の注意書き(data-blocked にコマンドの名前。メニューやダイアログの中に置き、使えない間だけ出す) */
+  const blockedNotes = [...document.querySelectorAll<HTMLElement>('[data-blocked]')];
+  for (const el of blockedNotes) if (!table[el.dataset.blocked!]?.blocked) throw new Error(`コマンド「${el.dataset.blocked}」に使えない理由がありません`);
   const pressables = [...ui.toolNav.querySelectorAll<HTMLElement>('[data-pressed]')];
   const keyPlayButtons = [...ui.toolNav.querySelectorAll<HTMLElement>('[data-cmd=toggleKeyPlay]')];
   const overlayBadges = [...ui.toolNav.querySelectorAll<HTMLElement>('[data-pressed=overlay] .nav-badge')];
   /** 'status' でも呼ぶ(0.5 秒ごと)ので、変わったときだけ書く */
   const setText = (el: Element, text: string) => { if (el.textContent !== text) el.textContent = text; };
   function refresh(): void {
-    for (const b of cmdButtons) { const off = !enabled(b.dataset.cmd!); if (b.disabled !== off) b.disabled = off; }
+    for (const b of cmdButtons) {
+      const off = !enabled(b.dataset.cmd!);
+      if (b.disabled !== off) b.disabled = off;
+      // ツールチップのあるボタンは、使えない理由を足す
+      if (b.dataset.tip !== undefined) {
+        const why = off ? table[b.dataset.cmd!].blocked?.() : null;
+        const tip = why ? `${b.dataset.tip}\n${why}` : b.dataset.tip;
+        if (b.title !== tip) b.title = tip;
+      }
+    }
+    for (const el of blockedNotes) {
+      const why = enabled(el.dataset.blocked!) ? null : table[el.dataset.blocked!].blocked!();
+      el.hidden = !why;
+      setText(el, why ?? '');
+    }
     setText(undoLabel, app.history.undoLabel ? `(${app.history.undoLabel})` : '');
     setText(redoLabel, app.history.redoLabel ? `(${app.history.redoLabel})` : '');
     const on: Record<ViewCheck, boolean> = {
@@ -476,6 +542,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
   app.on('blur', refresh);
   app.on('take', refresh);
   app.on('tabs', refresh);
+  app.on('file', refresh); // 「未保存」になると、置き換えて開けたサンプルのタブが置き換えられなくなる
   app.on('status', refresh); // 書き出しの始まり・終わりなど(fps の更新は別のイベントなので、ここでは拾わない)
   app.store.on('layers', refresh);
   app.store.on('replace', refresh);
@@ -483,8 +550,10 @@ export function bindActions(app: App, deps: ActionDeps): void {
 
   /* ---------- ツールの表示(ツールオプションの欄は ui/toolOptions.ts) ---------- */
   const toolButtons = [...ui.toolNav.querySelectorAll<HTMLButtonElement>('.tool')];
+  const toolChecks = [...ui.toolMenu.querySelectorAll<HTMLElement>('[data-tool-check]')];
   function refreshTool(): void {
     for (const b of toolButtons) b.setAttribute('aria-pressed', String(b.dataset.tool === app.tool));
+    for (const el of toolChecks) setText(el, el.dataset.toolCheck === app.tool ? '✓' : '');
   }
   app.on('tool', refreshTool);
 

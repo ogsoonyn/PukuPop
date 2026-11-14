@@ -1,6 +1,14 @@
 /** DOM まわりの小さな道具。 */
 import { ui } from './ids';
 
+/**
+ * 日本語などの変換の途中のキーか。変換を確定する Enter・取り消す Esc で欄を抜けないよう、
+ * Enter / Esc で欄を閉じる処理の前に確かめる(Safari は確定後に isComposing を外すので keyCode 229 も見る)
+ */
+export function isComposingKey(e: KeyboardEvent): boolean {
+  return e.isComposing || e.keyCode === 229;
+}
+
 export function toast(message: string, kind: 'info' | 'success' | 'error' | 'warning' = 'info', ms = 3500): void {
   const box = ui.toasts;
   const el = document.createElement('div');

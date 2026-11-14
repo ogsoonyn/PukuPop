@@ -5,6 +5,7 @@
  */
 import type { App } from '../app';
 import { ui } from './ids';
+import { isComposingKey } from './dom';
 import { icon } from './icons';
 import { LIMITS, MOTIONS, PRESETS, type Favorite } from '../model/project';
 import { favoriteMatches, FAVORITE_NAME_MAX } from '../model/favorites';
@@ -46,7 +47,7 @@ export function bindFavoriteControls(app: App): void {
   list.addEventListener('keydown', e => {
     const el = e.target as HTMLInputElement;
     // 日本語の変換を確定する Enter・取り消す Esc では、欄を抜けない
-    if (el.dataset.act !== 'name' || e.isComposing || e.keyCode === 229) return;
+    if (el.dataset.act !== 'name' || isComposingKey(e)) return;
     if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
     else if (e.key === 'Escape') { e.preventDefault(); el.value = app.project.favorites.find(f => f.id === idOf(el))?.name ?? el.value; el.blur(); }
   });

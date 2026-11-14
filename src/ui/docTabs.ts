@@ -79,6 +79,8 @@ export function bindDocTabs(app: App, deps: { open: () => unknown }): void {
     renderStrip();
     renderTitle();
     if (dlg.open) renderList();
+    // タブが上限のときは開けない(理由は一覧の下に出る。ui/actions.ts の data-blocked)
+    ui.tabOpen.disabled = !app.canOpenTab;
   }
 
   ui.mTitle.addEventListener('click', () => { renderList(); dlg.showModal(); });

@@ -201,13 +201,13 @@ test('3面図: 正面・右・下はホイールでズーム・ドラッグで�
   await page.mouse.up();
   expect((await state()).free.yaw).not.toBeCloseTo(s0.free.yaw);
 
-  // 主ビューの視点・揺れの計算・アンドゥには何も起きない。自由角度は保存するので「未保存」になる
+  // 主ビューの視点・揺れの計算・アンドゥには何も起きない。視点を動かしただけなので「未保存」にもならない
   const [lo, hi] = await watching;
   expect(Math.max(Math.abs(lo - before), Math.abs(hi - before))).toBeLessThan(0.005);
   const s4 = await state();
   expect(s4.main).toBe(s0.main);
   expect(s4.viewTarget).toBe(s0.viewTarget);
-  await expect.poll(async () => (await state()).dirty).toBe(true); // 「未保存」は少し間引いてから付く
+  expect(s4.dirty).toBe(false);
   expect(s4.undo).toBe(s0.undo);
 
   // ダブルクリックで回転・ズーム・平行移動がすべて初期の視点に戻る
@@ -262,7 +262,7 @@ test('「移動」ツール(H)の左ドラッグは平行移動になり、塗�
   expect(Math.hypot(after.t.x - before.t.x, after.t.y - before.t.y, after.t.z - before.t.z)).toBeGreaterThan(1);
 });
 
-test('視点を変えると「未保存」になる。変化の無い一括処理では「未保存」にならない', async ({ page }) => {
+test('視点を変えても「未保存」にならない。変化の無い一括処理でも「未保存」にならない', async ({ page }) => {
   await boot(page);
   const dirty = () => page.evaluate(() => (window as any).popstage.dirty as boolean);
   expect(await dirty()).toBe(false);
@@ -278,16 +278,19 @@ test('視点を変えると「未保存」になる。変化の無い一括処�
   await page.waitForTimeout(400);
   expect(await dirty()).toBe(false);
 
+  // 回す・平行移動・ズーム・正面に戻す・移動ツールで動かす(見るだけの操作)
   await dragOnStage(page, [0.5, 0.5], [0.7, 0.5], 'right');
-  await expect.poll(dirty).toBe(true);
-
-  // 回した直後に保存しても、保存が済んだ後で「未保存」に戻らない
-  await page.evaluate(async () => { const a = (window as any).popstage; await a.save(); });
-  await dragOnStage(page, [0.5, 0.5], [0.3, 0.5], 'right');
-  await page.evaluate(async () => { await (window as any).popstage.save(); });
-  expect(await dirty()).toBe(false);
+  const box = (await page.locator('#view').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, -200);
+  await page.keyboard.press('h');
+  await dragOnStage(page, [0.5, 0.5], [0.4, 0.4]);
+  await page.evaluate(() => (window as any).popstage.resetView());
   await page.waitForTimeout(500);
   expect(await dirty()).toBe(false);
+  // レイヤーを足すと(編集なので)「未保存」になる
+  await page.evaluate(() => (window as any).popstage.addLayer());
+  expect(await dirty()).toBe(true);
 });
 
 test('画角のアンドゥは画角だけを戻し、その後に回した視点は戻さない', async ({ page }) => {
@@ -323,7 +326,7 @@ test('右ドラッグで視点が回り、Home で正面に戻る', async ({ pag
   await page.locator('#view').focus();
   await page.keyboard.press('Home');
   // 画角はそのまま、回転・平行移動・ズームは正面の等倍へ
-  expect(await cam()).toEqual({ fov: 50, yaw: 0, pitch: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } });
+  expect(await cam()).toEqual({ fov: 50, yaw: 0, pitch: 0, roll: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } });
 });
 
 test('見た目の基準画像(揺れ停止・正面寄りの視点)', async ({ page }) => {
@@ -361,7 +364,7 @@ test('3面図にはウェイトの重ね表示・「画像を薄く」・グリ�
   await expect(page.locator('#view')).toHaveCSS('cursor', 'crosshair');
 });
 
-test('3面図の自由角度の視点はプロジェクトに保存し、「未保存」になる。復元すると戻る', async ({ page }) => {
+test('3面図の自由角度の視点はプロジェクトに保存するが、動かしただけでは「未保存」にしない。編集して自動保存すると、復元で戻る', async ({ page }) => {
   await boot(page);
   await page.locator('#view').focus();
   await page.keyboard.press('m');
@@ -372,9 +375,12 @@ test('3面図の自由角度の視点はプロジェクトに保存し、「未�
   await page.mouse.move(vb.x + vb.width * 0.7, vb.y + vb.height * 0.4, { steps: 5 });
   await page.mouse.up();
   await page.mouse.wheel(0, -300);
-  await expect.poll(() => page.evaluate(() => (window as any).popstage.dirty)).toBe(true);
   // ホイールのズームは数フレームかけて寄るので、止まってから視点を控える(描画が遅いと 1.5 秒では寄り切らない)
   await settled(page, () => page.evaluate(() => (window as any).popstage.multiCam.zoom));
+  expect(await page.evaluate(() => (window as any).popstage.dirty)).toBe(false);
+  // 編集すると「未保存」になり、そのときの視点ごと自動保存される
+  await page.evaluate(() => (window as any).popstage.addLayer());
+  expect(await page.evaluate(() => (window as any).popstage.dirty)).toBe(true);
   const cam = await page.evaluate(() => JSON.stringify((window as any).popstage.multiCam));
   const t = await page.evaluate(() => Date.now());
   // 自動保存から復元すると、同じ視点に戻る。止まった後の視点が書き込まれるまで待つ

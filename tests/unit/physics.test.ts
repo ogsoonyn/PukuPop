@@ -193,14 +193,14 @@ describe('揺れの物理', () => {
       const a = { ...view(), ...from }, b = { ...view(), ...to }, max = { x: 0, y: 0, z: 0 };
       for (let i = 0; i < 140; i++) {
         const u = Math.min(1, i / 18), m = (k: 'yaw' | 'pitch' | 'zoom') => a[k] + (b[k] - a[k]) * u;
-        w.viewAngles = { yaw: m('yaw'), pitch: m('pitch'), zoom: m('zoom') };
+        w.viewAngles = { yaw: m('yaw'), pitch: m('pitch'), roll: 0, zoom: m('zoom') };
         w.step([l]);
         const s = w.displacement(l.id);
         max.x = Math.max(max.x, Math.abs(s.x)); max.y = Math.max(max.y, Math.abs(s.y)); max.z = Math.max(max.z, Math.abs(s.z));
       }
       return max;
     };
-    const view = () => ({ yaw: 0, pitch: 0, zoom: 1 });
+    const view = () => ({ yaw: 0, pitch: 0, roll: 0, zoom: 1 });
 
     it('左右に回すと、ふくらみの高さに応じて横に揺れる。平らなら揺れない', () => {
       const tall = layerWith({ weight: 0 }); tall.pop = 30;
@@ -240,7 +240,7 @@ describe('揺れの物理', () => {
     it('斜めから見ていても、平行移動の揺れは正面から見たときと同じ(画像の向きで同じ量)', () => {
       const pan = (yaw: number, pitch: number) => {
         const l = layerWith({ weight: 0 }), w = new PhysicsWorld(); w.unitPx = 50; l.pop = 20;
-        w.viewAngles = { yaw, pitch, zoom: 1 };
+        w.viewAngles = { yaw, pitch, roll: 0, zoom: 1 };
         for (let i = 0; i < 40; i++) { w.viewTarget = { x: Math.min(i, 20) * 2, y: Math.min(i, 20), z: 0 }; w.step([l]); }
         return w.displacement(l.id);
       };
@@ -251,7 +251,7 @@ describe('揺れの物理', () => {
 
     it('視点を止めたままポップ量や塗りの重心を変えても揺れない', () => {
       const l = layerWith({ weight: 0 }), w = new PhysicsWorld(); w.unitPx = 50;
-      w.viewAngles = { yaw: -0.5, pitch: 0.3, zoom: 1.5 };
+      w.viewAngles = { yaw: -0.5, pitch: 0.3, roll: 0, zoom: 1.5 };
       run(w, [l], 0.5);
       l.pop = 400; w.centerOf = () => ({ x: 0.7, y: -0.4 });
       run(w, [l], 0.5);
@@ -274,7 +274,7 @@ describe('揺れの物理', () => {
     it('視点が飛んだとき(リセットなど)は、回転・ズームでも揺らさない', () => {
       const l = layerWith({ weight: 0 }), w = new PhysicsWorld(); w.unitPx = 50; l.pop = 30;
       w.step([l]);
-      w.cutView(); w.viewAngles = { yaw: 1.2, pitch: -0.5, zoom: 3 };
+      w.cutView(); w.viewAngles = { yaw: 1.2, pitch: -0.5, roll: 0, zoom: 3 };
       run(w, [l], 1);
       expect(w.displacement(l.id)).toEqual({ x: 0, y: 0, z: 0 });
     });
@@ -376,7 +376,7 @@ describe('操作の記録', () => {
       if (i % 2 === 0) camera.target = { x: Math.sin(i / 40) * 80, y: (i % 300) * 0.5, z: Math.cos(i / 55) * 20 }; // 描画フレームごとに動く
       if (i === 400) live.cutView(); // 視点のリセット相当
       live.viewTarget = camera.target;
-      live.viewAngles = { yaw: camera.yaw, pitch: camera.pitch, zoom: camera.zoom };
+      live.viewAngles = { yaw: camera.yaw, pitch: camera.pitch, roll: 0, zoom: camera.zoom };
       rec.record({ grab: null, grabGains: [], camera: structuredClone(camera), viewCut: live.viewCut }, () => live.snapshot());
       live.step([l]);
       xs.push(live.displacement(l.id).x);
@@ -399,7 +399,7 @@ describe('操作の記録', () => {
     for (let i = 0; i < n; i++) {
       if (i % 2 === 0) { camera.yaw = Math.sin(i / 30) * 0.9; camera.pitch = Math.cos(i / 45) * 0.4; camera.zoom = Math.exp(Math.sin(i / 25) * 0.4); }
       live.viewTarget = camera.target;
-      live.viewAngles = { yaw: camera.yaw, pitch: camera.pitch, zoom: camera.zoom };
+      live.viewAngles = { yaw: camera.yaw, pitch: camera.pitch, roll: 0, zoom: camera.zoom };
       rec.record({ grab: null, grabGains: [], camera: structuredClone(camera), viewCut: live.viewCut }, () => live.snapshot());
       live.step([l]);
       const s = live.displacement(l.id); xs.push(s.x + s.y + s.z);
@@ -431,7 +431,7 @@ describe('操作の記録', () => {
     for (let i = 0; i < n; i++) {
       if (i % 2 === 0 && i < 200) { shake.x = Math.sin(i / 25) * 60; shake.y = (i % 100) * 0.4; }
       live.viewTarget = { x: camera.target.x + shake.x, y: camera.target.y + shake.y, z: camera.target.z + shake.z };
-      live.viewAngles = { yaw: camera.yaw, pitch: camera.pitch, zoom: camera.zoom };
+      live.viewAngles = { yaw: camera.yaw, pitch: camera.pitch, roll: 0, zoom: camera.zoom };
       rec.record({ grab: null, grabGains: [], camera: structuredClone(camera), viewTarget: { ...live.viewTarget }, viewCut: live.viewCut }, () => live.snapshot());
       live.step([l]);
       xs.push(live.displacement(l.id).x);

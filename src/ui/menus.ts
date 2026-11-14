@@ -29,6 +29,8 @@ export function bindMenus(): void {
       trigger.addEventListener('keydown', e => {
         if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') { handled(e); focusAt(0); }
         else if (e.key === 'ArrowUp') { handled(e); focusAt(-1); }
+        // 開いたメニューを Esc で閉じる(ショートカットの Esc「選択を1枚に戻す」へ回さない)
+        else if (e.key === 'Escape') { handled(e); trigger.blur(); }
         else if (bar.id === 'menubar' && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
           handled(e);
           dropdowns[(i + (e.key === 'ArrowRight' ? 1 : -1) + dropdowns.length) % dropdowns.length].querySelector<HTMLElement>(':scope > [role=button]')?.focus();

@@ -25,6 +25,7 @@ import { bindFavoriteControls } from './ui/favorites';
 import { isTool } from './ui/tools';
 import { bindHelp } from './ui/help';
 import { bindDocTabs } from './ui/docTabs';
+import { bindMemoryStatus } from './ui/memoryStatus';
 import { FILE_EXTENSION, LEGACY_FILE_EXTENSION } from './storage/popstage';
 import { ask, toast, retryWithClick } from './ui/dom';
 import { autosave } from './storage/autosave';
@@ -155,6 +156,7 @@ bindActions(app, {
 });
 bindMenus();
 bindDocTabs(app, { open: openAny });
+bindMemoryStatus(app);
 // 左のツールバーを作ったあとに、隠すボタンを映す
 const settingsDialog = bindSettingsDialog();
 // スマホの配置。右パネルなどの部品を移すので、ほかの部品を結び付けたあとに呼ぶ
@@ -193,6 +195,10 @@ function refreshStatus(): void {
     ui.sVerts.textContent = `${app.stage.vertexCount.toLocaleString()} 頂点`;
   }
   ui.sZoom.textContent = `ズーム ${Math.round(100 / app.project.camera.zoom)}%`;
+  // 0° に見える(0.5° 未満の)ときは出さない
+  const deg = Math.round((app.project.camera.roll * 180) / Math.PI);
+  if (ui.sRoll.hidden !== !deg) ui.sRoll.hidden = !deg;
+  if (deg) ui.sRoll.textContent = `↻ ${deg}°`;
   ui.sImage.textContent = d ? `${d.image.width}×${d.image.height}px・ウェイト ${d.layers[0]?.weights.width ?? 0}×${d.layers[0]?.weights.height ?? 0}` : '-';
   if (!app.exporting) ui.sRec.textContent = [app.view.flat && 'ポップOFF', app.paused && '揺れ一時停止中'].filter(Boolean).join('・');
   ui.sSave.textContent = app.autosaveError ? `自動保存に失敗しました(${app.autosaveError})。こまめに保存してください。` : app.dirty ? (app.lastAutosave ? `未保存の変更あり(${app.lastAutosave.toLocaleTimeString()} に自動保存)` : '未保存の変更あり') : app.lastSaved ? `保存済み ${app.lastSaved.toLocaleTimeString()}` : '';
@@ -202,6 +208,7 @@ function refreshTitle(): void {
   document.title = `${app.dirty ? '* ' : ''}${name ? name + ' - ' : ''}PukuPop`;
   refreshStatus();
 }
+ui.sRoll.addEventListener('click', () => app.resetRoll());
 app.on('status', refreshStatus);
 app.on('fps', refreshStatus); // ズームの表示など、イベントの無い変化もここで拾う(ステータスバーだけを書き直す)
 app.on('view', refreshStatus);
