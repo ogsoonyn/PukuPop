@@ -20,6 +20,12 @@ export function bindMemoryStatus(app: App): void {
   app.on('fps', refresh);
   app.on('tabs', refresh);
   root.addEventListener('focusin', refresh);
+  // フォーカスで開くので、Esc で閉じる(ほかのショートカットには回さない)
+  root.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault(); e.stopPropagation();
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
 }
 
 function renderDetail(m: MemoryUsage, historyLimit: number): void {
@@ -44,7 +50,7 @@ function renderDetail(m: MemoryUsage, historyLimit: number): void {
   const title = (s: string) => { const p = document.createElement('p'); p.className = 'font-bold mt-2 first:mt-0'; p.textContent = s; return p; };
   const note = document.createElement('p');
   note.className = 'opacity-70 mt-2';
-  note.textContent = 'アプリが持っているデータの量の見積もりです。ブラウザが実際に使うメモリはこれより多くなります。アンドゥの上限は全部のタブの合計です。';
+  note.textContent = 'アプリが持っているデータの量の見積もりです。ブラウザが実際に使うメモリはこれより多くなります。アンドゥの上限は全部のタブの合計です。レイヤーの追加・削除を戻せるあいだは、そのウェイトをアンドゥの側にも数えます。JS のヒープには、画像やウェイトのバイト列はほとんど入りません。';
 
   const parts: Node[] = [title(`合計 約 ${formatBytes(m.total)}`), table([], rows)];
   if (m.tabs.length > 1) {

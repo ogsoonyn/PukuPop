@@ -25,4 +25,7 @@ test('ステータスバーにメモリの見積もりを出し、押すと内�
   await expect(detail).toContainText('合計 約');
   await expect(detail).toContainText('アンドゥ');
   await expect(detail).toContainText('JS のヒープ');
+  // Esc で閉じる
+  await page.keyboard.press('Escape');
+  await expect(detail).toBeHidden();
 });
