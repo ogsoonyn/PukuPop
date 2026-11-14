@@ -32,6 +32,7 @@ test('塗ると持ち上がり、塗った矩形だけ転送され、元に戻�
   await boot(page);
   await page.evaluate(() => (window as any).popstage.weightOp('全消去', (wm: any) => wm.clear()));
   expect(await weightSum(page)).toBe(0);
+  await page.evaluate(() => (window as any).popstage.setTool('brush'));
   const partialBefore = await page.evaluate(() => (window as any).popstage.stage.partialUploads);
   await page.waitForTimeout(100);
   const shotBefore = await page.locator('#stage').screenshot();
@@ -355,6 +356,7 @@ test('全体をぼかす: プレビュー中も視点は回せる。塗る・ツ
   await boot(page);
   const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
   const original = await weightSum(page);
+  await page.evaluate(() => (window as any).popstage.setTool('brush'));
   await page.locator('nav button[data-cmd=smoothAll]').click();
   await expect(page.locator('#blurDialog')).toHaveJSProperty('open', true);
   expect(await page.evaluate(() => document.querySelector('#blurDialog')!.matches(':modal'))).toBe(false);

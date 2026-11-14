@@ -39,8 +39,8 @@ test('スマホ幅では3Dビューが全面に出て、PC のパネルは隠れ
   await expect(page.locator('#mTools')).toBeVisible();
   const view = (await page.locator('#view').boundingBox())!;
   expect(view.width).toBeGreaterThan(400);
-  // 塗りのツールは「塗って直す」の奥にあるので、最初はつかむ
-  await expect(page.locator('#mTools [data-mtool="grab"]')).toHaveAttribute('aria-pressed', 'true');
+  // 最初は移動のツール(塗りのツールは「塗って直す」の奥にある)
+  await expect(page.locator('#mTools [data-mtool="pan"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#mTools [data-mtool="brush"]')).toBeHidden();
   await expect(page.locator('#mTools [data-mtool="inflate"]')).toBeHidden();
   await expect(page.locator('#mTools [data-mtool="pan"]')).toBeVisible();
@@ -92,17 +92,30 @@ test('シートを開くと3Dビューはシートの上に縮み、シートの
   await expect(page.locator('#mSheet')).toHaveAttribute('data-state', 'closed');
 });
 
-test('プリセットはシートのボタンで選べる', async ({ page }) => {
+test('シートの一番上に左のツールバーの操作が横に並び、プリセットはレイヤーのタブで選べる', async ({ page }) => {
   await boot(page);
-  const chip = page.locator('#mPresets button').nth(1);
-  const value = await chip.getAttribute('data-value');
-  await chip.click();
-  await expect(chip).toHaveAttribute('aria-pressed', 'true');
+  // 左のツールバーの、その場で効く操作(ツールと、既定で隠すもの・3面図は出さない)
+  const nav = page.locator('#mNav');
+  await expect(nav).toBeVisible();
+  for (const cmd of ['recent', 'smoothAll', 'toggleOverlay', 'resetView', 'toggleAutoSwing', 'toggleKeyPlay', 'addFavorite']) await expect(nav.locator(`[data-cmd=${cmd}]`)).toHaveCount(1);
+  for (const cmd of ['open', 'save', 'export', 'toggleMulti']) await expect(nav.locator(`[data-cmd=${cmd}]`)).toHaveCount(0);
+  await expect(nav.locator('[data-tool]')).toHaveCount(0);
+  // 横に送れる(画面より長い)
+  expect(await nav.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+  // 押すとコマンドが動き、入・切はモデルから映す
+  const grid = () => page.evaluate(() => (window as any).popstage.view.grid);
+  const g0 = await grid();
+  await nav.locator('[data-cmd=toggleGrid]').click();
+  expect(await grid()).toBe(!g0);
+  await expect(nav.locator('[data-cmd=toggleGrid]')).toHaveAttribute('aria-pressed', String(!g0));
+  // プリセットはレイヤーのタブの「揺れ」にある、PC と同じ選択欄
+  await page.locator('[data-mtab="layer"]').click();
+  const sel = page.locator('#mPanes #pPreset');
+  await sel.scrollIntoViewIfNeeded();
+  await expect(sel).toBeVisible();
+  const value = await sel.locator('option').nth(1).getAttribute('value');
+  await sel.selectOption(value!);
   expect(await page.evaluate(() => (window as any).popstage.activeLayer.physics.preset)).toBe(value);
-  // ボタンの状態はモデルから決める(元に戻すと、前のプリセットのボタンが押された状態に戻る)
-  const prev = await page.evaluate(() => { const a = (window as any).popstage; a.history.undo(); return a.activeLayer.physics.preset; });
-  await expect(chip).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.locator(`#mPresets button[data-value=${prev}]`)).toHaveAttribute('aria-pressed', 'true');
   // 上のバーの「自動で揺らす」もモデルを切り替え、表示が付いてくる
   const auto = () => page.evaluate(() => (window as any).popstage.project.autoSwing.enabled);
   const before = await auto();
@@ -111,6 +124,65 @@ test('プリセットはシートのボタンで選べる', async ({ page }) => 
   await expect(page.locator('#mAuto')).toHaveAttribute('aria-pressed', String(!before));
   // スマホの上のメニューには、PC のキー表記を付けない
   await expect(page.locator('#mTop .menu kbd')).toHaveCount(0);
+});
+
+test('上のバーの再生ボタンで、キーフレームの動きを再生・停止できる', async ({ page }) => {
+  await boot(page);
+  const play = page.locator('#mPlay');
+  // フレームが2つ未満のうちは押せない
+  await expect(play).toBeDisabled();
+  await page.evaluate(() => {
+    const a = (window as any).popstage;
+    a.keyDraft = [0, 0.6].map(yaw => ({ view: { yaw, pitch: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } }, seconds: 1, mode: 'smooth' }));
+    a.emit('take', a.takeState);
+  });
+  await expect(play).toBeEnabled();
+  await play.click();
+  expect(await page.evaluate(() => (window as any).popstage.takeState)).toBe('playing');
+  await expect(play).toHaveAttribute('aria-label', '再生を止める');
+  // シートの一番上の同じボタンも停止に変わる
+  await expect(page.locator('#mNav [data-cmd=toggleKeyPlay] .nav-label')).toHaveText('停止');
+  await play.click();
+  expect(await page.evaluate(() => (window as any).popstage.takeState)).toBe('idle');
+  await expect(play).toHaveAttribute('aria-label', 'キーフレームを再生');
+});
+
+test('シートのスライダーは横に引くと動き、縦に動かす・触るだけでは値が変わらない', async ({ page }) => {
+  await boot(page);
+  const cdp = await page.context().newCDPSession(page);
+  await page.locator('[data-mtab="layer"]').click();
+  await page.locator('#mGrip').click(); await page.waitForTimeout(400);
+  const range = page.locator('#mPanes #pPop');
+  await range.scrollIntoViewIfNeeded();
+  const pop = () => page.evaluate(() => (window as any).popstage.activeLayer.pop);
+  const v0 = await pop();
+  let b = (await range.boundingBox())!;
+  const y = b.y + b.height / 2;
+  // 触るだけ(つまみと離れた所)では跳ばない
+  await touch(cdp, 'touchStart', [[b.x + b.width * 0.95, y]]);
+  await touch(cdp, 'touchEnd', []);
+  expect(await pop()).toBe(v0);
+  // 縦に動かすとスクロールになり、値は変わらない
+  await swipe(cdp, [[b.x + b.width * 0.9, y]], [[b.x + b.width * 0.85, y - 120]], 10);
+  expect(await pop()).toBe(v0);
+  // 横に引くと、引いた分だけ今の値から動く
+  await range.scrollIntoViewIfNeeded();
+  b = (await range.boundingBox())!;
+  await swipe(cdp, [[b.x + b.width * 0.2, b.y + b.height / 2]], [[b.x + b.width * 0.5, b.y + b.height / 2]], 10);
+  expect(await pop()).toBeGreaterThan(v0);
+  // 1回のドラッグは1手で戻る
+  await page.evaluate(() => (window as any).popstage.history.undo());
+  expect(await pop()).toBe(v0);
+  // 引いてから元の所まで戻して離しても、次のドラッグは今のレイヤーに効き、1手で戻る
+  const x0 = b.x + b.width * 0.2, yy = b.y + b.height / 2;
+  await touch(cdp, 'touchStart', [[x0, yy]]);
+  for (let i = 1; i <= 6; i++) await touch(cdp, 'touchMove', [[x0 + i * 15, yy]]);
+  for (let i = 5; i >= 0; i--) await touch(cdp, 'touchMove', [[x0 + i * 15 + 10, yy]]);
+  await touch(cdp, 'touchEnd', []);
+  await swipe(cdp, [[x0, yy]], [[x0 + b.width * 0.2, yy]], 10);
+  expect(await pop()).toBeGreaterThan(v0);
+  await page.evaluate(() => (window as any).popstage.history.undo());
+  expect(await pop()).toBeLessThanOrEqual(v0 + 1);
 });
 
 test('上のメニューから設定を開ける。左のツールバーが無いので、その欄は出さない', async ({ page }) => {
@@ -127,6 +199,8 @@ test('2本指で平行移動とピンチズームができ、画像の外をな�
   const cdp = await page.context().newCDPSession(page);
   const cam = () => page.evaluate(() => { const c = (window as any).popstage.project.camera; return { zoom: c.zoom, x: c.target.x, yaw: c.yaw }; });
   const [cx, cy] = await viewCenter(page);
+  // 移動のツールは画像の外でも平行移動するので、つかむにする
+  await page.locator('#mTools [data-mtool="grab"]').click();
   const before = await cam();
   // 画像の外(上の端)を1本指でなぞると回転
   const top = (await page.locator('#view').boundingBox())!.y + 20;
@@ -258,7 +332,7 @@ test('「塗って直す」で塗れ、2本目の指を置くと塗りは取り�
   await swipe(cdp, [[cx - 80, cy + 60]], [[cx + 20, cy + 60]]);
   expect(await weightSum(page)).not.toBe(before);
   await page.locator('#mPaintDone').click();
-  await expect(page.locator('#mTools [data-mtool="grab"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#mTools [data-mtool="pan"]')).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('幅を広げると PC の配置に戻る', async ({ page }) => {
@@ -341,7 +415,8 @@ test('キーフレームはシートの中で指でつまみをドラッグし�
   const scroll = () => page.locator('#mPanes').evaluate(el => el.scrollTop);
   const before = await scroll();
   const cdp = await page.context().newCDPSession(page);
-  await swipe(cdp, [[g.x + g.width / 2, g.y + g.height / 2]], [[g.x + g.width / 2, last.y + last.height - 2]], 10);
+  // 行の下端まで行くとシートの下の端に近く、並べ替えの自動スクロールが効くので、行の下寄りで止める
+  await swipe(cdp, [[g.x + g.width / 2, g.y + g.height / 2]], [[g.x + g.width / 2, last.y + last.height * 0.7]], 10);
   expect(await page.evaluate(() => (window as any).popstage.keyDraft.map((k: any) => k.view.yaw))).toEqual([0.2, 0.3, 0.1]);
   // つまみを動かしてもシートは流れない
   expect(await scroll()).toBe(before);

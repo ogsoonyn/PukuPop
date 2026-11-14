@@ -97,6 +97,7 @@ test('自動保存は塗った内容を反映し、失敗したらステータ�
     return project.documents[0].layers[0].weights.data.reduce((s: number, x: number) => s + x, 0) as number;
   });
   // 1回目: 塗って自動保存させる
+  await page.evaluate(() => (window as any).popstage.setTool('brush'));
   await dragOnStage(page, [0.45, 0.5], [0.55, 0.5]);
   const s1 = await weightSum(page);
   await expect.poll(autosavedSum, { timeout: 10000 }).toBe(s1);
