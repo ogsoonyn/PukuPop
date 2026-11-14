@@ -3,6 +3,7 @@
  * 画面の部品(ui/)はここを経由して状態を読み書きする。
  */
 import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegments, alphaSpreadPx, frontCamera, defaultOrthoView, LIMITS, PRESETS, applyPreset, type PresetName, type CameraState, type Vec3, type OrthoView, type Project, type Document, type Layer } from './model/project';
+import { projectDataBytes, sumMemory, type MemoryUsage, type TabMemory } from './model/memory';
 import { History, emptyHistory, shrinkHistory, type HistoryState } from './commands/history';
 import type { Rect } from './model/weightmap';
 import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation, diffTiles } from './commands/commands';
@@ -11,7 +12,7 @@ import { captureFavorite, copyPhysics, sameLayer, nextFavoriteName, applyView, F
 import { Stage, type ViewOptions } from './stage/stage';
 import { PhysicsWorld, PHYSICS_DT } from './physics/world';
 import { MotionRecorder, applySample, type RecordSample } from './physics/recorder';
-import { finalizeTake, takeFromKeys, takeSeconds, TAKE_MAX_SECONDS, TAKE_MIN_SECONDS, KEY_SECONDS, MAX_KEYS, normalizeKeys, type ViewKey, type KeyFrame } from './physics/take';
+import { finalizeTake, takeFromKeys, takeSeconds, TAKE_MAX_SECONDS, TAKE_MIN_SECONDS, KEY_SECONDS, MAX_KEYS, normalizeKeys, moveKey as movedKeys, type ViewKey, type KeyFrame } from './physics/take';
 import { Stroke, type PaintMode } from './paint/stroke';
 import { inflateShape, type InflateProfile, type InflateBlend } from './paint/inflate';
 import { serializeProject, serializeProjectBlob, deserializeProject, FILE_EXTENSION, type PngCacheEntry } from './storage/popstage';
@@ -697,6 +698,24 @@ export class App extends Emitter<AppEvents> {
     this.trimHiddenHistory();
     this.emit('tabs', undefined);
     return true;
+  }
+
+  /** メモリの使用量の見積もり(ステータスバー)。全部のタブの分を数える。JS のヒープは Chrome 系だけ */
+  memoryUsage(): MemoryUsage {
+    const tabs: TabMemory[] = this.tabs.map(t => {
+      const active = t === this.tab;
+      let png = 0;
+      for (const e of t.pngCache.values()) png += e.png.byteLength;
+      const c = t.imageCanvas;
+      return {
+        name: this.tabName(t), active,
+        data: projectDataBytes(t.project, png),
+        history: active ? this.history.bytes : t.history.bytes,
+        render: (c ? c.width * c.height * 4 : 0) + (active ? this.stage.gpuBytes : 0),
+      };
+    });
+    const m = (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
+    return sumMemory(tabs, m ? { used: m.usedJSHeapSize, limit: m.jsHeapSizeLimit } : null);
   }
 
   /** どれかのタブに保存していない変更があるか(ページを閉じるときの確認) */
@@ -1602,6 +1621,14 @@ export class App extends Emitter<AppEvents> {
   removeKey(i: number): void {
     if (!this.keyDraft[i]) return;
     this.keyDraft.splice(i, 1);
+    this.emit('take', this.takeState);
+  }
+
+  /** from 番目のキーフレームを to 番目へ動かす(秒数は場所に残す。physics/take.ts の moveKey) */
+  moveKey(from: number, to: number): void {
+    const n = this.keyDraft.length;
+    if (from === to || from < 0 || from >= n || to < 0 || to >= n) return;
+    this.keyDraft = movedKeys(this.keyDraft, from, to);
     this.emit('take', this.takeState);
   }
 

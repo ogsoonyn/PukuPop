@@ -184,6 +184,18 @@ export function normalizeKeys(v: unknown): KeyFrame[] {
   });
 }
 
+/**
+ * from 番目のキーフレームを to 番目へ動かした並びを返す(元の配列は変えない)。
+ * 動くのは視点と通り方で、フレームの間の秒数は場所に残す(一覧の秒数の行はドラッグしないので、見た目どおりにする)。
+ */
+export function moveKey(keys: readonly KeyFrame[], from: number, to: number): KeyFrame[] {
+  const out = keys.map(k => ({ ...k }));
+  if (from === to || !out[from] || to < 0 || to >= out.length) return out;
+  const [k] = out.splice(from, 1);
+  out.splice(to, 0, k);
+  return out.map((k, i) => ({ ...k, seconds: keys[i].seconds }));
+}
+
 /* ---------- 保存の形(.pukupop の motion/take.json) ---------- */
 
 /**
