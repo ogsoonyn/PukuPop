@@ -5,7 +5,7 @@
  */
 export const UI_IDS = {
   // スマホの上のバー
-  mTop: 'header', mTitle: 'button', mAuto: 'button',
+  mTop: 'header', mTitle: 'button', mPlay: 'button', mAuto: 'button',
   // メニューバー・ツールオプション
   docTabs: 'div', toolMenu: 'ul',
   brushSize: 'input', brushSizeO: 'output', brushStrength: 'input', brushStrengthO: 'output',
@@ -30,7 +30,7 @@ export const UI_IDS = {
   vOverlayOff: 'input', vOverlaySel: 'input', vOverlayAll: 'input', vAutoOverlay: 'input', vAutoOverlayOff: 'input', setPopMax: 'input', vFade: 'input', vFlat: 'input', vPause: 'input', vMulti: 'input', vGrid: 'input',
   pFov: 'input', pFovO: 'output', pBgTransparent: 'input', pBgColor: 'input',
   // スマホのシート・下のバー
-  mSheet: 'section', mGrip: 'div', mPresets: 'div', mPanes: 'div', mToolDesc: 'p', mBrushOpts: 'div', mInflOpts: 'div', mPaintMode: 'button',
+  mSheet: 'section', mGrip: 'div', mNav: 'div', mPanes: 'div', mToolDesc: 'p', mBrushOpts: 'div', mInflOpts: 'div', mPaintMode: 'button',
   mModeBar: 'div', mTools: 'nav', mPaintDone: 'button',
   // ステータスバー
   sFps: 'span', sVerts: 'span', sZoom: 'span', sRoll: 'button', sImage: 'span', sRec: 'span', sSave: 'span', sMem: 'div', sMemDetail: 'div',

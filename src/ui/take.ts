@@ -21,7 +21,8 @@ export function bindTakeControls(app: App): void {
   /* ---------- キーフレーム ---------- */
   const { keyList: list, keyAdd: add, keyMake: make } = ui;
   add.addEventListener('click', () => app.addKey());
-  make.addEventListener('click', () => app.makeKeyTake());
+  // 再生と停止を1つのボタンにする。再生は一覧から作り直して今の記録と入れ替える(手で記録した操作があっても再生できる。元に戻せる)
+  make.addEventListener('click', () => { if (app.takeState === 'playing') app.stopTake(); else app.makeKeyTake(); });
   // 行の中のボタン・入力はまとめて受ける(行は作り直すことがある)
   const rowOf = (el: EventTarget | null) => Number((el as HTMLElement | null)?.closest<HTMLElement>('[data-key]')?.dataset.key ?? -1);
   list.addEventListener('click', e => {
@@ -206,7 +207,11 @@ export function bindTakeControls(app: App): void {
     ui.keyCount.textContent = `${keys.length}/${MAX_KEYS}`;
     add.disabled = keys.length >= MAX_KEYS || !app.doc;
     const total = keys.reduce((a, k) => a + k.seconds, 0);
-    make.disabled = keys.length < 2 || total < TAKE_MIN_SECONDS - 1e-9 || !app.doc || app.exporting || app.takeState === 'recording';
+    const playing = app.takeState === 'playing';
+    make.disabled = playing ? app.exporting : keys.length < 2 || total < TAKE_MIN_SECONDS - 1e-9 || !app.doc || app.exporting || app.takeState === 'recording';
+    make.querySelector('[data-icon]')!.textContent = playing ? '■' : '▶';
+    label(make).textContent = playing ? '停止' : '再生';
+    make.setAttribute('aria-pressed', String(playing));
     ui.keyTotal.textContent = keys.length < 2 ? '2つ以上' : total < TAKE_MIN_SECONDS - 1e-9 ? `1周 ${TAKE_MIN_SECONDS}秒以上` : `1周 ${sec(total)}`;
   }
 

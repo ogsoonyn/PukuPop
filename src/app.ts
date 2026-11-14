@@ -184,7 +184,8 @@ export class App extends Emitter<AppEvents> {
   private addFirstTab(): Tab { const t = createTab(this.store.project, { sample: true }); this.tabs.push(t); return t; }
   get activeTab(): Tab { return this.tab; }
 
-  tool: Tool = 'brush';
+  /** 起動したときは移動のツール(触っても絵を変えないので、開いてすぐ遊べる) */
+  tool: Tool = 'pan';
   get activeLayerId(): string | null { return this.tab.activeLayerId; }
   set activeLayerId(id: string | null) { this.tab.activeLayerId = id; }
   /**

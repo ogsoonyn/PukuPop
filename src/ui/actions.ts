@@ -250,6 +250,9 @@ const NAV_ACTIONS: readonly NavGroup[] = [
   },
 ];
 
+/** スマホのシートの一番上に出さない操作(3面図はスマホでは使わない) */
+const MOBILE_NAV_SKIP: ReadonlySet<CommandName> = new Set<CommandName>(['toggleMulti']);
+
 /**
  * 左のツールバーのボタンの一覧(並びのとおり)。設定で出す・隠すを選ぶのに使う。
  * id はボタンの data-nav と同じ(ツールはツールの id、操作はコマンドの名前)
@@ -390,6 +393,23 @@ export function bindActions(app: App, deps: ActionDeps): void {
   for (const g of NAV_ACTIONS) navItems.push(actionGroup(g));
   ui.toolNav.replaceChildren(...navItems);
 
+  /* ---------- スマホのシートの一番上(左のツールバーの、その場で効く操作を横1列に。ツールは下のバーにある) ---------- */
+  ui.mNav.replaceChildren(...NAV_ACTIONS.flatMap((g, gi) => {
+    const items = g.items.filter(it => !it.defaultHidden && !MOBILE_NAV_SKIP.has(it.cmd)).map(it => {
+      const b = navButton('m-act', it.icon, it.text);
+      b.querySelector('.tool-key')!.remove();
+      b.dataset.cmd = it.cmd;
+      if (it.check) b.dataset.pressed = it.check;
+      if (it.name) b.setAttribute('aria-label', it.name);
+      if (it.check === 'overlay') b.append(Object.assign(document.createElement('span'), { className: 'nav-badge', textContent: '全', hidden: true }));
+      return b;
+    });
+    if (!items.length) return [];
+    const sep = Object.assign(document.createElement('span'), { className: 'm-act-sep' });
+    sep.setAttribute('aria-hidden', 'true');
+    return gi ? [sep, ...items] : items;
+  }));
+
   /* ---------- 上のメニューの「ツール」(左のツールバーと同じ並び。まとまりの間に区切りを入れる) ---------- */
   ui.toolMenu.replaceChildren(...TOOL_GROUPS.flatMap((group, gi) => {
     const items = group.map(t => {
@@ -484,9 +504,11 @@ export function bindActions(app: App, deps: ActionDeps): void {
   /** 使えない理由の注意書き(data-blocked にコマンドの名前。メニューやダイアログの中に置き、使えない間だけ出す) */
   const blockedNotes = [...document.querySelectorAll<HTMLElement>('[data-blocked]')];
   for (const el of blockedNotes) if (!table[el.dataset.blocked!]?.blocked) throw new Error(`コマンド「${el.dataset.blocked}」に使えない理由がありません`);
-  const pressables = [...ui.toolNav.querySelectorAll<HTMLElement>('[data-pressed]')];
-  const keyPlayButtons = [...ui.toolNav.querySelectorAll<HTMLElement>('[data-cmd=toggleKeyPlay]')];
-  const overlayBadges = [...ui.toolNav.querySelectorAll<HTMLElement>('[data-pressed=overlay] .nav-badge')];
+  // 左のツールバーと、スマホのシートの一番上・上のバー(同じボタンを作っている)
+  const navs = '#toolNav, #mNav, #mTop';
+  const pressables = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-pressed]`)];
+  const keyPlayButtons = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-cmd=toggleKeyPlay]`)];
+  const overlayBadges = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-pressed=overlay] .nav-badge`)];
   /** 'status' でも呼ぶ(0.5 秒ごと)ので、変わったときだけ書く */
   const setText = (el: Element, text: string) => { if (el.textContent !== text) el.textContent = text; };
   function refresh(): void {
@@ -527,7 +549,8 @@ export function bindActions(app: App, deps: ActionDeps): void {
       if (b.dataset.playing === String(playing)) continue;
       b.dataset.playing = String(playing);
       b.querySelector('svg')!.innerHTML = ICONS[playing ? 'stop' : 'play'];
-      b.querySelector('.nav-label')!.textContent = playing ? '停止' : '再生';
+      const l = b.querySelector('.nav-label'); // スマホの上のバーのボタンはアイコンだけ
+      if (l) l.textContent = playing ? '停止' : '再生';
       b.setAttribute('aria-label', playing ? '再生を止める' : 'キーフレームを再生');
     }
     for (const el of pressables) {

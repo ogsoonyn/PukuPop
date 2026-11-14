@@ -22,7 +22,6 @@ import { bindKeyPath } from './ui/keyPath';
 import { clampPopMax } from './ui/popSlider';
 import { bindInflateFrame } from './ui/inflateFrame';
 import { bindFavoriteControls } from './ui/favorites';
-import { isTool } from './ui/tools';
 import { bindHelp } from './ui/help';
 import { bindDocTabs } from './ui/docTabs';
 import { bindMemoryStatus } from './ui/memoryStatus';
@@ -92,16 +91,12 @@ persistControls('brush', [ui.brushSize, ui.brushStrength, ui.brushHardness, ui.b
   if (typeof saved.autoOverlayOff === 'boolean') app.autoOverlayOff = saved.autoOverlayOff;
   const popMax = prefs.get<number>('popMax');
   if (typeof popMax === 'number') app.popMax = clampPopMax(popMax);
-  app.overlayAutoShown = app.view.overlay && app.autoOverlay && saved.overlayAuto === true;
+  // 塗るツールのために自動で入れたまま閉じた重ね表示は、起動したときは切っておく(ツールは移動で始まるため)
+  if (app.view.overlay && app.autoOverlay && saved.overlayAuto === true) { app.view.overlay = false; app.view.overlayAll = false; }
   app.syncView();
   app.on('view', () => { const v = app.view; prefs.set('view', { overlay: v.overlay, overlayAll: v.overlayAll, grid: v.grid, fade: v.fade, multi: v.multi, autoOverlay: app.autoOverlay, autoOverlayOff: app.autoOverlayOff, overlayAuto: app.overlayAutoShown }); });
 }
-{
-  const t = prefs.get<string>('tool');
-  // 前回OFFにして閉じた重ね表示を、ツールを戻すだけで入れ直さない
-  if (isTool(t)) app.setTool(t, false);
-  app.on('tool', t => prefs.set('tool', t));
-}
+// ツールは前回のものを戻さず、いつも移動のツールで始める(App.tool の初期値)
 // 背景・自動揺らし・画角は、変えたら「新しい画像を開いたときの既定」として覚える。透過にしても背景色は残す(bgColor)
 {
   // bgColor を覚える前の版では、透過でないときの background だけが色を持っていた

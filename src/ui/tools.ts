@@ -50,4 +50,3 @@ export const TOOLS: readonly ToolDef[] = TOOL_GROUPS.flat();
 
 export const toolDef = (t: Tool): ToolDef => TOOLS.find(d => d.id === t)!;
 
-export const isTool = (v: unknown): v is Tool => TOOLS.some(d => d.id === v);

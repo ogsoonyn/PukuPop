@@ -24,6 +24,8 @@
   <button class="m-icon" data-cmd="redo" aria-label="やり直す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
   <!-- 押すと開いている作業(タブ)の一覧を出す(ui/docTabs.ts) -->
   <button id="mTitle" type="button" class="flex-1 min-w-0 font-bold" aria-haspopup="dialog"><span class="m-title-name"></span><span class="m-title-count"></span></button>
+  <!-- キーフレームの再生・停止(左のツールバーと同じコマンド。アイコンは再生中に停止へ変わる。ui/actions.ts) -->
+  <button id="mPlay" class="m-icon" data-cmd="toggleKeyPlay" aria-label="キーフレームを再生"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
   <button id="mAuto" class="m-icon" aria-label="自動で揺らす" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg></button>
   <div class="dropdown dropdown-end">
     <div tabindex="0" role="button" class="m-icon" aria-label="メニュー"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></div>
@@ -252,9 +254,9 @@
         <section class="flex flex-col gap-2" data-m-slot="swing">
           <h2 class="font-bold">揺れ</h2>
           <label class="flex items-center justify-between">このレイヤーを揺らす <input id="pSwing" type="checkbox" class="toggle toggle-sm"></label>
-          <div class="prop d-only"><span class="prop-name"><label for="pPreset">プリセット</label><button type="button" class="help-btn" data-help="pPresetDesc"></button></span>
+          <div class="prop"><span class="prop-name"><label for="pPreset">プリセット</label><button type="button" class="help-btn" data-help="pPresetDesc"></button></span>
             <select id="pPreset" class="select select-xs col-span-2 w-full"></select></div>
-          <p id="pPresetDesc" class="help-text d-only" hidden>画像を開くと、選んだプリセットの説明がここに出ます。</p>
+          <p id="pPresetDesc" class="help-text" hidden>画像を開くと、選んだプリセットの説明がここに出ます。</p>
           <details id="physDetails" class="collapse collapse-arrow bg-base-200 rounded-box">
             <summary class="collapse-title min-h-0 py-2 px-3 text-sm">詳細設定 <span id="physSummary" class="opacity-60 text-xs"></span></summary>
             <div class="collapse-content px-3 flex flex-col gap-2">
@@ -323,8 +325,8 @@
           <div class="key-row key-head text-xs opacity-60" aria-hidden="true"><span></span><span>#</span><span>通り方</span><span></span><span></span></div>
           <ol id="keyList" class="flex flex-col gap-1" aria-label="キーフレーム一覧"></ol>
           <div class="flex flex-wrap items-center gap-2">
-            <button id="keyMake" type="button" class="btn btn-sm btn-primary" title="キーフレームの動きをループ再生する(今の記録と入れ替わる。元に戻せる)">▶ 再生</button>
-            <button id="keyStop" type="button" class="btn btn-sm" data-cmd="stopPlay">■ 停止</button>
+            <!-- 再生中は「■ 停止」に変わる(ui/take.ts) -->
+            <button id="keyMake" type="button" class="btn btn-sm btn-primary" title="キーフレームの動きをループ再生する(今の記録と入れ替わる。元に戻せる)。再生中は止める"><span aria-hidden="true" data-icon>▶</span> <span data-label>再生</span></button>
             <button id="takeCam" type="button" class="btn btn-sm" data-cmd="resetPlayView">カメラを戻す</button>
             <span id="keyTotal" class="text-xs opacity-70 tabular-nums"></span>
           </div>
@@ -373,7 +375,8 @@
 <!-- スマホ: 下から引き上げるシート(閉じる・半分・全部の3段階) -->
 <section id="mSheet" class="m-only" aria-label="設定">
   <div id="mGrip" role="button" tabindex="0" aria-label="設定を引き上げる・下げる"><i></i></div>
-  <div id="mPresets" class="m-chips" role="group" aria-label="揺れのプリセット"></div>
+  <!-- 左のツールバーの、その場で効く操作(ui/actions.ts が同じ表から作る)。横に送って使う -->
+  <div id="mNav" role="toolbar" aria-label="操作"></div>
   <div class="m-tabs" role="tablist">
     <button role="tab" data-mtab="layer" aria-selected="true">レイヤー</button>
     <button role="tab" data-mtab="anim" aria-selected="false">アニメ</button>

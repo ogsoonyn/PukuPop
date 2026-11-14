@@ -233,7 +233,8 @@ test('設定はブラウザに覚え、読み込み直しても戻る(ファイ�
   await boot(page);
   await openTab(page, 'view');
   await page.locator('#view').focus();
-  // ブラシ・表示・ツール・背景を変える
+  // ブラシ・表示・ツール・背景を変える(ブラシの設定はブラシのツールの間だけ出る)
+  await page.keyboard.press('b');
   await page.locator('#brushSize').fill('150');
   // 筆圧は設定の画面にある
   await page.locator('#toolOptions [data-cmd=settings]').click();
@@ -259,7 +260,8 @@ test('設定はブラウザに覚え、読み込み直しても戻る(ファイ�
   expect(s.brush.pressure).toBe('size');
   expect(s.view.grid).toBe(true);
   expect(s.view.multi).toBe(true);
-  expect(s.tool).toBe('grab');
+  // ツールは覚えず、いつも移動で始まる
+  expect(s.tool).toBe('pan');
   await expect(page.locator('#brushSizeO')).toHaveText('150px');
   await expect(page.locator('#vGrid')).toBeChecked();
   // サンプルの背景は変えない。新しい画像を開くと、覚えた背景・周期になる
@@ -355,13 +357,11 @@ test('塗るツールを選ぶと重ね表示を自動でONにし、離れると
   await page.keyboard.press('g');
   expect(await overlay()).toBe(false);
   await expect(page.locator('#vOverlayOff')).toBeChecked();
-  // 自動で入れたまま開き直しても、離れたら切る
+  // 自動で入れたまま開き直すと、移動のツールで始まるので切れている
   await page.keyboard.press('b');
   await reboot();
   await page.locator('#view').focus();
-  expect(await app(a => [a.tool, a.view.overlay])).toEqual(['brush', true]);
-  await page.keyboard.press('g');
-  expect(await overlay()).toBe(false);
+  expect(await app(a => [a.tool, a.view.overlay])).toEqual(['pan', false]);
   // 塗るツールの間に手で切り替えた表示は、離れても残す
   await page.keyboard.press('b');
   await page.keyboard.press('w'); // 選択中 → 全レイヤー
