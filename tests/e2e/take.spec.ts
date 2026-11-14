@@ -227,3 +227,51 @@ test('キーフレーム: 視点を追加・登録・見る・削除し、つな
   expect(r).toEqual({ cleared: 0, keys: [[5, 'smooth'], [0.5, 'bounce']], len: 5.5 });
   await expect(page.locator('#keyList > li.key-row:not(.key-back)')).toHaveCount(2);
 });
+
+test('キーフレーム: 行の左端のつまみをドラッグで並べ替えられる。間の秒数は場所に残り、↑↓キー・Esc でも操作できる', async ({ page }) => {
+  await boot(page);
+  await page.locator('#pTabs [data-ptab=anim]').click();
+  await app(page, a => {
+    a.keyDraft = [0.1, 0.2, 0.3].map((yaw, i) => ({ view: { yaw, pitch: 0, zoom: 1.5, target: { x: 0, y: 0, z: 0 } }, seconds: i + 1, mode: i === 2 ? 'bounce' : 'smooth' }));
+    a.emit('take', a.takeState);
+  });
+  const rows = page.locator('#keyList > li.key-row:not(.key-back)');
+  await expect(rows).toHaveCount(3);
+  const yaws = () => app(page, a => a.keyDraft.map((k: any) => k.view.yaw));
+  // 3つ目を1つ目の上へ。動かしている間は落とす所に線が出る
+  const grip = (i: number) => rows.nth(i).locator('[data-act=drag]');
+  const g = (await grip(2).boundingBox())!, top = (await rows.nth(0).boundingBox())!;
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(g.x + g.width / 2, top.y + 2, { steps: 8 });
+  await expect(rows.nth(2)).toHaveClass(/dragging/);
+  await expect(page.locator('#keyList .key-drop')).toBeVisible();
+  await page.mouse.up();
+  await expect(page.locator('#keyList .key-drop')).toHaveCount(0);
+  expect(await yaws()).toEqual([0.3, 0.1, 0.2]);
+  expect(await app(page, a => a.keyDraft.map((k: any) => [k.seconds, k.mode]))).toEqual([[1, 'bounce'], [2, 'smooth'], [3, 'smooth']]);
+  await expect(rows.locator('.key-no')).toHaveText(['1', '2', '3']);
+  await expect(rows.nth(0).locator('[data-act=mode]')).toHaveValue('bounce');
+  // 動かさずに離すと、並びは変わらない。Esc で取りやめると元のまま
+  const g0 = (await grip(0).boundingBox())!;
+  await page.mouse.move(g0.x + g0.width / 2, g0.y + g0.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
+  expect(await yaws()).toEqual([0.3, 0.1, 0.2]);
+  const last = (await rows.nth(2).boundingBox())!;
+  await page.mouse.down();
+  await page.mouse.move(g0.x + g0.width / 2, last.y + last.height - 2, { steps: 8 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  expect(await yaws()).toEqual([0.3, 0.1, 0.2]);
+  // つまみにフォーカスして ↓ で1つ下へ(フォーカスは動いた行のつまみに付いていく)
+  await grip(0).focus();
+  await page.keyboard.press('ArrowDown');
+  expect(await yaws()).toEqual([0.1, 0.3, 0.2]);
+  await expect(grip(1)).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  expect(await yaws()).toEqual([0.3, 0.1, 0.2]);
+  // 並べ替えた後に再生すると、その順で作り直す
+  await page.locator('#keyMake').click();
+  expect(await app(page, a => a.project.take.keys.map((k: any) => k.view.yaw))).toEqual([0.3, 0.1, 0.2]);
+});

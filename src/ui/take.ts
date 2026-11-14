@@ -9,6 +9,10 @@ import { icon } from './icons';
 import { KEY_SECONDS, MAX_KEYS, TAKE_MIN_SECONDS, takeSeconds, type KeyMode } from '../physics/take';
 
 const sec = (v: number) => `${v.toFixed(1)}秒`;
+/** 並べ替えのつまみ(縦2列の点) */
+const GRIP = '<svg viewBox="0 0 8 14" aria-hidden="true"><g fill="currentColor"><circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/><circle cx="2" cy="7" r="1.2"/><circle cx="6" cy="7" r="1.2"/><circle cx="2" cy="12" r="1.2"/><circle cx="6" cy="12" r="1.2"/></g></svg>';
+/** ドラッグと見なすまでの動き(px)と、端に寄せたときに一覧を流す範囲(px) */
+const DRAG_START = 4, EDGE = 36;
 
 export function bindTakeControls(app: App): void {
   const { takeRec: rec, takePlay: play, takeInfo: info } = ui;
@@ -48,7 +52,8 @@ export function bindTakeControls(app: App): void {
     const li = document.createElement('li');
     li.className = 'key-row';
     // 番号・通り方・今の視点で上書き・削除の順(上書きと削除は行の末尾に寄せる)
-    li.innerHTML = `<button class="btn btn-xs btn-ghost key-no" data-act="go" title="この視点を見る"></button>`
+    li.innerHTML = `<button type="button" class="key-grip" data-act="drag" title="ドラッグで並べ替え(↑↓キーでも動く)" aria-label="並べ替え">${GRIP}</button>`
+      + `<button class="btn btn-xs btn-ghost key-no" data-act="go" title="この視点を見る"></button>`
       + `<select data-act="mode" class="select select-xs" title="なめらか: 止まらず通り抜ける / 弾む: 勢いよく着いて止まり、揺れる" aria-label="通り方"><option value="smooth">なめらか</option><option value="bounce">弾む</option></select>`
       + `<button class="btn btn-xs btn-ghost btn-square key-set" data-act="set" title="今の視点で上書きする" aria-label="今の視点で上書き">${icon('keySet')}</button>`
       + `<button class="btn btn-xs btn-ghost btn-square" data-act="del" title="削除" aria-label="削除">×</button>`;
@@ -67,7 +72,7 @@ export function bindTakeControls(app: App): void {
     const li = document.createElement('li');
     li.className = 'key-row key-back';
     li.setAttribute('aria-hidden', 'true');
-    li.innerHTML = `<span class="key-no">1</span><span class="text-xs">最初へ戻る</span>`;
+    li.innerHTML = `<span></span><span class="key-no">1</span><span class="text-xs">最初へ戻る</span>`;
     return li;
   }
 
@@ -76,6 +81,7 @@ export function bindTakeControls(app: App): void {
   function buildKeys(n: number): void {
     if (n === built) return;
     built = n;
+    endDrag(false);
     const rows: HTMLLIElement[] = [];
     for (let i = 0; i < n; i++) {
       const r = keyRow(); r.dataset.key = String(i); rows.push(r);
@@ -91,6 +97,99 @@ export function bindTakeControls(app: App): void {
     if (n >= 2) rows.push(backRow());
     list.replaceChildren(...rows);
   }
+
+  /*
+   * 並べ替え: 行の左端のつまみをドラッグすると、行が指・マウスについて動き、落とす所に線が出る。離すと App.moveKey で並びを変える。
+   * スマホでも指で動かせるよう pointer イベントで受ける(つまみは touch-action: none。HTML のドラッグ&ドロップはタッチで動かないため)。
+   * 一覧の入れ物の端へ寄せると流す。Esc で取りやめ。つまみにフォーカスがあるときは ↑↓ キーで1つずつ動かす。
+   */
+  interface Drag { keys: readonly unknown[]; id: number; from: number; to: number; y0: number; y: number; scroll0: number; row: HTMLElement; moved: boolean; scroller: HTMLElement | null; raf: number }
+  let drag: Drag | null = null;
+  const marker = document.createElement('div');
+  marker.className = 'key-drop';
+  marker.setAttribute('aria-hidden', 'true');
+  const keyRows = () => [...list.querySelectorAll<HTMLElement>('.key-row[data-key]')];
+  const scrollerOf = (el: HTMLElement): HTMLElement | null => {
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const o = getComputedStyle(p).overflowY;
+      if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+    }
+    return null;
+  };
+  function place(): void {
+    const d = drag;
+    if (!d) return;
+    d.row.style.translate = `0 ${d.y - d.y0 + (d.scroller?.scrollTop ?? 0) - d.scroll0}px`;
+    // 落とす先 = ほかの行のうち、真ん中が指より上にある数
+    const rows = keyRows();
+    d.to = rows.filter(r => r !== d.row && r.getBoundingClientRect().top + r.offsetHeight / 2 < d.y).length;
+    if (d.to === d.from) { marker.hidden = true; return; }
+    const lr = list.getBoundingClientRect(), r = rows[d.to].getBoundingClientRect();
+    marker.hidden = false;
+    marker.style.top = `${(d.to < d.from ? r.top - 3 : r.bottom + 2) - lr.top}px`;
+  }
+  function tick(): void {
+    const d = drag;
+    if (!d) return;
+    d.raf = requestAnimationFrame(tick);
+    if (!d.moved || !d.scroller) return;
+    const r = d.scroller.getBoundingClientRect();
+    const v = d.y < r.top + EDGE ? -(r.top + EDGE - d.y) : d.y > r.bottom - EDGE ? d.y - (r.bottom - EDGE) : 0;
+    if (!v) return;
+    const before = d.scroller.scrollTop;
+    d.scroller.scrollTop += Math.sign(v) * Math.min(12, Math.ceil(Math.abs(v) / 3));
+    if (d.scroller.scrollTop !== before) place();
+  }
+  function endDrag(commit: boolean): void {
+    const d = drag;
+    if (!d) return;
+    drag = null;
+    cancelAnimationFrame(d.raf);
+    d.row.classList.remove('dragging');
+    d.row.style.translate = '';
+    list.classList.remove('sorting');
+    marker.remove();
+    // ドラッグ中に下書きが入れ替わった(作業タブの切り替え・アンドゥなど)ときは、古い番号で動かさない
+    if (commit && d.moved && d.to !== d.from && d.keys === app.keyDraft) app.moveKey(d.from, d.to);
+  }
+  list.addEventListener('pointerdown', e => {
+    const g = (e.target as HTMLElement).closest<HTMLElement>('[data-act=drag]'), i = rowOf(g);
+    if (!g || i < 0 || e.button !== 0 || drag) return;
+    e.preventDefault();
+    if (app.keyDraft.length < 2) return;
+    g.setPointerCapture(e.pointerId);
+    const scroller = scrollerOf(list);
+    drag = { keys: app.keyDraft, id: e.pointerId, from: i, to: i, y0: e.clientY, y: e.clientY, scroll0: scroller?.scrollTop ?? 0, row: g.closest<HTMLElement>('.key-row')!, moved: false, scroller, raf: 0 };
+    drag.raf = requestAnimationFrame(tick);
+  });
+  list.addEventListener('pointermove', e => {
+    const d = drag;
+    if (!d || e.pointerId !== d.id) return;
+    d.y = e.clientY;
+    if (!d.moved) {
+      if (Math.abs(d.y - d.y0) < DRAG_START) return;
+      d.moved = true;
+      d.row.classList.add('dragging');
+      list.classList.add('sorting');
+      marker.hidden = true;
+      list.append(marker);
+    }
+    place();
+  });
+  list.addEventListener('pointerup', e => { if (drag && e.pointerId === drag.id) endDrag(true); });
+  list.addEventListener('pointercancel', e => { if (drag && e.pointerId === drag.id) endDrag(false); });
+  list.addEventListener('lostpointercapture', e => { if (drag && e.pointerId === drag.id) endDrag(false); });
+  window.addEventListener('keydown', e => { if (drag?.moved && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endDrag(false); } }, true);
+  list.addEventListener('keydown', e => {
+    const g = (e.target as HTMLElement).closest<HTMLElement>('[data-act=drag]'), i = rowOf(g);
+    if (!g || i < 0 || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const to = i + (e.key === 'ArrowUp' ? -1 : 1);
+    if (to < 0 || to >= app.keyDraft.length) return;
+    app.moveKey(i, to);
+    list.querySelector<HTMLElement>(`.key-row[data-key="${to}"] [data-act=drag]`)?.focus();
+  });
 
   function refreshKeys(): void {
     const keys = app.keyDraft;
