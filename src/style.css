@@ -15,8 +15,16 @@
 .prop { display: grid; grid-template-columns: 6.25rem 1fr 3.25rem; align-items: center; gap: .5rem; }
 .prop output { text-align: right; font-variant-numeric: tabular-nums; }
 /* キーフレームの行: 番号(押すとその視点を見る)・通り方・今の視点で上書き・削除。間の行は次までの秒数で、行の間にあると分かるよう半分ずらす */
-.key-row { display: grid; grid-template-columns: 1.75rem 1fr 1.75rem 1.5rem; align-items: center; gap: .375rem; }
-.key-gap { display: flex; align-items: center; gap: .375rem; padding-left: .5rem; margin: -.125rem 0; }
+.key-row { display: grid; grid-template-columns: 1rem 1.75rem 1fr 1.75rem 1.5rem; align-items: center; gap: .375rem; }
+#keyList { position: relative; }
+.key-grip { display: flex; align-items: center; justify-content: center; height: 1.5rem; border-radius: .25rem; opacity: .45; cursor: grab; touch-action: none; }
+.key-grip svg { width: .5rem; height: .875rem; }
+.key-grip:hover, .key-grip:focus-visible { opacity: .9; background: color-mix(in oklab, var(--color-base-content) 10%, transparent); }
+#keyList.sorting, #keyList.sorting * { cursor: grabbing; }
+.key-row.dragging { position: relative; z-index: 2; border-radius: .375rem; background: var(--color-base-200); box-shadow: 0 4px 14px rgb(0 0 0 / .22); }
+.key-row.dragging .key-grip { opacity: .9; }
+.key-drop { position: absolute; left: 0; right: 0; height: 2px; margin-top: -1px; border-radius: 2px; background: var(--color-primary); pointer-events: none; z-index: 3; }
+.key-gap { display: flex; align-items: center; gap: .375rem; padding-left: 1.625rem; margin: -.125rem 0; }
 .key-gap .key-arrow { width: 1.25rem; text-align: center; opacity: .6; }
 /* 最初へ戻る区間は、秒数の欄は使えるので濃さはそのままにし、↩ と「1 最初へ戻る」だけ薄くする */
 .key-gap.back .key-arrow, .key-back { opacity: .45; }
@@ -48,6 +56,8 @@ html.mobile #favList { max-height: 10rem; }
   font-size: .6875rem; font-weight: 400; letter-spacing: .02em; color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
   pointer-events: none;
 }
+/* 見出しの無い区切り(「ツール」のメニューのまとまりの間) */
+.dropdown-content.menu > li.menu-sep { margin: .25rem .5rem; border-top: 1px solid var(--color-base-300); pointer-events: none; }
 
 /* 3面図 */
 #multiView { width: clamp(170px, 24%, 340px); }
@@ -145,6 +155,9 @@ html.mobile #blurDialog { left: 50%; right: auto; transform: translateX(-50%); b
 .doc-tab-name:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; border-radius: .375rem; }
 .doc-tab-label, .tab-item-label { display: flex; align-items: center; gap: .25rem; min-width: 0; white-space: nowrap; }
 .doc-tab-text { overflow: hidden; text-overflow: ellipsis; }
+/* 開く系が使えないときの注意書き(タブが上限のとき。ui/actions.ts の data-blocked) */
+.menu-note { display: block; white-space: normal; font-size: .75rem; line-height: 1.4; padding: .25rem .75rem .375rem; background: color-mix(in oklab, var(--color-warning) 22%, transparent); border-left: 3px solid var(--color-warning); border-radius: .375rem; margin-bottom: .25rem; }
+.menu-note[hidden] { display: none; }
 .doc-tab-dirty { flex-shrink: 0; color: var(--color-primary); font-size: .625rem; }
 .doc-tab-close { flex-shrink: 0; width: 1.25rem; height: 1.25rem; margin-right: .25rem; display: grid; place-items: center; border-radius: .25rem; font-size: .9375rem; line-height: 1; opacity: .45; cursor: pointer; }
 .doc-tab-close:hover, .doc-tab-close:focus-visible { opacity: 1; background: var(--color-base-300); }
@@ -269,7 +282,6 @@ html.mobile #mPanes .btn-xs.btn-square { width: 2.25rem; height: 2.25rem; }
 /* レイヤー一覧: 複数選んでいるときは、最後に押したレイヤー(塗りの先)の左に太い線を付ける */
 #layerList li.is-primary { box-shadow: inset 4px 0 0 var(--color-primary); }
 #layerList li { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-.layer-color { width: .5rem; height: .5rem; border-radius: 999px; flex-shrink: 0; }
 /* 一覧の重ね方のアイコン(押すと切り替え) */
 .blend-btn, .swing-btn { display: inline-grid; place-items: center; padding: 1px 2px; border-radius: 4px; cursor: pointer; }
 /* 重ね方と揺れのボタンは同じ幅にし、切り替えても中身の幅で横にずれないようにする。ポップ量は右に揃える */

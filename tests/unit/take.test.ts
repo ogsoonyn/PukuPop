@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { unzipSync, zipSync, strToU8 } from 'fflate';
-import { finalizeTake, takeToJson, takeFromJson, takeSeconds, TAKE_STEP_MULTIPLE, type Take } from '../../src/physics/take';
+import { finalizeTake, takeToJson, takeFromJson, takeSeconds, TAKE_STEP_MULTIPLE, moveKey, type Take, type KeyFrame } from '../../src/physics/take';
 import type { RecordSample } from '../../src/physics/recorder';
 import { PHYSICS_DT } from '../../src/physics/world';
 import { serializeProject, deserializeProject, TAKE_PATH } from '../../src/storage/popstage';
@@ -169,5 +169,27 @@ describe('キーフレームから動きを作る', () => {
     expect(back.keys).toEqual(t.keys);
     const bad = takeFromJson({ ...takeToJson(t), keys: [{ view: 'x', mode: 'zzz', seconds: -1 }, {}] }, 30)!;
     expect(bad.keys![0]).toMatchObject({ mode: 'smooth', seconds: 0.1 });
+  });
+});
+
+describe('キーフレームの並べ替え', () => {
+  const key = (yaw: number, seconds: number, mode: KeyFrame['mode'] = 'smooth'): KeyFrame => ({ view: { yaw, pitch: 0, roll: 0, zoom: 1.5, target: { x: 0, y: 0, z: 0 } }, seconds, mode });
+  const keys = [key(1, 0.5), key(2, 1, 'bounce'), key(3, 2), key(4, 3)];
+
+  it('視点と通り方が動き、間の秒数は場所に残る。元の並びは変えない', () => {
+    const down = moveKey(keys, 0, 2);
+    expect(down.map(k => k.view.yaw)).toEqual([2, 3, 1, 4]);
+    expect(down.map(k => k.mode)).toEqual(['bounce', 'smooth', 'smooth', 'smooth']);
+    expect(down.map(k => k.seconds)).toEqual([0.5, 1, 2, 3]);
+    const up = moveKey(keys, 3, 1);
+    expect(up.map(k => k.view.yaw)).toEqual([1, 4, 2, 3]);
+    expect(up.map(k => k.seconds)).toEqual([0.5, 1, 2, 3]);
+    expect(keys.map(k => k.view.yaw)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('同じ場所・範囲の外へは動かさない', () => {
+    expect(moveKey(keys, 1, 1).map(k => k.view.yaw)).toEqual([1, 2, 3, 4]);
+    expect(moveKey(keys, 1, 9).map(k => k.view.yaw)).toEqual([1, 2, 3, 4]);
+    expect(moveKey(keys, -1, 0).map(k => k.view.yaw)).toEqual([1, 2, 3, 4]);
   });
 });

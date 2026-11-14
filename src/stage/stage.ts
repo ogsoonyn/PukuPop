@@ -123,6 +123,19 @@ export class Stage {
   get maxTextureSize(): number { return this.renderer.capabilities.maxTextureSize; }
   get hasDocument(): boolean { return !!this.mesh; }
 
+  /**
+   * 画像・ウェイト・メッシュのために持っているメモリの見積もり(バイト)。
+   * 画像のテクスチャはミップマップの分で 4/3 倍。ウェイトは GPU と CPU 側の写しの2つ分。画面の描画先は数えない
+   */
+  get gpuBytes(): number {
+    const img = this.mapTex?.image as { width?: number; height?: number } | undefined;
+    const map = img?.width && img.height ? img.width * img.height * 4 * 4 / 3 : 0;
+    const weights = this.weightTex ? this.weightSize.w * this.weightSize.h * MAX_LAYERS * 2 : 0;
+    // 頂点ごとに位置・法線・UV(8 個の float)、マスごとに三角形2つの添字(6 個、4 バイト)
+    const mesh = this.mesh ? this.vertexCount * 8 * 4 + this.gridN.x * this.gridN.y * 6 * 4 : 0;
+    return Math.round(map + weights + mesh);
+  }
+
   /* ---------- ドキュメント ---------- */
 
   /** 画像を差し替える。source は縮小済みでもよい(メッシュは元画像のピクセル単位)。 */

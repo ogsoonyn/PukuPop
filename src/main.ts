@@ -25,6 +25,7 @@ import { bindFavoriteControls } from './ui/favorites';
 import { isTool } from './ui/tools';
 import { bindHelp } from './ui/help';
 import { bindDocTabs } from './ui/docTabs';
+import { bindMemoryStatus } from './ui/memoryStatus';
 import { FILE_EXTENSION, LEGACY_FILE_EXTENSION } from './storage/popstage';
 import { ask, toast, retryWithClick } from './ui/dom';
 import { autosave } from './storage/autosave';
@@ -155,6 +156,7 @@ bindActions(app, {
 });
 bindMenus();
 bindDocTabs(app, { open: openAny });
+bindMemoryStatus(app);
 // 左のツールバーを作ったあとに、隠すボタンを映す
 const settingsDialog = bindSettingsDialog();
 // スマホの配置。右パネルなどの部品を移すので、ほかの部品を結び付けたあとに呼ぶ

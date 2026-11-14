@@ -111,7 +111,6 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
       const f = frameDrag; frameDrag = null; app.holdImage(false);
       if (f && app.previewingInflate) app.updateInflate({ area: f.area, settings: { angle: f.angle } });
     } else if (drag.mode === 'grab') { app.world.grab = null; app.world.grabGains.clear(); }
-    else if (drag.mode === 'orbit' || drag.mode === 'roll' || drag.mode === 'pan') app.cameraChanged();
     drag.mode = null; drag.id = -1;
   }
   canvas.addEventListener('pointerdown', e => {
@@ -166,7 +165,7 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     if (!touches.delete(e.pointerId)) return;
     if (gesture) {
       if (touches.size >= 2) gesture = newGesture();
-      else { gesture = null; app.cameraChanged(); }
+      else gesture = null;
     }
     if (touches.size > 0 || !tap) return;
     const t = tap; tap = null;
@@ -278,7 +277,6 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     if (drag.mode === 'area') areaStart = null;
     if (drag.mode === 'frame') frameDrag = null;
     if (drag.mode === 'paint' || drag.mode === 'area' || drag.mode === 'frame') app.holdImage(false);
-    if ((drag.mode === 'orbit' || drag.mode === 'roll' || drag.mode === 'pan') && (e.clientX !== drag.sx || e.clientY !== drag.sy)) app.cameraChanged();
     drag.mode = null; drag.id = -1;
     updateCursor();
   };
@@ -294,7 +292,6 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
   const setZoom = (z: number) => {
     app.project.camera.zoom = z;
     app.emit('status', undefined);
-    app.cameraChanged();
   };
   const wheelZoom = smoothZoom({ get: () => app.project.camera.zoom, set: setZoom, owner: () => app.project.camera, min: ZOOM_MIN, max: ZOOM_MAX });
   // ズームはループ再生中でも止めない(見る視点だけを動かす)

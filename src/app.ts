@@ -3,6 +3,7 @@
  * 画面の部品(ui/)はここを経由して状態を読み書きする。
  */
 import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegments, alphaSpreadPx, frontCamera, wrapAngle, defaultOrthoView, LIMITS, PRESETS, applyPreset, type PresetName, type CameraState, type Vec3, type OrthoView, type Project, type Document, type Layer } from './model/project';
+import { projectDataBytes, sumMemory, type MemoryUsage, type TabMemory } from './model/memory';
 import { History, emptyHistory, shrinkHistory, type HistoryState } from './commands/history';
 import type { Rect } from './model/weightmap';
 import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation, diffTiles } from './commands/commands';
@@ -11,7 +12,7 @@ import { captureFavorite, copyPhysics, sameLayer, nextFavoriteName, applyView, F
 import { Stage, type ViewOptions } from './stage/stage';
 import { PhysicsWorld, PHYSICS_DT } from './physics/world';
 import { MotionRecorder, applySample, type RecordSample } from './physics/recorder';
-import { finalizeTake, takeFromKeys, takeSeconds, TAKE_MAX_SECONDS, TAKE_MIN_SECONDS, KEY_SECONDS, MAX_KEYS, normalizeKeys, type ViewKey, type KeyFrame } from './physics/take';
+import { finalizeTake, takeFromKeys, takeSeconds, TAKE_MAX_SECONDS, TAKE_MIN_SECONDS, KEY_SECONDS, MAX_KEYS, normalizeKeys, moveKey as movedKeys, type ViewKey, type KeyFrame } from './physics/take';
 import { Stroke, type PaintMode } from './paint/stroke';
 import { inflateShape, type InflateProfile, type InflateBlend } from './paint/inflate';
 import { serializeProject, serializeProjectBlob, deserializeProject, FILE_EXTENSION, type PngCacheEntry } from './storage/popstage';
@@ -85,6 +86,8 @@ type AppEvents = {
 
 /** 一度に開いておけるタブの数 */
 export const MAX_TABS = 5;
+/** タブが上限のときの案内(開く系のメニューの注意書きと、開こうとしたときの知らせで共通) */
+export const TABS_FULL_NOTE = `タブは ${MAX_TABS} 枚までです。開くには、どれかのタブを閉じてください。`;
 
 /**
  * アプリの中のタブ1枚分の作業(プロジェクトと、それに付く画面の状態)。描画・物理・画面の部品は1つを使い回し、
@@ -532,7 +535,6 @@ export class App extends Emitter<AppEvents> {
   resetView(): void {
     this.project.camera = frontCamera(this.project.camera.fov);
     this.world.cutView(); // 視点が飛ぶだけなので揺らさない
-    this.cameraChanged();
   }
 
   /** 向きだけを正面に戻す。ズームと平行移動(画面の上下左右の位置)は保つ */
@@ -542,16 +544,14 @@ export class App extends Emitter<AppEvents> {
     // 回した視点で平行移動すると奥行き(z)にもずれるので、正面から見て同じに見えるよう 0 に戻す。傾きも 0 に戻す
     this.project.camera = { ...c, yaw: 0, pitch: 0, roll: 0, target: { ...c.target, z: 0 } };
     this.world.cutView();
-    this.cameraChanged();
   }
 
   /**
    * 視点の傾き(ラジアン)をその場で変える。Alt+右ドラッグ・2本指のひねりから続けて呼ぶ。
-   * 動かした勢いで揺らす(回転・ズームと同じ)。保存の予約は cameraChanged が間引く
+   * 動かした勢いで揺らす(回転・ズームと同じ)
    */
   setRoll(r: number): void {
     this.project.camera.roll = wrapAngle(r);
-    this.cameraChanged();
     this.emit('status', undefined);
   }
 
@@ -565,29 +565,21 @@ export class App extends Emitter<AppEvents> {
     if (c.roll === 0) return;
     this.project.camera = { ...c, roll: 0, target: { ...c.target } };
     this.world.cutView();
-    this.cameraChanged();
     this.emit('status', undefined);
   }
-
-  /**
-   * 視点(回転・平行移動・ズーム)を変えたことを知らせる。視点は保存される項目なので「未保存」にして
-   * 自動保存を予約するが、アンドゥには積まない。ホイールのように続けて来るものは間引く。
-   */
-  cameraChanged(): void {
-    clearTimeout(this.cameraTimer);
-    this.cameraTimer = window.setTimeout(() => { this.cameraTimer = 0; this.store.emit('change', undefined); }, 300);
-  }
-  private cameraTimer = 0;
 
   /* ---------- 読み込みとタブ ---------- */
 
   /** タブを置き換えて開くか(変更していないサンプル・空のタブ) */
   private get replaceable(): boolean { return this.tab.sample && !this.tab.dirty; }
 
-  /** タブの数が上限で、新しいタブを開けないか。開けないときは伝える */
+  /** 新しく開けるか(タブの数が上限でも、今のタブを置き換えて開けるなら開ける)。開く系のメニュー・ボタンを使えなくするのに使う */
+  get canOpenTab(): boolean { return this.replaceable || this.tabs.length < MAX_TABS; }
+
+  /** タブの数が上限で、新しいタブを開けないか。開けないときは伝える(メニューは先に使えなくしてあるので、ここに来るのはドロップや貼り付けなど) */
   tabsFull(): boolean {
-    if (this.replaceable || this.tabs.length < MAX_TABS) return false;
-    toast(`タブは ${MAX_TABS} 枚まで開けます。どれかを閉じてから開いてください。`, 'warning', 5000);
+    if (this.canOpenTab) return false;
+    toast(TABS_FULL_NOTE, 'warning', 5000);
     return true;
   }
 
@@ -612,8 +604,6 @@ export class App extends Emitter<AppEvents> {
     if (!replace && this.tabsFull()) return false;
     const old = this.tab;
     if (replace) {
-      // 前の作業の視点変更を、新しく開いた作業の変更として数えない
-      clearTimeout(this.cameraTimer); this.cameraTimer = 0;
       // 置き換える作業の自動保存はもう要らない
       this.dropTabAutosave(old);
     } else this.leaveTab();
@@ -633,11 +623,7 @@ export class App extends Emitter<AppEvents> {
   private leaveTab(): void {
     const t = this.tab;
     this.stopRecording();
-    // 再生を止めると視点が止めた所の記録の視点に移るが、それは作業の変更として数えない(切り替えただけで「未保存」にしない)
-    const pending = this.cameraTimer !== 0;
     this.stopTake();
-    if (!pending) { clearTimeout(this.cameraTimer); this.cameraTimer = 0; }
-    if (this.cameraTimer) { clearTimeout(this.cameraTimer); this.cameraTimer = 0; this.store.emit('change', undefined); }
     t.history = this.history.take();
     t.imageCanvas = null;
   }
@@ -735,6 +721,24 @@ export class App extends Emitter<AppEvents> {
     this.trimHiddenHistory();
     this.emit('tabs', undefined);
     return true;
+  }
+
+  /** メモリの使用量の見積もり(ステータスバー)。全部のタブの分を数える。JS のヒープは Chrome 系だけ */
+  memoryUsage(): MemoryUsage {
+    const tabs: TabMemory[] = this.tabs.map(t => {
+      const active = t === this.tab;
+      let png = 0;
+      for (const e of t.pngCache.values()) png += e.png.byteLength;
+      const c = t.imageCanvas;
+      return {
+        name: this.tabName(t), active,
+        data: projectDataBytes(t.project, png),
+        history: active ? this.history.bytes : t.history.bytes,
+        render: (c ? c.width * c.height * 4 : 0) + (active ? this.stage.gpuBytes : 0),
+      };
+    });
+    const m = (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
+    return sumMemory(tabs, m ? { used: m.usedJSHeapSize, limit: m.jsHeapSizeLimit } : null);
   }
 
   /** どれかのタブに保存していない変更があるか(ページを閉じるときの確認) */
@@ -906,15 +910,12 @@ export class App extends Emitter<AppEvents> {
     const tab = this.tab;
     // 書き込みを待つ間に変更されたら、その変更は保存されていないので「未保存」のまま残す
     const thumb = await this.thumbnail();
-    // 間引き中の視点の変更は、これから保存する内容に含まれるので、ここで通知を取り消す
-    const cameraPending = tab === this.tab && this.cameraTimer !== 0;
-    if (cameraPending) { clearTimeout(this.cameraTimer); this.cameraTimer = 0; }
     const revision = tab.revision;
     const bytes = serializeProject(tab.project, { thumbnail: thumb });
     const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
     try {
       const h = await saveFile(blob, this.suggestedName(tab), PROJECT_TYPES, saveAs ? null : tab.fileHandle);
-      if (h === undefined) { if (cameraPending) this.cameraUnsaved(tab); return false; }
+      if (h === undefined) return false;
       tab.fileHandle = h;
       if (h) tab.fileName = h.name; else tab.fileName ??= this.suggestedName(tab);
       tab.lastSaved = new Date();
@@ -934,20 +935,9 @@ export class App extends Emitter<AppEvents> {
       void this.remember('project', tab.fileName ?? this.suggestedName(tab), bytes.byteLength, h, () => bytes, thumb);
       return true;
     } catch (e) {
-      if (cameraPending) this.cameraUnsaved(tab); // 保存できなかったので、視点の変更は未保存のまま
       toast(`保存できませんでした: ${e instanceof Error ? e.message : e}`, 'error', 6000);
       return false;
     }
-  }
-
-  /** 保存できなかったときに、取り消していた視点の変更を「未保存」に戻す。待つ間にタブを切り替えていたら、そのタブに付ける */
-  private cameraUnsaved(tab: Tab): void {
-    if (tab === this.tab) { this.cameraChanged(); return; }
-    tab.revision++;
-    tab.lastAutosave = null;
-    tab.dirty = true;
-    this.scheduleAutosave(tab);
-    this.emit('tabs', undefined);
   }
 
   /** そのタブの自動保存を予約する。裏に回ったタブも中身は変わらないので、予約どおりに保存する */
@@ -1414,7 +1404,6 @@ export class App extends Emitter<AppEvents> {
     // 画角を変えると camera は新しいオブジェクトに差し替わるので、実行したあとの camera に当てる
     applyView(this.project.camera, f.camera);
     this.world.cutView(); // 視点が飛ぶだけなので揺らさない
-    this.cameraChanged();
     this.emit('status', undefined);
     if (f.playing && this.project.take) this.playTake();
     if (missing) toast(`「${f.name}」にあったレイヤーのうち ${missing} 枚は、もう無いので飛ばしました。`, 'info', 5000);
@@ -1604,7 +1593,6 @@ export class App extends Emitter<AppEvents> {
     this.world.cutView(); // 物理に伝える注視点が記録の値から今の視点へ戻る分では揺らさない
     this.setTakeState('idle');
     this.emit('status', undefined);
-    this.cameraChanged();
   }
 
   /** ループ再生中に、見る視点を再生の基準の視点(撮影カメラ。記録の初めの視点)へ戻す。再生は続ける */
@@ -1615,7 +1603,6 @@ export class App extends Emitter<AppEvents> {
     c.yaw = from.yaw; c.pitch = from.pitch; c.roll = from.roll; c.zoom = from.zoom; c.target = { ...from.target };
     this.world.cutView(); // 視点が飛ぶだけなので揺らさない
     this.emit('status', undefined);
-    this.cameraChanged();
   }
 
   togglePlay(): void { if (this.takeState === 'playing') this.stopTake(); else this.playTake(); }
@@ -1660,6 +1647,14 @@ export class App extends Emitter<AppEvents> {
     this.emit('take', this.takeState);
   }
 
+  /** from 番目のキーフレームを to 番目へ動かす(秒数は場所に残す。physics/take.ts の moveKey) */
+  moveKey(from: number, to: number): void {
+    const n = this.keyDraft.length;
+    if (from === to || from < 0 || from >= n || to < 0 || to >= n) return;
+    this.keyDraft = movedKeys(this.keyDraft, from, to);
+    this.emit('take', this.takeState);
+  }
+
   /** 視点を i 番目のキーフレームへ動かす(確かめる用。その動きでは揺らさない) */
   gotoKey(i: number): void {
     const k = this.keyDraft[i]?.view;
@@ -1668,7 +1663,6 @@ export class App extends Emitter<AppEvents> {
     const c = this.project.camera;
     c.yaw = k.yaw; c.pitch = k.pitch; c.roll = k.roll; c.zoom = k.zoom; c.target = { ...k.target };
     this.world.cutView();
-    this.cameraChanged();
     this.emit('status', undefined);
   }
 

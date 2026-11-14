@@ -84,14 +84,13 @@ export function bindMultiView(app: App, canvas: HTMLCanvasElement): { layout: ()
     m => (m === 'pan' ? 'move' : 'grabbing'),
     (m, dx, dy) => {
       const cam = app.multiCam;
-      app.cameraChanged(); // 自由角度の視点は保存するので、主ビューの視点と同じく「未保存」にする
       if (m === 'pan') { app.stage.panFree(cam, dx, dy); return; }
       cam.yaw -= dx * 0.01;
       cam.pitch = Math.max(-1.45, Math.min(1.45, cam.pitch + dy * 0.01));
     });
-  free.addEventListener('dblclick', () => { app.multiCam = defaultMultiCamera(); app.cameraChanged(); });
+  free.addEventListener('dblclick', () => { app.multiCam = defaultMultiCamera(); });
   // ホイールのズームは、主ビューと同じく目標へなめらかに寄せる(ui/smoothZoom.ts)。タッチパッドのピンチはその場で変える
-  const setFreeZoom = (z: number) => { app.multiCam.zoom = z; app.cameraChanged(); };
+  const setFreeZoom = (z: number) => { app.multiCam.zoom = z; };
   const freeZoom = smoothZoom({ get: () => app.multiCam.zoom, set: setFreeZoom, owner: () => app.multiCam, min: 0.2, max: 10 });
   free.addEventListener('wheel', e => {
     e.preventDefault();

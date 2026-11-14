@@ -325,3 +325,24 @@ test('全体ぼかしのプレビュー中は、2本指タップで元に戻さ�
   await page.locator('#blurCancel').click();
   expect(await state()).toEqual([2, false]);
 });
+
+test('キーフレームはシートの中で指でつまみをドラッグして並べ替えられる', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => {
+    const a = (window as any).popstage;
+    a.keyDraft = [0.1, 0.2, 0.3].map(yaw => ({ view: { yaw, pitch: 0, zoom: 1.5, target: { x: 0, y: 0, z: 0 } }, seconds: 1, mode: 'smooth' }));
+    a.emit('take', a.takeState);
+  });
+  await page.locator('[data-mtab="anim"]').click();
+  await page.locator('#mGrip').click(); await page.waitForTimeout(400);
+  const rows = page.locator('#keyList > li.key-row:not(.key-back)');
+  await rows.nth(2).scrollIntoViewIfNeeded();
+  const g = (await rows.nth(0).locator('[data-act=drag]').boundingBox())!, last = (await rows.nth(2).boundingBox())!;
+  const scroll = () => page.locator('#mPanes').evaluate(el => el.scrollTop);
+  const before = await scroll();
+  const cdp = await page.context().newCDPSession(page);
+  await swipe(cdp, [[g.x + g.width / 2, g.y + g.height / 2]], [[g.x + g.width / 2, last.y + last.height - 2]], 10);
+  expect(await page.evaluate(() => (window as any).popstage.keyDraft.map((k: any) => k.view.yaw))).toEqual([0.2, 0.3, 0.1]);
+  // つまみを動かしてもシートは流れない
+  expect(await scroll()).toBe(before);
+});
