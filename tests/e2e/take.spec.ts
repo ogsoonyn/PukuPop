@@ -34,6 +34,8 @@ async function recordTake(page: Page): Promise<number> {
 test('操作の記録: R で記録し、L でループ再生。画面を触ると止まり、記録はアンドゥで消せる', async ({ page }) => {
   await boot(page);
   await page.locator('#view').focus();
+  // 画面を触ると止まるのを確かめるので、視点を動かすだけの移動のツールから変えておく
+  await page.keyboard.press('g');
   await page.keyboard.press('r');
   expect(await app(page, a => [a.takeState, a.paused])).toEqual(['recording', false]);
   await expect(page.locator('#playBar')).toBeVisible();
@@ -199,16 +201,16 @@ test('キーフレーム: 視点を追加・登録・見る・削除し、つな
   // 再生中は画像から見た視点がフレームの間を動き、画像が動くので揺れる
   await expect.poll(() => app(page, a => a.playView.yaw), { timeout: 8000 }).toBeGreaterThan(0.2);
   await expect.poll(() => app(page, a => Math.abs(a.world.displacement(a.doc.layers[0].id).x)), { timeout: 8000 }).toBeGreaterThan(0.001);
-  // 再生中に動かした視点は「撮影カメラに戻す」で再生を始めた視点へ戻る(再生は続く)。「停止」で止まる
+  // 再生中に動かした視点は「撮影カメラに戻す」で再生を始めた視点へ戻る(再生は続く)。再生のボタンは「停止」に変わり、押すと止まる
   await expect(page.locator('#takeCam')).toBeEnabled();
   const start = await app(page, a => a.project.take.samples[0].camera.yaw);
   await app(page, a => { a.project.camera.yaw += 1; });
   await page.locator('#takeCam').click();
   expect(await app(page, a => [a.takeState, a.project.camera.yaw])).toEqual(['playing', start]);
-  await expect(page.locator('#keyStop')).toBeEnabled();
-  await page.locator('#keyStop').click();
+  await expect(page.locator('#keyMake')).toHaveText(/停止/);
+  await page.locator('#keyMake').click();
   expect(await app(page, a => a.takeState)).toBe('idle');
-  await expect(page.locator('#keyStop')).toBeDisabled();
+  await expect(page.locator('#keyMake')).toHaveText(/再生/);
   await expect(page.locator('#takeCam')).toBeDisabled();
   await app(page, a => a.playTake());
   expect(await app(page, a => a.takeState)).toBe('playing');

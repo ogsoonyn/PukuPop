@@ -4,14 +4,15 @@
  * 移す部品は index.html で data-m-slot の印を付けたもので、どのタブへどの順に移すかは下の MOBILE_SLOTS で決める
  * (PC の画面の並びを変えても、印が付いたままなら移る中身は変わらない)。スマホで出さない部品には d-only を付ける。
  * イベントの結び付けはそのまま残るので、PC とスマホで同じ処理が動く。幅が戻ったら元の場所へ戻す。
+ * シートの一番上には左のツールバーの、その場で効く操作を横1列に並べる(作るのは ui/actions.ts)。
  * ツールは「つかむ・揺らす・移動・視点」を主にし、膨らみ・塗り・消しゴム・ぼかしは「塗って直す」の中に置く。
  */
 import { PAINT_TOOLS, type App, type Tool } from '../app';
-import { PRESETS, PRESET_ORDER, type PresetName } from '../model/project';
 import { ui } from './ids';
 import { icon } from './icons';
 import { toolDef } from './tools';
 import { setFineLock } from './fine';
+import { bindTouchSliders } from './touchSlider';
 
 /** スマホの配置にする条件。横向きのスマホ(高さが低く、指で触る)も含める */
 export const MOBILE_QUERY = '(max-width: 767px), (max-height: 500px) and (pointer: coarse)';
@@ -50,7 +51,7 @@ const TOOL_DESC: Record<Tool, string> = {
 export function bindMobileLayout(app: App): { readonly active: boolean } {
   const root = document.documentElement;
   const mq = window.matchMedia(MOBILE_QUERY);
-  const { mSheet: sheet, mGrip: grip, mPresets: presets, mPanes: panes } = ui;
+  const { mSheet: sheet, mGrip: grip, mNav: nav, mPanes: panes } = ui;
   const pane = (t: Tab) => panes.querySelector<HTMLElement>(`[data-mpane="${t}"]`)!;
   // 印の付いた部品は最初に全部取っておく(足りなければ、スマホの幅になったときではなく起動時に分かる)
   const slotEls = MOBILE_SLOTS.map(s => {
@@ -80,7 +81,7 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
     // 3面図は縦長の画面では狭すぎるので使わない。塗りのツールのまま来たら、主のツールにする
     if (app.view.multi) app.setViewOption('multi', false);
     desktopTool = app.tool;
-    if (PAINT_TOOLS.includes(app.tool)) app.setTool('grab', false);
+    if (PAINT_TOOLS.includes(app.tool)) app.setTool('pan', false);
     setPaintMode(false);
     syncState(); syncTool();
     setSheet('closed', false);
@@ -101,7 +102,7 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
   let state: SheetState = 'closed';
   const heights = () => {
     const avail = window.innerHeight - ui.mTop.offsetHeight - ui.mTools.offsetHeight;
-    const peek = grip.offsetHeight + presets.offsetHeight + sheet.querySelector<HTMLElement>('.m-tabs')!.offsetHeight;
+    const peek = grip.offsetHeight + nav.offsetHeight + sheet.querySelector<HTMLElement>('.m-tabs')!.offsetHeight;
     return { closed: peek, half: Math.max(peek, Math.round(avail * 0.48)), full: Math.max(peek, avail - 8) };
   };
   /** シートの高さを変える。3Dビューはシートの上に収まるよう縮める(全部のときは半分の高さで止める) */
@@ -160,30 +161,14 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
   });
   window.addEventListener('resize', () => { if (mq.matches) setSheet(state, false); });
 
-  /* ---------- 揺れのプリセット(右パネルの選択欄と同じ並び。適用は app.setPreset) ---------- */
-
-  const PRESET_CHOICES: [PresetName, string][] = [...PRESET_ORDER.map(k => [k, PRESETS[k].label] as [PresetName, string]), ['custom', 'カスタム']];
-  presets.replaceChildren(...PRESET_CHOICES.map(([name, label]) => {
-    const b = document.createElement('button');
-    b.type = 'button'; b.textContent = label; b.dataset.value = name;
-    b.addEventListener('click', () => app.setPreset(name));
-    return b;
-  }));
-
   /* ---------- 上のバー ---------- */
 
   ui.mAuto.addEventListener('click', () => app.setAutoSwing(!app.project.autoSwing.enabled));
 
-  /** プリセットのボタンと自動揺らしのボタンを、今の状態(モデル)に合わせる */
+  /** 自動揺らしのボタンを、今の状態(モデル)に合わせる */
   function syncState(): void {
-    const l = app.activeLayer, ls = app.selectedLayers;
-    for (const b of presets.querySelectorAll<HTMLButtonElement>('button')) {
-      // 複数のレイヤーを選んでいるときは、全部がそのプリセットのときだけ押した状態にする
-      b.setAttribute('aria-pressed', String(ls.length > 0 && ls.every(x => x.physics.preset === b.dataset.value)));
-      b.disabled = !l;
-    }
     ui.mAuto.setAttribute('aria-pressed', String(app.project.autoSwing.enabled));
-    ui.mAuto.disabled = !l;
+    ui.mAuto.disabled = !app.activeLayer;
   }
   for (const ev of ['replace', 'layers', 'layer', 'project'] as const) app.store.on(ev, syncState);
   app.on('active', syncState);
@@ -201,7 +186,7 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
   // 塗って直すモードの帯の高さ(折り返すと変わる)を、3Dビューの下の再生のバーを上へ逃がすのに使う(style.css の #playBar)
   new ResizeObserver(() => root.style.setProperty('--m-modebar', `${ui.mModeBar.offsetHeight}px`)).observe(ui.mModeBar);
 
-  let lastMain: Tool = 'grab';
+  let lastMain: Tool = 'pan';
   function setPaintMode(on: boolean): void {
     root.dataset.mset = on ? 'paint' : 'main';
     ui.mModeBar.hidden = !on;
@@ -238,6 +223,9 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
     if (phase === 'begin') { before = state; selectTab('tool'); if (state === 'closed') setSheet('half'); }
     if (phase === 'end' && before) { setSheet(before); before = null; }
   });
+
+  // スクロールのつもりの縦の動きでスライダーを動かさない(横に引いたときだけ動かす)
+  bindTouchSliders(panes, () => mq.matches);
 
   const apply = () => { if (mq.matches) enter(); else if (root.classList.contains('mobile')) leave(); };
   mq.addEventListener('change', apply);
