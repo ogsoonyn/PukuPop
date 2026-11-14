@@ -110,12 +110,12 @@ test('キーボードだけで離れたレイヤーを足す・外す(Ctrl+↑�
 test('一覧のサムネイルは、重ね表示と同じレイヤーの色で描く。並べ替えると色も付け替わる', async ({ page }) => {
   await threeLayers(page);
   await app(page, a => { for (const l of a.doc.layers) l.weights.data.fill(255); a.store.emit('layers', { docId: a.doc.id }); });
-  // 塗った真ん中の点の色が、行の色の印と同じ
+  // 塗った真ん中の点の色が、そのレイヤーの色と同じ(行の左にあった色の印は、サムネイルに色が付いたので外した)
   const check = async () => {
     const colors = await page.evaluate(() => [...document.querySelectorAll<HTMLLIElement>('#layerList li')].map(li => {
       const c = li.querySelector('canvas')!, g = c.getContext('2d')!;
       const thumb = [...g.getImageData(c.width >> 1, c.height >> 1, 1, 1).data].slice(0, 3);
-      const swatch = getComputedStyle(li.querySelector<HTMLElement>('.layer-color')!).backgroundColor.match(/\d+/g)!.slice(0, 3).map(Number);
+      const n = parseInt(c.dataset.color!.slice(1), 16), swatch = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
       return { thumb, swatch };
     }));
     expect(colors).toHaveLength(3);
@@ -252,8 +252,9 @@ test('ウェイトの重ね表示: 選択中は選んだレイヤー、全レイ
   await page.locator('#view').focus();
   await page.keyboard.press('g'); await page.keyboard.press('b');
   expect(await app(page, a => a.overlayMode)).toBe('all');
-  // 一覧の色の印は、重ね表示の色と同じ
-  await expect(row(page, 'A').locator('.layer-color')).toHaveCSS('background-color', 'rgb(255, 51, 128)');
+  // 一覧のサムネイルの色は、重ね表示の色と同じ。行の左に色の印は出さない
+  await expect(row(page, 'A').locator('canvas')).toHaveAttribute('data-color', '#ff3380');
+  await expect(page.locator('#layerList .layer-color')).toHaveCount(0);
 });
 
 test('スマホ: 長押しで選択モードに入り、タップで足す・外す。「完了」で抜ける', async ({ page }) => {

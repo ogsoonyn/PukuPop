@@ -58,6 +58,21 @@ test(`タブは5枚まで。閉じるときは保存していない変更を確�
   await openPng(page, '6.png');
   await expect(page.locator('#toasts')).toContainText('タブは 5 枚まで');
   expect((await state(page)).tabs).toEqual(['1.png', '2.png', '3.png', '4.png', '5.png']);
+  // 5枚のときは、開く系のメニューとボタンを使えなくし、理由を出す(ファイルを選んでから断らない)
+  await page.locator('#menubar .dropdown', { hasText: 'ファイル' }).locator('[role=button]').click();
+  const fileMenu = page.locator('#menubar .dropdown', { hasText: 'ファイル' }).locator('ul.menu');
+  for (const cmd of ['open', 'recent', 'sample']) await expect(fileMenu.locator(`[data-cmd=${cmd}]`)).toBeDisabled();
+  await expect(fileMenu.locator('[data-blocked=open]')).toBeVisible();
+  await expect(fileMenu.locator('[data-blocked=open]')).toContainText('タブは 5 枚までです');
+  await expect(page.locator('#toolNav [data-cmd=recent]')).toBeDisabled();
+  await expect(page.locator('#toolNav [data-cmd=recent]')).toHaveAttribute('title', /タブは 5 枚までです/);
+  await page.keyboard.press('Escape');
+  // ショートカットで押したときは、ファイルを選ぶ画面を出さずに理由を知らせる
+  await page.evaluate(() => { (window as any).__picked = false; (window as any).showOpenFilePicker = async () => { (window as any).__picked = true; throw new DOMException('', 'AbortError'); }; document.querySelector<HTMLElement>('#toasts')!.replaceChildren(); });
+  await page.locator('#view').focus();
+  await page.keyboard.press('Control+o');
+  await expect(page.locator('#toasts')).toContainText('タブは 5 枚までです');
+  expect(await page.evaluate(() => (window as any).__picked)).toBe(false);
 
   // 保存していないタブを閉じるときは確かめる。やめたら残る
   await tabButton(page, '3.png').click();
@@ -72,6 +87,9 @@ test(`タブは5枚まで。閉じるときは保存していない変更を確�
   await page.locator('#askYes').click();
   await expect.poll(async () => (await state(page)).tabs).toEqual(['1.png', '2.png', '4.png', '5.png']);
   expect((await state(page)).name).toBe('4.png');
+  // 4枚に減ったら、また開ける
+  await expect(page.locator('#toolNav [data-cmd=recent]')).toBeEnabled();
+  await expect(page.locator('[data-blocked=open]').first()).toBeHidden();
   // 裏のタブは確かめずに閉じる(保存していない変更が無いので)
   await page.locator('#docTabs .doc-tab', { hasText: '1.png' }).locator('.doc-tab-close').click();
   await expect.poll(async () => (await state(page)).tabs).toEqual(['2.png', '4.png', '5.png']);
@@ -125,8 +143,6 @@ test('ループ再生中に切り替えても、そのタブは「未保存」�
   expect(await page.evaluate(() => (window as any).popstage.takeState)).toBe('playing');
   await openPng(page, 'b.png');
   await expect.poll(async () => (await state(page)).name).toBe('b.png');
-  expect(await page.evaluate(() => (window as any).popstage.tabs[0].dirty)).toBe(false);
-  await page.waitForTimeout(500); // 間引いた視点の変更が後から数えられないこと
   expect(await page.evaluate(() => (window as any).popstage.tabs[0].dirty)).toBe(false);
 });
 

@@ -28,6 +28,7 @@
   <div class="dropdown dropdown-end">
     <div tabindex="0" role="button" class="m-icon" aria-label="メニュー"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></div>
     <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-50 w-60 p-2 shadow-lg">
+      <li class="menu-note" data-blocked="open" hidden></li>
       <li><button data-cmd="open">開く…</button></li>
       <li><button data-cmd="save">保存</button></li>
       <li><button data-cmd="export">書き出し…</button></li>
@@ -46,6 +47,7 @@
   <div class="dropdown">
     <div tabindex="0" role="button" class="btn btn-ghost btn-sm">ファイル</div>
     <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-30 w-72 p-2 shadow-lg">
+      <li class="menu-note" data-blocked="open" hidden></li>
       <li><button data-cmd="open">開く…</button></li>
       <li><button data-cmd="recent">最近開いたファイル…</button></li>
       <li><button data-cmd="save">保存</button></li>
@@ -69,6 +71,11 @@
       <li><button data-cmd="fromAlpha">アルファから生成</button></li>
       <li><button data-cmd="clearWeights">全消去</button></li>
     </ul>
+  </div>
+  <div class="dropdown">
+    <div tabindex="0" role="button" class="btn btn-ghost btn-sm">ツール</div>
+    <!-- 中身は左のツールバーと同じ表(ui/tools.ts)から作る(ui/actions.ts) -->
+    <ul id="toolMenu" tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-30 w-56 p-2 shadow-lg"></ul>
   </div>
   <div class="dropdown">
     <div tabindex="0" role="button" class="btn btn-ghost btn-sm">表示</div>
@@ -398,6 +405,7 @@
       </div>
     </div>
     <div class="m-pane" data-mpane="file" hidden>
+      <p class="menu-note" data-blocked="open" hidden></p>
       <button class="m-row" data-cmd="open">開く<span>.pukupop・画像</span></button>
       <button class="m-row" data-cmd="save">保存<span>ダウンロード</span></button>
       <button class="m-row" data-cmd="recent">最近開いたファイル<span>このブラウザ内</span></button>
@@ -557,6 +565,7 @@
   <div class="modal-box w-[min(26rem,94vw)] p-4">
     <h3 class="font-bold text-lg mb-3">開いている作業</h3>
     <ul id="tabList" class="tab-list"></ul>
+    <p class="menu-note mt-2" data-blocked="open" hidden></p>
     <div class="modal-action mt-3">
       <button id="tabOpen" type="button" class="btn btn-sm btn-ghost mr-auto">開く…</button>
       <form method="dialog"><button class="btn btn-sm">閉じる</button></form>
