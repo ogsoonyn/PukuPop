@@ -6,7 +6,7 @@ import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegm
 import { projectDataBytes, sumMemory, type MemoryUsage, type TabMemory } from './model/memory';
 import { History, emptyHistory, shrinkHistory, type HistoryState } from './commands/history';
 import type { Rect } from './model/weightmap';
-import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation, diffTiles } from './commands/commands';
+import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation } from './commands/commands';
 import type { Command } from './commands/history';
 import { captureFavorite, copyPhysics, sameLayer, nextFavoriteName, applyView, FAVORITE_NAME_MAX } from './model/favorites';
 import { Stage, type ViewOptions } from './stage/stage';
@@ -14,11 +14,13 @@ import { StageSwing, type BaseState } from './playback/stageSwing';
 import { LoopPlayback } from './playback/loopPlayback';
 import { TakeRecording, type TakeState } from './app/recording';
 import { KeyframeEditor } from './app/keyframes';
+import { BlurPreview } from './app/blurPreview';
+import { InflatePreview, type InflateArea, type InflateSettings, type InflateState } from './app/inflatePreview';
+import { countLabel } from './app/labels';
 import { PhysicsWorld } from './physics/world';
 import { MotionRecorder } from './physics/recorder';
 import { takeSeconds, type KeyFrame } from './physics/take';
 import { Stroke, type PaintMode } from './paint/stroke';
-import { inflateShape, type InflateProfile, type InflateBlend } from './paint/inflate';
 import { serializeProject, serializeProjectBlob, deserializeProject, FILE_EXTENSION, type PngCacheEntry } from './storage/popstage';
 import { autosave } from './storage/autosave';
 import { autosaveFailureReason, isQuotaExceeded, requestPersistOnce } from './storage/persist';
@@ -40,32 +42,8 @@ export type { TakeState } from './app/recording';
 
 export interface BrushOptions { size: number; strength: number; hardness: number; pressure: PressureMode }
 
-/** 「膨らませる」の範囲。中心と幅・縦は元画像のピクセル単位(中心が原点、y は上向き) */
-export interface InflateArea { x: number; y: number; w: number; h: number }
-export interface InflateSettings {
-  shape: 'ellipse' | 'rect';
-  /** 頂上の高さ(元画像のピクセル)。null はレイヤーのポップ量と同じ */
-  height: number | null;
-  softness: number; // 0〜1
-  /** 形の傾き(度、-90〜90)。正で時計回り */
-  angle: number;
-  profile: InflateProfile;
-  blend: InflateBlend;
-}
-/** 形の傾きの範囲(度) */
-export const INFLATE_ANGLE = { min: -90, max: 90 };
-export interface InflateState {
-  /** 範囲を描いたレイヤー */
-  readonly layerId: string;
-  readonly area: InflateArea;
-  readonly settings: InflateSettings & { height: number };
-  /** 範囲を描いたレイヤーのポップ量(プレビュー中は変えない) */
-  readonly sourcePop: number;
-  /** 高さがポップ量を超えるので新しいレイヤーに作るときの、そのレイヤーの名前とポップ量 */
-  readonly newLayer: { readonly name: string; readonly pop: number } | null;
-  /** 高さがポップ量を超えるが、レイヤーが上限の枚数なので新しいレイヤーを作れない(ポップ量の高さで止まる) */
-  readonly limited: boolean;
-}
+export { INFLATE_ANGLE, type InflateArea, type InflateSettings, type InflateState } from './app/inflatePreview';
+export { countLabel } from './app/labels';
 
 type AppEvents = {
   tool: Tool;
@@ -303,6 +281,13 @@ export class App extends Emitter<AppEvents> {
       execute: cmd => this.history.execute(cmd),
       stateChanged: () => this.emit('take', this.takeState),
     });
+    this.blur = new BlurPreview(this.store, this.history);
+    this.inflate = new InflatePreview({
+      store: this.store, history: this.history,
+      get inflateSettings() { return app.inflateSettings; }, set inflateSettings(v) { app.inflateSettings = v; },
+      setActiveLayer: id => this.setActiveLayer(id),
+      ended: () => this.emit('inflate', 'end'),
+    });
     this.keys = new KeyframeEditor({
       get keyDraft() { return app.keyDraft; }, set keyDraft(k) { app.keyDraft = k; },
       get project() { return app.project; }, get doc() { return app.doc; },
@@ -469,7 +454,7 @@ export class App extends Emitter<AppEvents> {
 
   /** 自動で入れた重ね表示を切る。塗るツールのままか「全体をぼかす」の途中なら、まだ切らない */
   private autoHideOverlay(): void {
-    if (!this.overlayAutoShown || PAINT_TOOLS.includes(this.tool) || this.blurPreview) return;
+    if (!this.overlayAutoShown || PAINT_TOOLS.includes(this.tool) || this.blur.active) return;
     this.overlayAutoShown = false;
     if (this.autoOverlayOff) this.setOverlayMode('off');
   }
@@ -1081,75 +1066,35 @@ export class App extends Emitter<AppEvents> {
 
   /* 全体をぼかす(ガウス): プレビューしながら半径を決め、適用で1手として記録する */
 
-  /** ぼかしているレイヤー(選んでいるレイヤー全部)と、それぞれの元のウェイト */
-  private blurPreview: { layers: { layerId: string; original: Uint8Array }[] } | null = null;
+  /** 全体ぼかしのプレビュー(app/blurPreview.ts) */
+  private readonly blur: BlurPreview;
 
   beginBlurPreview(): boolean {
-    const layers = this.selectedLayers; if (!layers.length || this.blurPreview) return false;
-    this.blurPreview = { layers: layers.map(l => ({ layerId: l.id, original: l.weights.data.slice() })) };
+    if (!this.blur.begin(this.selectedLayers)) return false;
     this.autoShowOverlay();
     this.emit('blur', 'begin');
     return true;
   }
 
   /** radius は元画像のピクセル単位。0 で元に戻した状態を表示する。 */
-  previewBlur(radius: number): void {
-    const p = this.blurPreview, doc = this.doc; if (!p || !doc) return;
-    for (const e of p.layers) {
-      const layer = this.store.findLayer(e.layerId)?.layer; if (!layer) continue;
-      const wm = layer.weights;
-      wm.data.set(e.original);
-      if (radius > 0) wm.gaussianBlur(radius * (wm.width / doc.image.width));
-      this.store.weightsChanged(e.layerId, wm.fullRect, false);
-    }
-  }
+  previewBlur(radius: number): void { this.blur.preview(radius); }
 
   endBlurPreview(apply: boolean, radius: number): void {
-    const p = this.blurPreview; if (!p) return;
-    this.blurPreview = null;
-    try { this.finishBlur(p, apply, radius); } finally { this.emit('blur', 'end'); this.autoHideOverlay(); }
+    if (!this.blur.active) return;
+    try { this.blur.end(apply, radius); } finally { this.emit('blur', 'end'); this.autoHideOverlay(); }
   }
 
-  private finishBlur(p: NonNullable<App['blurPreview']>, apply: boolean, radius: number): void {
-    const label = `全体をぼかす(半径 ${radius}px)`, cmds: WeightEdit[] = [];
-    for (const e of p.layers) {
-      const layer = this.store.findLayer(e.layerId)?.layer; if (!layer) continue;
-      const wm = layer.weights;
-      if (!apply) { wm.data.set(e.original); this.store.weightsChanged(e.layerId, wm.fullRect, false); continue; }
-      const tiles = diffTiles(e.original, wm);
-      if (tiles.length) cmds.push(new WeightEdit(label, e.layerId, tiles));
-    }
-    if (!apply) return;
-    if (!cmds.length) { toast('変化はありませんでした。'); return; }
-    this.history.push(p.layers.length === 1 ? cmds[0] : new Batch(countLabel(label, p.layers.length), cmds));
-    this.store.emit('change', undefined);
-  }
-
-  get previewingBlur(): boolean { return !!this.blurPreview; }
+  get previewingBlur(): boolean { return this.blur.active; }
 
   /* 膨らませる: 範囲(楕円・矩形)を、指定した高さと断面で一括して膨らませる。
-     プレビューしながら数値を決め、適用で1手として記録する。
-     高さが範囲を描いたレイヤーのポップ量を超えるときは、そのレイヤーには触れず、ポップ量 = 高さの新しいレイヤーに作る
-     (今の塗りを縮めてポップ量を上げると、揺れも小さくなり、8 ビットのウェイトの階調も粗くなるため)。
-     新しいレイヤーはプレビューの間だけ仮に挿入し、アンドゥにも「未保存」にも数えない */
+     プレビューしながら数値を決め、適用で1手として記録する(app/inflatePreview.ts) */
 
-  private inflateSession: {
-    layerId: string; original: Uint8Array; area: InflateArea; settings: InflateSettings & { height: number };
-    sourcePop: number;
-    /** プレビュー中に仮に挿入している新しいレイヤー(同じレイヤーに作るときは null) */
-    newLayer: Layer | null;
-    /** 新しいレイヤーに作るときの名前(仮に挿入していなくても決めておく) */
-    newName: string;
-    limited: boolean;
-  } | null = null;
+  private readonly inflate: InflatePreview;
 
-  get previewingInflate(): boolean { return !!this.inflateSession; }
+  get previewingInflate(): boolean { return this.inflate.active; }
   /** 全体ぼかし・膨らませるのプレビュー中か。プレビュー中のウェイトを元に戻したりしないよう、使える操作を絞る */
   get previewing(): boolean { return this.previewingBlur || this.previewingInflate; }
-  get inflateState(): InflateState | null {
-    const s = this.inflateSession; if (!s) return null;
-    return { layerId: s.layerId, area: s.area, settings: s.settings, sourcePop: s.sourcePop, limited: s.limited, newLayer: s.newLayer && { name: s.newLayer.name, pop: s.newLayer.pop } };
-  }
+  get inflateState(): InflateState | null { return this.inflate.state; }
 
   /** 範囲を描き始める(ドラッグの最初の動きで呼ぶ) */
   beginInflateArea(area: InflateArea): boolean {
@@ -1157,115 +1102,19 @@ export class App extends Emitter<AppEvents> {
     if (this.previewingBlur) { toast('「全体をぼかす」を適用するかキャンセルしてから膨らませてください。', 'warning'); return false; }
     if (!layer || !doc || this.busy) return false;
     if (!layer.visible) { toast('非表示のレイヤーには塗れません。', 'warning'); return false; }
-    const st = this.inflateSettings;
-    this.inflateSession = {
-      layerId: layer.id, original: layer.weights.data.slice(), area: { ...area },
-      // 高さの初期値は前回の値、初めてならポップ量と同じ(ポップ量が 0 なら既定のポップ量)
-      // 前回の高さは引き継ぐが、このレイヤーのポップ量は超えない(いきなり新しいレイヤーに作らない)
-      settings: { ...st, height: layer.pop > 0 ? Math.min(st.height ?? layer.pop, layer.pop) : (st.height ?? LIMITS.pop.def) },
-      sourcePop: layer.pop, newLayer: null, newName: nextInflateLayerName(doc), limited: false,
-    };
-    this.renderInflate();
+    this.inflate.begin(layer, doc, area);
     this.emit('inflate', 'begin');
     return true;
   }
 
   updateInflate(patch: { area?: Partial<InflateArea>; settings?: Partial<InflateSettings> }): void {
-    const s = this.inflateSession; if (!s) return;
-    if (patch.area) s.area = { ...s.area, ...patch.area };
-    if (patch.settings) s.settings = { ...s.settings, ...patch.settings, height: patch.settings.height ?? s.settings.height };
-    this.renderInflate();
+    if (!this.inflate.active) return;
+    this.inflate.update(patch);
     this.emit('inflate', 'change');
   }
 
-  /**
-   * プレビュー用の新しいレイヤーを、範囲を描いたレイヤーのすぐ上に仮に入れる / 外す。
-   * 構成が変わったことだけを知らせ(GPU への全面転送とレイヤー一覧の更新)、変更としては数えない
-   */
-  private setPreviewLayer(on: boolean): void {
-    const s = this.inflateSession, doc = this.doc; if (!s || !doc) return;
-    if (on && !s.newLayer) {
-      const f = this.store.findLayer(s.layerId); if (!f) return;
-      const layer = createLayer(doc, s.newName);
-      // 揺れ方は元のレイヤーにそろえる(同じ物の一部として揺れるように)
-      layer.physics = { ...f.layer.physics, motionParams: { ...f.layer.physics.motionParams } };
-      doc.layers.splice(f.index + 1, 0, layer);
-      s.newLayer = layer;
-      this.store.emit('layers', { docId: doc.id });
-    } else if (!on && s.newLayer) {
-      const i = doc.layers.indexOf(s.newLayer);
-      if (i >= 0) doc.layers.splice(i, 1);
-      s.newLayer = null;
-      this.store.emit('layers', { docId: doc.id });
-    }
-  }
-
-  private renderInflate(): void {
-    const s = this.inflateSession, doc = this.doc; if (!s || !doc) return;
-    const source = this.store.findLayer(s.layerId)?.layer; if (!source) return;
-    const st = s.settings;
-    // 仮のレイヤーは数えずに、もう1枚足せるか
-    const layerCount = doc.layers.length - (s.newLayer ? 1 : 0);
-    const over = st.height > s.sourcePop, useNew = over && layerCount < LIMITS.maxLayers;
-    s.limited = over && !useNew;
-    // 範囲を描いたレイヤーは、新しいレイヤーに作るときは元のまま、そうでなければ元の上に重ねる
-    source.weights.data.set(s.original);
-    this.store.weightsChanged(s.layerId, source.weights.fullRect, false);
-    this.setPreviewLayer(useNew);
-    const target = s.newLayer ?? source, wm = target.weights;
-    if (s.newLayer) {
-      wm.data.fill(0);
-      const pop = Math.min(LIMITS.pop.max, Math.ceil(st.height));
-      if (s.newLayer.pop !== pop) { s.newLayer.pop = pop; this.store.emit('layer', { layerId: s.newLayer.id, keys: ['pop'] }); }
-    }
-    const base = s.newLayer ? wm.data.slice() : s.original;
-    const a = s.area, kx = wm.width / doc.image.width, ky = wm.height / doc.image.height;
-    const level = target.pop > 0 ? Math.min(1, st.height / target.pop) : 0;
-    inflateShape(wm, base, {
-      kind: st.shape, cx: (a.x / doc.image.width + 0.5) * wm.width, cy: (0.5 - a.y / doc.image.height) * wm.height, rx: a.w / 2 * kx, ry: a.h / 2 * ky,
-      angle: st.angle * Math.PI / 180,
-    }, { level, softness: st.softness, profile: st.profile, blend: st.blend });
-    this.store.weightsChanged(target.id, wm.fullRect, false);
-  }
-
-  endInflate(apply: boolean): void {
-    const s = this.inflateSession, doc = this.doc; if (!s) return;
-    const source = this.store.findLayer(s.layerId)?.layer, newLayer = s.newLayer;
-    if (!apply || !doc || !source) {
-      this.setPreviewLayer(false);
-      if (source) { source.weights.data.set(s.original); this.store.weightsChanged(s.layerId, source.weights.fullRect, false); }
-      this.inflateSession = null;
-      this.emit('inflate', 'end');
-      return;
-    }
-    this.inflateSession = null;
-    const st = s.settings;
-    this.inflateSettings = { ...st }; // 次に描くときも同じ設定で始める
-    const shape = `${st.shape === 'ellipse' ? '楕円' : '矩形'} ${Math.round(s.area.w)}×${Math.round(s.area.h)}px${st.angle ? `・${st.angle}°` : ''}`;
-    if (newLayer && !newLayer.weights.data.some(v => v > 0)) {
-      // 範囲がすべて画像の外などで何も膨らまなかったときは、空のレイヤーを残さない
-      this.inflateSession = s;
-      this.endInflate(false);
-      toast('変化はありませんでした。');
-      return;
-    }
-    if (newLayer) {
-      // 仮に入れたレイヤーをそのまま正式に追加する。戻すとレイヤーごと消え、元のレイヤーは触れていないので元どおり
-      const index = doc.layers.indexOf(newLayer);
-      this.history.push(new InsertLayer(`膨らませる(${shape}・高さ ${st.height}px・新しいレイヤー「${newLayer.name}」)`, doc.id, newLayer, index));
-      this.store.emit('change', undefined);
-      this.setActiveLayer(newLayer.id);
-    } else {
-      const tiles = diffTiles(s.original, source.weights);
-      const height = s.limited ? s.sourcePop : st.height; // 上限の枚数で新しいレイヤーを作れないときは、ポップ量で止まる
-      if (!tiles.length) toast('変化はありませんでした。');
-      else {
-        this.history.push(new WeightEdit(`膨らませる(${shape}・高さ ${height}px)`, s.layerId, tiles));
-        this.store.emit('change', undefined);
-      }
-    }
-    this.emit('inflate', 'end');
-  }
+  /** 適用で1手として記録し、キャンセルで元に戻す。終えたら 'inflate' の 'end' を送る */
+  endInflate(apply: boolean): void { this.inflate.end(apply); }
 
   fromAlpha(): void {
     const c = this.imageCanvas, layer = this.activeLayer, doc = this.doc; if (!c || !layer || !doc) return;
@@ -1357,7 +1206,7 @@ export class App extends Emitter<AppEvents> {
     }
     const pr = PRESETS[name], label = countLabel(`プリセット「${pr.label}」`, n);
     // 選んでいないレイヤーで揺れているもの(表示中・揺れがオン・塗ってある)があるか。膨らませるのプレビューで仮に入れたレイヤーは数えない
-    const temp = this.inflateSession?.newLayer?.id;
+    const temp = this.inflate.tempLayerId;
     const others = this.doc?.layers.some(o => !this.selectedLayerIds.has(o.id) && o.id !== temp && o.visible && o.physics.enabled && o.weights.data.some(v => v > 0)) ?? false;
     const changePeriod = !others && this.project.autoSwing.period !== pr.period;
     this.history.execute(new Batch(label, [
@@ -1660,13 +1509,6 @@ export class App extends Emitter<AppEvents> {
   }
 }
 
-/** 膨らませるで作るレイヤーの名前(膨らみ1, 膨らみ2, …のうち、まだ無いもの) */
-function nextInflateLayerName(doc: Document): string {
-  let n = 1;
-  while (doc.layers.some(l => l.name === `膨らみ${n}`)) n++;
-  return `膨らみ${n}`;
-}
-
 function nextLayerName(doc: Document): string {
   let n = doc.layers.length + 1;
   while (doc.layers.some(l => l.name === `レイヤー${n}`)) n++;
@@ -1683,9 +1525,6 @@ function unionRect(a: Rect, b: Rect): Rect {
   const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
   return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
 }
-
-/** 複数のレイヤーにまとめてかけた操作の名前(履歴とアンドゥのメニューに出す) */
-export function countLabel(label: string, n: number): string { return n > 1 ? `${label}(${n}枚)` : label; }
 
 /** 1つならそのまま、複数なら1手にまとめる */
 function batchOf(label: string, cmds: Command[]): Command { return cmds.length === 1 ? cmds[0] : new Batch(label, cmds); }
