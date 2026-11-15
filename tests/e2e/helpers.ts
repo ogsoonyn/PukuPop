@@ -12,11 +12,16 @@ export function watchGlErrors(): void {
   test.afterEach(() => { expect(glErrors, 'WebGL のエラー').toEqual([]); });
 }
 
+/** ページの console に出た WebGL のエラーを、watchGlErrors の見張りへ渡す(boot を使わずに起動する spec 用) */
+export function listenGlErrors(page: Page): void {
+  page.on('console', m => { if (/GL_INVALID|WebGL: INVALID/.test(m.text())) glErrors.push(m.text()); });
+}
+
 /** ?e2e: 自動保存の復元を聞かず、揺れを止めた状態で起動する */
 export async function boot(page: Page): Promise<void> {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
-  page.on('console', m => { if (/GL_INVALID|WebGL: INVALID/.test(m.text())) glErrors.push(m.text()); });
+  listenGlErrors(page);
   await page.goto('/?e2e');
   await page.waitForFunction(() => {
     const a = (window as any).popstage;

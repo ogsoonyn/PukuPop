@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PukuPop Player の確認用</title>
+</head>
+<!--
+  Player(src/player)の確認用のページ。開発用のサーバー(Vite)でだけ開く。本番のビルドの入口は index.html だけなので、ここは入らない。
+  E2E(tests/e2e/player.spec.ts)は window.playerDemo を使う。CSS は読まない(Player が CSS を足さないことを確かめるため)。
+-->
+<body style="margin:0;font:14px sans-serif">
+<div id="box" style="padding:16px"><canvas id="c" style="width:480px;height:360px;display:block;background:#ddd"></canvas></div>
+<p style="padding:0 16px">ドラッグで回す。Ctrl+ホイール・ピンチでズーム。</p>
+<!-- ただのホイールでページがスクロールできるか確かめるための余白 -->
+<div style="height:3000px"></div>
+<script type="module" src="/src/player/demo.ts"></script>
+</body>
+</html>
