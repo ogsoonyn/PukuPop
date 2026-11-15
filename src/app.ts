@@ -1739,14 +1739,14 @@ export class App extends Emitter<AppEvents> {
       // 次のフレームを先に予約し、frame で例外が出てもループが止まらないようにする
       requestAnimationFrame(loop);
       try {
-      this.perf?.frame(now);
-      const raw = this.prev ? (now - this.prev) / 1000 : 0, dt = Math.min(raw, 0.1);
-      // 物理は 0.1 秒で打ち切るので、その間の平行移動を 1 刻みの動きとして扱うと強く弾みすぎる。測り直す
-      if (raw > 0.1) this.world.cutView();
-      this.prev = now;
-      this.frame(dt);
-      this.frames++; this.fpsTime += dt;
-      if (this.fpsTime >= 0.5) { this.fps = Math.round(this.frames / this.fpsTime); this.frames = 0; this.fpsTime = 0; this.emit('fps', this.fps); }
+        this.perf?.frame(now);
+        const raw = this.prev ? (now - this.prev) / 1000 : 0, dt = Math.min(raw, 0.1);
+        // 物理は 0.1 秒で打ち切るので、その間の平行移動を 1 刻みの動きとして扱うと強く弾みすぎる。測り直す
+        if (raw > 0.1) this.world.cutView();
+        this.prev = now;
+        this.frame(dt);
+        this.frames++; this.fpsTime += dt;
+        if (this.fpsTime >= 0.5) { this.fps = Math.round(this.frames / this.fpsTime); this.frames = 0; this.fpsTime = 0; this.emit('fps', this.fps); }
       } catch (e) { this.onFrameError(e); }
     };
     requestAnimationFrame(loop);
