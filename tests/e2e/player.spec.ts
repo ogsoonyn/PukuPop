@@ -135,7 +135,7 @@ test('autoplay: false なら最初の1フレームを描いて止まった状態
   expect(await read<boolean>(page, 'player.playing')).toBe(false);
   expect(drawn(await snap(page))).toBe(true);
   const raf = await read<number>(page, '__spy.raf');
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(300); // 何も起きない(フレームを回さない)ことを確かめるので、時間で待つ
   expect(await read<number>(page, '__spy.raf')).toBe(raf);
   expect(await read<number>(page, 'inner.world.time')).toBe(0);
   await page.evaluate(() => (window as any).player.play());
@@ -311,6 +311,16 @@ test.describe('指の操作', () => {
   });
 });
 
+test('interaction: view で付けた touch-action・cursor は、埋め込み先がインラインで書いていた値に dispose() で戻す', async ({ page }) => {
+  await open(page);
+  await page.locator('#c').evaluate(c => { (c as HTMLCanvasElement).style.cssText += ';touch-action:pan-y;cursor:crosshair'; });
+  await create(page, { autoSwing: false });
+  const style = () => page.locator('#c').evaluate(c => [(c as HTMLCanvasElement).style.touchAction, (c as HTMLCanvasElement).style.cursor]);
+  expect(await style()).toEqual(['none', 'grab']);
+  await page.evaluate(() => (window as any).player.dispose());
+  expect(await style()).toEqual(['pan-y', 'crosshair']);
+});
+
 test('interaction: none なら、ドラッグもホイールも受けない', async ({ page }) => {
   await open(page);
   await create(page, { autoSwing: false }, { interaction: 'none' });
@@ -361,6 +371,20 @@ test('大きさは自動で追い、止めているときも描き直す。CSS �
   // resize() は測り直すだけ(引数を取らない)
   await page.evaluate(() => (window as any).player.resize());
   expect((await sizeOf(page)).style).toEqual(['300px', '']);
+  // dispose() のあとは追わない(ResizeObserver を外している)
+  const disconnected = await page.evaluate(() => {
+    const proto = ResizeObserver.prototype, disconnect = proto.disconnect;
+    let n = 0;
+    proto.disconnect = function (this: ResizeObserver) { n++; return disconnect.call(this); };
+    try { (window as any).player.dispose(); } finally { proto.disconnect = disconnect; }
+    return n;
+  });
+  expect(disconnected).toBe(1);
+  const disposed = await sizeOf(page);
+  await page.locator('#c').evaluate(c => { (c as HTMLCanvasElement).style.width = '200px'; });
+  await frames(page, 5);
+  const after = await sizeOf(page);
+  expect([after.css[0], after.buf]).toEqual([200, disposed.buf]);
 });
 
 /** 確認用のページの #box の外(#box の canvas に付く CSS が効かない所)にキャンバスを作り、Player を作る */
@@ -582,6 +606,29 @@ test('React の StrictMode の手順(作る → すぐ取り消す → 同じキ
     return r;
   });
   expect(first).toEqual([true, 'aborted']);
+  await expect.poll(async () => drawn(await snap(page))).toBe(true);
+  expect(await read<boolean>(page, 'player.playing')).toBe(true);
+});
+
+test('取り消した1つ目が終わっても、そのあと同じキャンバスで始めた2つ目の印は外れない(印はそれぞれのもの)', async ({ page }) => {
+  await open(page);
+  const r = await page.evaluate(async () => {
+    const w = window as any, d = w.playerDemo, m = await d.load(), bytes = await d.sample({ autoSwing: true }), c = d.canvas();
+    const ac = new AbortController();
+    const a = m.createPlayer(c, bytes, { signal: ac.signal });
+    ac.abort(); // A の印はここで外れる
+    let bDone = false;
+    const b = m.createPlayer(c, bytes); // 読み込み中(B の印が付いている)
+    b.finally(() => { bDone = true; });
+    // A の失敗を待つ(A の finally が走り、自分の印を外そうとする)
+    const ra = await a.then(() => 'ok', (e: any) => e.code);
+    const loading = !bDone;
+    const rc = await m.createPlayer(c, bytes).then((p: any) => { p.dispose(); return 'ok'; }, (e: any) => e.code);
+    w.player = await b;
+    w.inner = d.inspect(w.player);
+    return { ra, loading, rc };
+  });
+  expect(r).toEqual({ ra: 'aborted', loading: true, rc: 'canvas-unusable' });
   await expect.poll(async () => drawn(await snap(page))).toBe(true);
   expect(await read<boolean>(page, 'player.playing')).toBe(true);
 });
