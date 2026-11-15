@@ -5,10 +5,9 @@
  * 回す感度・向き・上下の範囲・ズームの範囲は編集アプリ(ui/input.ts)と同じ(model/project.ts の orbitCamera・VIEW_LIMITS)。
  * 視点を動かした勢いで揺れるのは、刻みごとに視点を物理へ入れる処理(playback/frame.ts の feedView)が受け持つ。
  */
-import { clampViewZoom, orbitCamera, VIEW_LIMITS, type CameraState } from '../model/project';
-import { smoothZoom } from '../ui/smoothZoom';
+import { clampViewZoom, orbitCamera, type CameraState } from '../model/project';
 
-/** ホイール1段あたりのズーム(拡大率の対数)。編集アプリのホイールと同じ */
+/** ホイールの量 1 あたりのズーム(拡大率の対数)。編集アプリのホイールと同じ感度 */
 const WHEEL_ZOOM = 0.0012;
 
 /**
@@ -17,7 +16,6 @@ const WHEEL_ZOOM = 0.0012;
  */
 export function bindViewInput(canvas: HTMLCanvasElement, camera: () => CameraState, changed: () => void): () => void {
   const ac = new AbortController(), on = { signal: ac.signal };
-  let live = true;
   // 1本指の縦の動きも回すのに使うので、キャンバスの上ではブラウザのスクロール・ズームをさせない(キャンバスの外は今までどおり)
   const before = { touchAction: canvas.style.touchAction, cursor: canvas.style.cursor };
   canvas.style.touchAction = 'none';
@@ -70,24 +68,21 @@ export function bindViewInput(canvas: HTMLCanvasElement, camera: () => CameraSta
   // 右ドラッグで回すので、キャンバスの上ではメニューを出さない
   canvas.addEventListener('contextmenu', e => e.preventDefault(), on);
 
-  // ズームは目標へなめらかに寄せる(編集アプリのホイールと同じ ui/smoothZoom.ts)。
-  // Ctrl(⌘)を押しているときと、タッチパッドのピンチ(ブラウザが ctrlKey 付きのホイールとして送る)だけ
-  const zoom = smoothZoom({
-    get: () => camera().zoom,
-    set: z => { if (!live) return; camera().zoom = z; changed(); },
-    owner: () => camera(),
-    min: VIEW_LIMITS.zoom.min, max: VIEW_LIMITS.zoom.max,
-  });
+  // Ctrl(⌘)を押しているときと、タッチパッドのピンチ(ブラウザが ctrlKey 付きのホイールとして送る)だけズームする。
+  // 編集アプリはピンチをその場で変え、マウスの Ctrl+ホイールはなめらかに寄せるが、Player は window に受け口を付けられず
+  // 2つを見分けられない。ピンチが指に遅れないほうを取り、どちらもその場で変える(マウスの Ctrl+ホイールでは段が出る)
   canvas.addEventListener('wheel', e => {
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
     // Shift を押すとブラウザが横に回したことにするので、そのときは横の量を使う(編集アプリと同じ)
     const d = e.deltaY !== 0 ? e.deltaY : e.shiftKey ? e.deltaX : 0;
-    zoom.add(d * WHEEL_ZOOM);
+    if (!d) return;
+    const cam = camera();
+    cam.zoom = clampViewZoom(cam.zoom * Math.exp(d * WHEEL_ZOOM));
+    changed();
   }, { passive: false, signal: ac.signal });
 
   return () => {
-    live = false;
     for (const id of pointers.keys()) { try { canvas.releasePointerCapture(id); } catch { /* 離れている */ } }
     pointers.clear();
     ac.abort();
