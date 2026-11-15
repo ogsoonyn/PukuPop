@@ -25,13 +25,14 @@ npm run e2e        # E2E テスト(Playwright。エージェントは下の「�
 | `src/playback` | 再生のつなぎ(物理の結果を Stage へ当てる、記録のループ再生)。編集アプリと再生専用の部品で共有する |
 | `src/ui` | 画面の部品(入力、パネル、ダイアログ、3面図) |
 | `src/app` | 編集アプリだけの部品(タブ、自動保存、記録を取る側、キーフレームの下書き、膨らませる・全体ぼかしのプレビュー、新しい画像の既定) |
-| `src/player` | 埋め込み用の再生専用の部品(Player、Issue #127)。`index.ts` が入口。`player.html` と `demo.ts` は開発用のサーバーで開く確認用のページ(本番のビルドには入らない) |
+| `src/player` | 埋め込み用の再生専用の部品(Player、Issue #127)。`index.ts` が入口。リポジトリの直下の `player.html` と `src/player/demo.ts` は、開発用のサーバーで開く確認用のページ(`/player.html`。本番のビルドには入らない。`?e2e` で自動の読み込みを止める) |
 | `src/app.ts` | 各モジュールをつなぐ本体。画面の部品と E2E(`window.popstage`)が使う公開面を持ち、中身は `src/playback`・`src/app` へ委ねる |
 
 - `model` / `commands` / `paint` / `physics` / `storage` は DOM と three.js を参照しない。ブラウザ無しで単体テストできるようにするため。
 - `playback` は `model` / `physics` と、Stage の要るメソッドだけのインターフェース(`src/playback/stageApi.ts`)だけを参照し、`App`・アンドゥ・タブ・DOM(`src/ui`)・`prefs`・自動保存に依存しない。再生専用の部品(Issue #127)と共有するため。外の世界(今のプロジェクト・状態が変わったことの知らせ)は引数・関数・フックで受ける。
-- `src/player` は `model`・`physics`・`stage`・`storage/popstage`(と zip・png)・`playback` と、DOM の部品でない `src/ui/imageio.ts`・`src/ui/smoothZoom.ts` だけを使う。`App`・`src/app`・`commands`(アンドゥ)・`export`・`src/ui` の画面の部品・CSS・`prefs` / 自動保存 / 最近開いたファイル / 永続化は使わない(入口から辿れるものは `tests/unit/player.test.ts` が確かめる)。あとでライブラリとして出すため。
-- `src/player` は渡されたキャンバスの外に触らない。`window` / `document` に受け口を付けず(ポインタはキャンバスで受けて `setPointerCapture`)、キャンバスの親要素のクラス・スタイルを変えず(背景は WebGL の消去の色だけ)、service worker・IndexedDB・localStorage を使わない。console へは失敗のときだけ出す。モジュールを読んだだけで `window` に受け口を付けるファイル(`src/ui/fine.ts` など)も import しない。
+- `src/player` は `model`・`physics`・`stage`・`storage/popstage`(と zip・png)・`playback` と、`model` から辿れる `src/util/emitter.ts` と、DOM の部品でない `src/ui/imageio.ts` だけを使う。`App`・`src/app`・`commands`(アンドゥ)・`export`・`src/ui` の画面の部品・CSS・`prefs` / 自動保存 / 最近開いたファイル / 永続化は使わない(入口から辿れるものは `tests/unit/player.test.ts` が確かめる)。あとでライブラリとして出すため。
+- `src/player` は渡されたキャンバスの外に触らない。`window` / `document` に受け口を付けず(ポインタはキャンバスで受けて `setPointerCapture`)、キャンバスの親要素のクラス・スタイルを変えず(背景は WebGL の消去の色だけ)、service worker・IndexedDB・localStorage を使わない。console へは失敗のときだけ出す。モジュールを読んだだけで `window` に受け口を付けるファイル(`src/ui/fine.ts` など)も import しない。大きさを追う `ResizeObserver` はキャンバスの要素だけを見るので約束の範囲(`window` の `resize` は使わない。通知の中では描画バッファの大きさだけを変え、CSS の大きさは書かない)。
+- Player の API の決まり: `dispose()` したキャンバスは使い回さない(使えないキャンバス・ほかの Player が使っているキャンバスは `PlayerError` の `canvas-unusable` で断る)。大きさは既定で自動で追い(`autoResize`)、`resize()` は引数なしで測り直すだけ。`signal` で読み込みを取り消せ、失敗は `code` 付きの `PlayerError`。`createPlayer` は WebGL を作ってから返すまで await を挟まない(取り消し・読み込みの失敗でキャンバスを使えなくしないため)。返すオブジェクトは API だけにし、中身は確認用のページだけが `src/player/player.ts` の `inspect`(入口からは出さない)で見る。
 - `src/app` の部品は `App` の型を import せず、要る分だけの小さなインターフェースで受ける。
 - `develop` / `main` 向けの PR と `develop` への push では、GitHub Actions(`.github/workflows/ci.yml`)が型検査・単体テスト・ビルドを流す。E2E は流れない。
 - `main` へ push すると、GitHub Actions(`.github/workflows/deploy-pages.yml`)がテストとビルドを行い、GitHub Pages へ公開する(リポジトリを作り直したときは、Settings → Pages で Source を「GitHub Actions」にする)。ビルド結果は相対パスで参照し合う(`base: './'`)。
