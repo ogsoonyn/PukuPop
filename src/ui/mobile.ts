@@ -160,6 +160,8 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
     if (state === 'closed') setSheet('half');
   });
   window.addEventListener('resize', () => { if (mq.matches) setSheet(state, false); });
+  // 一番上の並びを設定で全部隠す・出すと高さが変わるので、閉じたときに見える高さを決め直す
+  new ResizeObserver(() => { if (mq.matches) setSheet(state, false); }).observe(nav);
 
   /* ---------- 上のバー ---------- */
 

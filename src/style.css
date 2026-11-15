@@ -239,7 +239,7 @@ html.mobile #mSheet { display: flex !important; }
 .m-act:active { background: var(--color-base-300); }
 .m-act:disabled { opacity: .35; }
 .m-act[aria-pressed="true"] { background: color-mix(in oklab, var(--color-primary) 22%, var(--color-base-100)); outline: 1px solid color-mix(in oklab, var(--color-primary) 60%, transparent); outline-offset: -1px; font-weight: 600; }
-#mNav .nav-off { display: none !important; }
+#mNav .nav-off, #mNav.nav-off { display: none !important; }
 .m-act-sep { flex-shrink: 0; width: 1px; margin: .375rem .125rem; background: var(--color-base-300); }
 .m-tabs { display: flex; border-bottom: 1px solid var(--color-base-300); padding: 0 .5rem; flex-shrink: 0; }
 .m-tabs button { flex: 1; min-width: 0; height: 2.625rem; border-bottom: 2px solid transparent; opacity: .65; cursor: pointer; }

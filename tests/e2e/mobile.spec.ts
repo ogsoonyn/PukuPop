@@ -199,22 +199,52 @@ test('上のメニューから設定を開ける。シートの一番上に出�
   // ツールと3面図はスマホでは出さないので、選ぶ欄にも出さない
   await expect(list.locator('input[data-nav=brush]')).toBeHidden();
   await expect(list.locator('input[data-nav=toggleMulti]')).toBeHidden();
-  // 隠すとシートから消え、まとまりが空になったら区切りも消える
+  // 隠すとシートから消え、まとまりが空になったら区切りも消える(端に残らず、続けて並ばない)
   const nav = page.locator('#mNav');
+  /** 見えている並び(区切りは '|') */
+  const shown = () => nav.evaluate(el => [...el.children].filter(c => getComputedStyle(c).display !== 'none').map(c => (c as HTMLElement).dataset.nav ?? '|'));
+  const sepsOk = (v: string[]) => v[0] !== '|' && v.at(-1) !== '|' && !v.some((x, i) => x === '|' && v[i + 1] === '|');
   await expect(nav.locator('[data-nav=normalize]')).toBeVisible();
-  for (const id of ['smoothAll', 'normalize', 'invert']) await list.locator(`input[data-nav=${id}]`).uncheck();
+  for (const id of ['recent', 'smoothAll', 'normalize', 'invert']) await list.locator(`input[data-nav=${id}]`).uncheck();
   await expect(nav.locator('[data-nav=normalize]')).toBeHidden();
-  expect(await nav.evaluate(el => [...el.children].filter(c => getComputedStyle(c).display !== 'none' && c.classList.contains('m-act-sep')).length)).toBe(2);
+  let v = await shown();
+  expect(v[0]).toBe('toggleOverlay');
+  expect(sepsOk(v)).toBe(true);
+  for (const id of ['toggleAutoSwing', 'toggleKeyPlay', 'toggleKeyPath', 'toggleKeyGhost', 'addFavorite']) await list.locator(`input[data-nav=${id}]`).uncheck();
+  v = await shown();
+  expect(v.at(-1)).toBe('resetRotation');
+  expect(sepsOk(v)).toBe(true);
+  // 全部隠すと帯ごと消え、閉じたシートの高さも縮む。1つ出すと戻る
+  const sheetH = () => page.locator('#mSheet').evaluate(el => el.getBoundingClientRect().height);
+  const h0 = await sheetH();
+  for (const cb of await list.locator('input:visible').all()) await cb.uncheck();
+  await expect(nav).toBeHidden();
+  await expect.poll(sheetH).toBeLessThan(h0);
+  await list.locator('input[data-nav=resetView]').check();
+  await expect(nav).toBeVisible();
+  await expect.poll(sheetH).toBe(h0);
   // 既定で隠す開く・保存・書き出しも出せる
   await expect(nav.locator('[data-nav=save]')).toBeHidden();
   await list.locator('input[data-nav=save]').check();
   await page.locator('#settingsDialog .modal-action button').click();
   await expect(nav.locator('[data-nav=save]')).toBeVisible();
   // 選んだことは覚える(PC の左のツールバーと同じ設定)
-  await page.waitForTimeout(400);
   await boot(page);
   await expect(page.locator('#mNav [data-nav=save]')).toBeVisible();
   await expect(page.locator('#mNav [data-nav=normalize]')).toBeHidden();
+  // PC の幅で隠したツールは、スマホの「すべて出す」では戻さない
+  await page.evaluate(async () => {
+    const mod = '/src/storage/prefs.ts';
+    const { prefs } = await import(/* @vite-ignore */ mod);
+    prefs.set('toolbarHidden', ['brush', 'normalize']);
+  });
+  await boot(page);
+  await expect(page.locator('#mNav [data-nav=normalize]')).toBeHidden();
+  await page.locator('#mTop [aria-label=メニュー]').click();
+  await page.locator('#mTop [data-cmd=settings]').click();
+  await page.locator('#setToolbarReset').click();
+  await expect(page.locator('#mNav [data-nav=normalize]')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('popstage.prefs.v1')!).toolbarHidden)).toEqual(['brush']);
 });
 
 test('2本指で平行移動とピンチズームができ、画像の外をなぞると回転する', async ({ page }) => {

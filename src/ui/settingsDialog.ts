@@ -14,6 +14,8 @@ const KEY = 'toolbarHidden';
 const SHOWN_KEY = 'toolbarShown';
 const ITEMS = TOOLBAR_ITEMS.flatMap(g => g.items);
 const DEFAULT_HIDDEN = ITEMS.filter(it => it.defaultHidden).map(it => it.id);
+/** PC だけのボタン(スマホのシートにも、スマホの設定の欄にも出さない) */
+const DESKTOP_ONLY = new Set(TOOLBAR_ITEMS.flatMap(g => g.items.filter(it => g.desktopOnly || it.desktopOnly).map(it => it.id)));
 
 /** 覚えている設定から、今隠すボタン(今もあるものだけ)。既定で隠すボタンは、出すと選んでいなければ隠す */
 function loadHidden(): Set<string> {
@@ -60,6 +62,8 @@ function applyMobileNav(hidden: ReadonlySet<string>): void {
       if (seen && !pending) pending = el;
     }
   }
+  // 全部隠したときは、空の帯を残さない(シートの高さは ui/mobile.ts が帯の高さの変化から決め直す)
+  ui.mNav.classList.toggle('nav-off', !seen);
 }
 
 export function bindSettingsDialog(): { open: () => void } {
@@ -94,7 +98,12 @@ export function bindSettingsDialog(): { open: () => void } {
     prefs.set(SHOWN_KEY, DEFAULT_HIDDEN.filter(id => !hidden.has(id)));
     applyToolbar(hidden);
   };
-  ui.setToolbarReset.addEventListener('click', () => { hidden = new Set(); save(); sync(); });
+  ui.setToolbarReset.addEventListener('click', () => {
+    // スマホでは、欄に出していない PC だけのボタン(ツール・3面図)の選択は変えない
+    const mobile = document.documentElement.classList.contains('mobile');
+    hidden = mobile ? new Set([...hidden].filter(id => DESKTOP_ONLY.has(id))) : new Set();
+    save(); sync();
+  });
 
   return { open: () => { sync(); ui.settingsDialog.showModal(); } };
 }
