@@ -2,9 +2,9 @@
  * アプリ本体。モデル・コマンド・描画・物理・保存・書き出しをつなぐ。
  * 画面の部品(ui/)はここを経由して状態を読み書きする。
  */
-import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegments, alphaSpreadPx, frontCamera, wrapAngle, defaultOrthoView, LIMITS, PRESETS, applyPreset, type PresetName, type CameraState, type Vec3, type OrthoView, type Project, type Document, type Layer } from './model/project';
+import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegments, alphaSpreadPx, frontCamera, wrapAngle, LIMITS, PRESETS, applyPreset, type PresetName, type CameraState, type Vec3, type OrthoView, type Project, type Document, type Layer } from './model/project';
 import { projectDataBytes, sumMemory, type MemoryUsage, type TabMemory } from './model/memory';
-import { History, emptyHistory, shrinkHistory, type HistoryState } from './commands/history';
+import { History, emptyHistory } from './commands/history';
 import type { Rect } from './model/weightmap';
 import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation } from './commands/commands';
 import type { Command } from './commands/history';
@@ -17,13 +17,16 @@ import { KeyframeEditor } from './app/keyframes';
 import { BlurPreview } from './app/blurPreview';
 import { InflatePreview, type InflateArea, type InflateSettings, type InflateState } from './app/inflatePreview';
 import { countLabel } from './app/labels';
+import { createTab, tabName, suggestedName, trimHiddenHistory, MAX_TABS, TABS_FULL_NOTE, type Tab } from './app/tab';
+import { TabAutosaver } from './app/autosave';
+import { newImageDefaults } from './app/newImage';
 import { PhysicsWorld } from './physics/world';
 import { MotionRecorder } from './physics/recorder';
 import { takeSeconds, type KeyFrame } from './physics/take';
 import { Stroke, type PaintMode } from './paint/stroke';
-import { serializeProject, serializeProjectBlob, deserializeProject, FILE_EXTENSION, type PngCacheEntry } from './storage/popstage';
+import { serializeProject, deserializeProject, FILE_EXTENSION, type PngCacheEntry } from './storage/popstage';
 import { autosave } from './storage/autosave';
-import { autosaveFailureReason, isQuotaExceeded, requestPersistOnce } from './storage/persist';
+import { requestPersistOnce } from './storage/persist';
 import { recent, type RecentKind } from './storage/recent';
 import { prefs } from './storage/prefs';
 import { runExport, type ExportSettings } from './export/exporter';
@@ -66,69 +69,7 @@ type AppEvents = {
   tabs: void;
 };
 
-/** 一度に開いておけるタブの数 */
-export const MAX_TABS = 5;
-/** タブが上限のときの案内(開く系のメニューの注意書きと、開こうとしたときの知らせで共通) */
-export const TABS_FULL_NOTE = `タブは ${MAX_TABS} 枚までです。開くには、どれかのタブを閉じてください。`;
-
-/**
- * アプリの中のタブ1枚分の作業(プロジェクトと、それに付く画面の状態)。描画・物理・画面の部品は1つを使い回し、
- * タブを切り替えるときは、ここに預けた中身を丸ごと入れ替える。
- * 表に出ているタブの値は App のゲッター・セッター(fileName など)から読み書きする。作業ごとの値を App に足すときは、ここに足す
- */
-export interface Tab {
-  /** 自動保存のキーにも使う */
-  readonly id: string;
-  /** 並び(自動保存から戻すときの順) */
-  readonly order: number;
-  project: Project;
-  /** 裏にいる間のアンドゥの積み(表に出ている間は App.history が持つ) */
-  history: HistoryState;
-  /** 最後に表に出した時刻。全部のタブのアンドゥが上限を超えたら、古いタブの積みから捨てる */
-  shownAt: number;
-  /** サンプルか空で始めたタブ。変更していなければ、次に開いたファイルで置き換える */
-  sample: boolean;
-  fileHandle: FileSystemFileHandle | null;
-  fileName: string | null;
-  dirty: boolean;
-  /** 変更のたびに増える番号。保存中に変更があったかを見分けるのに使う */
-  revision: number;
-  lastSaved: Date | null;
-  lastAutosave: Date | null;
-  /** 直近の自動保存が失敗していればその理由 */
-  autosaveError: string | null;
-  /** 直近の自動保存の失敗が、ブラウザの保存領域の容量不足か(文言ではなくこれで見分ける) */
-  autosaveQuota: boolean;
-  /** 実行中の自動保存(終わるのを待ってから自動保存を消すため) */
-  autosaving: Promise<void>;
-  autosaveTimer: number;
-  activeLayerId: string | null;
-  selectedLayerIds: Set<string>;
-  keyDraft: KeyFrame[];
-  multiOrtho: OrthoView;
-  /** 表示用にデコードした画像。裏に回すと捨て(メモリのため)、表に出すときにデコードし直す */
-  imageCanvas: HTMLCanvasElement | null;
-  /** 自動保存用に、変わっていないレイヤーのウェイト PNG を使い回す(手動の保存では使わない) */
-  pngCache: Map<string, PngCacheEntry>;
-  /** レイヤーごとのウェイトの重心(元画像のピクセル、塗った範囲の広がりの中心)。ウェイトが変わったら捨てる */
-  centers: Map<string, { x: number; y: number }>;
-}
-
-let tabSeq = 0;
-function createTab(project: Project, init: Partial<Pick<Tab, 'id' | 'order' | 'sample' | 'fileName' | 'fileHandle' | 'dirty'>> = {}): Tab {
-  const seq = tabSeq++;
-  return {
-    id: init.id ?? `tab-${Date.now().toString(36)}-${seq.toString(36)}`,
-    order: init.order ?? Date.now() + seq,
-    project, history: emptyHistory(), shownAt: 0, sample: init.sample ?? false,
-    fileHandle: init.fileHandle ?? null, fileName: init.fileName ?? null, dirty: init.dirty ?? false, revision: 0,
-    lastSaved: null, lastAutosave: null, autosaveError: null, autosaveQuota: false, autosaving: Promise.resolve(), autosaveTimer: 0,
-    activeLayerId: null, selectedLayerIds: new Set(),
-    // 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れて始める
-    keyDraft: project.take?.keys ? structuredClone([...project.take.keys]) : [],
-    multiOrtho: defaultOrthoView(), imageCanvas: null, pngCache: new Map(), centers: new Map(),
-  };
-}
+export { MAX_TABS, TABS_FULL_NOTE, type Tab } from './app/tab';
 
 /**
  * 動作の重さの計測の受け口。デバッグ表示(?debug、debug/perfOverlay.ts)を開いたときだけ付く。
@@ -144,7 +85,6 @@ export interface PerfProbe {
 }
 
 const PROJECT_TYPES: FilePickerAcceptType[] = [{ description: 'PukuPop プロジェクト', accept: { 'application/zip': [FILE_EXTENSION] } }];
-const AUTOSAVE_DELAY = 2000;
 
 export type OverlayMode = 'off' | 'selected' | 'all';
 
@@ -252,6 +192,8 @@ export class App extends Emitter<AppEvents> {
     this.emit('view', undefined);
   }
 
+  /** タブごとの自動保存(app/autosave.ts) */
+  private readonly autosaver: TabAutosaver;
   private loading = false;
   /** タブを表に出している最中(Store の差し替えで、そのタブの控えを捨てない) */
   private switching = false;
@@ -280,6 +222,12 @@ export class App extends Emitter<AppEvents> {
       get playing() { return app.playback.playing; }, stopTake: () => this.stopTake(),
       execute: cmd => this.history.execute(cmd),
       stateChanged: () => this.emit('take', this.takeState),
+    });
+    this.autosaver = new TabAutosaver({
+      get tabs() { return app.tabs; }, get activeTab() { return app.tab; },
+      get unsettled() { return !!app.stroke || app.previewingBlur || app.previewingInflate; },
+      get perf() { return app.perf; },
+      statusChanged: () => this.emit('status', undefined),
     });
     this.blur = new BlurPreview(this.store, this.history);
     this.inflate = new InflatePreview({
@@ -595,7 +543,7 @@ export class App extends Emitter<AppEvents> {
   }
 
   /** タブの見出し(ファイル名、無ければ画像の名前) */
-  tabName(t: Tab): string { return t.fileName ?? t.project.documents[0]?.name ?? ''; }
+  tabName(t: Tab): string { return tabName(t); }
 
   /**
    * プロジェクトを読み込む。先に画像をデコードし、成功してから状態を一度に差し替える。
@@ -670,10 +618,7 @@ export class App extends Emitter<AppEvents> {
   }
 
   /** タブの自動保存を取り消して消す(実行中のものは終わってから消す) */
-  private dropTabAutosave(t: Tab): void {
-    clearTimeout(t.autosaveTimer); t.autosaveTimer = 0;
-    void t.autosaving.then(() => autosave.clear(t.id));
-  }
+  private dropTabAutosave(t: Tab): void { this.autosaver.drop(t); }
 
   /** タブを表に出す。切り替えたら true */
   async switchTab(id: string): Promise<boolean> {
@@ -761,12 +706,7 @@ export class App extends Emitter<AppEvents> {
    * あふれたら、裏のタブのうち長く出していないものの古い手から捨てる(表のタブの積みは History が自分で収める)
    */
   private trimHiddenHistory(): void {
-    const limit = this.history.options.maxBytes, hidden = this.tabs.filter(t => t !== this.tab);
-    let total = this.history.bytes + hidden.reduce((a, t) => a + t.history.bytes, 0);
-    for (const t of hidden.sort((a, b) => a.shownAt - b.shownAt)) {
-      if (total <= limit) break;
-      total -= shrinkHistory(t.history, t.history.bytes - (total - limit));
-    }
+    trimHiddenHistory(this.history.options.maxBytes, this.history.bytes, this.tabs.filter(t => t !== this.tab));
   }
 
   async loadSample(opts: { replace?: boolean } = {}): Promise<boolean> {
@@ -844,19 +784,7 @@ export class App extends Emitter<AppEvents> {
    * (main.ts で覚える)。無ければ今の作業の値を引き継ぐ。
    */
   private newImageDefaults(): Pick<Project, 'background' | 'autoSwing'> & { fov: number } {
-    const prev = this.project, d = prefs.get<Record<string, unknown>>('newImage') ?? {};
-    const num = (v: unknown, lim: { min: number; max: number }, def: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lim.min, Math.min(lim.max, v)) : def);
-    const a = (d.autoSwing && typeof d.autoSwing === 'object' ? d.autoSwing : {}) as Record<string, unknown>;
-    const bg = d.background === null || (typeof d.background === 'string' && /^#[0-9a-f]{6}$/i.test(d.background)) ? d.background as string | null : prev.background;
-    return {
-      background: 'background' in d ? bg : prev.background,
-      autoSwing: {
-        enabled: typeof a.enabled === 'boolean' ? a.enabled : prev.autoSwing.enabled,
-        period: num(a.period, LIMITS.period, prev.autoSwing.period),
-        strength: num(a.strength, { min: 0, max: 1 }, prev.autoSwing.strength),
-      },
-      fov: num(d.fov, LIMITS.fov, prev.camera.fov),
-    };
+    return newImageDefaults(this.project, prefs.get<Record<string, unknown>>('newImage'));
   }
 
   /** 開けたら true */
@@ -910,11 +838,7 @@ export class App extends Emitter<AppEvents> {
 
   serialize(thumbnail?: Uint8Array): Uint8Array { return serializeProject(this.project, { thumbnail }); }
 
-  suggestedName(tab: Tab = this.tab): string {
-    if (tab.fileName) return tab.fileName;
-    const base = (tab.project.documents[0]?.name ?? 'untitled').replace(/\.[^.]+$/, '');
-    return `${base}${FILE_EXTENSION}`;
-  }
+  suggestedName(tab: Tab = this.tab): string { return suggestedName(tab); }
 
   async save(saveAs = false): Promise<boolean> {
     if (!this.doc) return false;
@@ -953,49 +877,8 @@ export class App extends Emitter<AppEvents> {
     }
   }
 
-  /** そのタブの自動保存を予約する。裏に回ったタブも中身は変わらないので、予約どおりに保存する */
-  private scheduleAutosave(tab: Tab = this.tab): void {
-    clearTimeout(tab.autosaveTimer);
-    /** 表のタブの塗りの最中・ぼかしのプレビュー中は、確定していない状態を保存しないよう後に回す */
-    const unsettled = () => tab === this.tab && (!!this.stroke || this.previewingBlur || this.previewingInflate);
-    const live = () => this.tabs.includes(tab) && tab.dirty && !!tab.project.documents[0];
-    tab.autosaveTimer = window.setTimeout(() => {
-      tab.autosaveTimer = 0;
-      if (!live()) return;
-      if (unsettled()) { this.scheduleAutosave(tab); return; }
-      const fail = (e: unknown) => {
-        console.warn('autosave failed', e);
-        tab.autosaveError = autosaveFailureReason(e);
-        tab.autosaveQuota = isQuotaExceeded(e);
-        // 裏のタブの失敗はステータスバーに出ないので、その場で知らせる
-        if (tab !== this.tab) toast(tab.autosaveQuota ? `「${this.tabName(tab)}」の自動保存に失敗しました。ブラウザの保存領域が足りません。そのタブをファイルに保存してください。` : `「${this.tabName(tab)}」の自動保存に失敗しました(${tab.autosaveError})。そのタブを保存してください。`, 'error', 8000);
-        this.emit('status', undefined);
-      };
-      // 直列化は重いので、操作の合間(アイドル時間)に行う
-      idle(() => {
-        if (!live()) return;
-        if (unsettled()) { this.scheduleAutosave(tab); return; }
-        try {
-          const t = performance.now();
-          const bytes = serializeProjectBlob(tab.project, { pngCache: tab.pngCache });
-          const t1 = performance.now();
-          const run = autosave.save(tab.id, { savedAt: Date.now(), name: this.suggestedName(tab), bytes, order: tab.order })
-            .then(() => {
-              tab.lastAutosave = new Date(); tab.autosaveError = null; tab.autosaveQuota = false; this.emit('status', undefined);
-              void requestPersistOnce();
-              // 書き込んでいる間にタブを閉じたら、書いた分を消す
-              if (!this.tabs.includes(tab)) return autosave.clear(tab.id);
-            }, fail);
-          if (this.perf) {
-            const p = this.perf;
-            p.event({ t, d: t1 - t, kind: 'autosave', detail: `${(bytes.size / 1e6).toFixed(1)}MB を直列化(メインスレッド)` });
-            void run.then(() => p.event({ t: t1, d: performance.now() - t1, kind: 'autosave-write', detail: 'IndexedDB への書き込み完了まで(非同期)' }));
-          }
-          tab.autosaving = tab.autosaving.then(() => run);
-        } catch (e) { fail(e); }
-      });
-    }, AUTOSAVE_DELAY);
-  }
+  /** そのタブの自動保存を予約する。裏に回ったタブも中身は変わらないので、予約どおりに保存する(app/autosave.ts) */
+  private scheduleAutosave(tab: Tab = this.tab): void { this.autosaver.schedule(tab); }
 
   /* ---------- 塗り ---------- */
 
@@ -1513,12 +1396,6 @@ function nextLayerName(doc: Document): string {
   let n = doc.layers.length + 1;
   while (doc.layers.some(l => l.name === `レイヤー${n}`)) n++;
   return `レイヤー${n}`;
-}
-
-/** ブラウザが暇なときに実行する(requestIdleCallback が無ければすぐ後に) */
-function idle(fn: () => void): void {
-  if ('requestIdleCallback' in window) window.requestIdleCallback(fn, { timeout: 2000 });
-  else setTimeout(fn, 0);
 }
 
 function unionRect(a: Rect, b: Rect): Rect {
