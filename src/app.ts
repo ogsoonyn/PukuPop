@@ -10,6 +10,7 @@ import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites,
 import type { Command } from './commands/history';
 import { captureFavorite, copyPhysics, sameLayer, nextFavoriteName, applyView, FAVORITE_NAME_MAX } from './model/favorites';
 import { Stage, type ViewOptions } from './stage/stage';
+import { StageSwing, type BaseState } from './playback/stageSwing';
 import { PhysicsWorld, PHYSICS_DT } from './physics/world';
 import { MotionRecorder, applySample, type RecordSample } from './physics/recorder';
 import { finalizeTake, takeFromKeys, takeSeconds, TAKE_MAX_SECONDS, TAKE_MIN_SECONDS, KEY_SECONDS, MAX_KEYS, normalizeKeys, moveKey as movedKeys, type ViewKey, type KeyFrame } from './physics/take';
@@ -149,9 +150,6 @@ function createTab(project: Project, init: Partial<Pick<Tab, 'id' | 'order' | 's
   };
 }
 
-/** 画像全体のずれ(ピストン)の飛びをならす時定数(秒)。自動揺らしの切り替えや、塗り終わりで止めていた画像を戻すとき */
-const BASE_EASE = 0.05;
-
 /**
  * 動作の重さの計測の受け口。デバッグ表示(?debug、debug/perfOverlay.ts)を開いたときだけ付く。
  * 付いていないときは null の確認だけで済むので、ふだんの負荷は増えない。
@@ -235,11 +233,10 @@ export class App extends Emitter<AppEvents> {
   set fileName(n: string | null) { this.tab.fileName = n; }
   get dirty(): boolean { return this.tab.dirty; }
   set dirty(on: boolean) { this.tab.dirty = on; }
-  /**
-   * 画面に出している画像全体のずれ(ピストン、元画像のピクセル)。ライブ表示だけの値で、物理と書き出しには関わらない。
-   * 塗り・膨らませる範囲のドラッグ中は止めて(held)、当たり判定がずれないようにする。設定の切り替えで飛ぶ分は fix でならす
-   */
-  private base = freshBase();
+  /** 物理の結果を Stage へ当てるつなぎ(src/playback。再生専用の部品と共有する) */
+  private readonly swing: StageSwing;
+  /** 画面に出している画像全体のずれ(ピストン)の状態(playback/stageSwing.ts)。画面の部品からは使わない(E2E が fix を読む) */
+  get base(): Readonly<BaseState> { return this.swing.base; }
   private get centers(): Map<string, { x: number; y: number }> { return this.tab.centers; }
   /** まだ GPU へ送っていない、レイヤーごとの変わった矩形 */
   private pendingUploads = new Map<string, Rect>();
@@ -292,6 +289,8 @@ export class App extends Emitter<AppEvents> {
   constructor(canvas: HTMLCanvasElement) {
     super();
     this.stage = new Stage(canvas);
+    const app = this;
+    this.swing = new StageSwing(this.stage, { get doc() { return app.doc; }, get centers() { return app.tab.centers; } });
     this.stage.onContextChange = lost => this.onContextChange(lost);
     this.wireStore();
     this.history.on('change', () => this.trimHiddenHistory());
@@ -643,7 +642,7 @@ export class App extends Emitter<AppEvents> {
       if (this.takeState !== 'idle') { this.takeState = 'idle'; this.emit('take', 'idle'); }
       this.world.grab = null; this.world.grabGains.clear(); this.shake = { x: 0, y: 0, z: 0 };
       this.playFrom = this.playCam = null; this.world.viewRig = null; this.stage.setRig(null);
-      this.base = freshBase(); // 画像全体のずれは前の画像のピクセル単位なので持ち越さない
+      this.swing.resetBase(); // 画像全体のずれは前の画像のピクセル単位なので持ち越さない
       this.tab = tab;
       tab.shownAt = Date.now();
       this.switching = true;
@@ -1420,19 +1419,8 @@ export class App extends Emitter<AppEvents> {
 
   /* ---------- 物理と描画のループ ---------- */
 
-  applySwing = (world: PhysicsWorld, doc: Document): void => {
-    const k = Math.max(doc.image.width, doc.image.height) / 2;
-    doc.layers.forEach((l, i) => {
-      const s = world.displacement(l.id), on = l.visible && l.physics.enabled;
-      this.stage.setSwing(i, { x: s.x * k, y: s.y * k, z: s.z * k }, on);
-      // 塗った範囲の広がり(ためて膨らむ2 など、physics/motion.ts の SPREAD_MOTIONS)。重心はウェイトが変わったときだけ求め直す
-      const r = world.spread(l.id);
-      this.stage.setSpread(i, r ? this.layerCenter(doc, l) : { x: 0, y: 0 }, r, on);
-    });
-    // 画像全体の動き(揺らし方「ピストン」)。一時停止中・自動揺らしが切れているときは 0
-    const g = world.baseOffset(doc.layers);
-    this.stage.setBaseOffset({ x: g.x * k, y: g.y * k, z: g.z * k });
-  };
+  /** 揺れを Stage へ当てる(playback/stageSwing.ts。書き出しにも渡す) */
+  get applySwing(): (world: PhysicsWorld, doc: Document) => void { return this.swing.applySwing; }
 
   /**
    * 静止画の書き出し用。画面の物理(今見えている揺れ)を Stage へ戻し、撮る視点を返す。
@@ -1443,31 +1431,13 @@ export class App extends Emitter<AppEvents> {
    */
   currentShot = (): CameraState => {
     const doc = this.doc;
-    if (doc) {
-      this.applySwing(this.world, doc);
-      this.stage.setBaseOffset(this.base.shown);
-    }
+    if (doc) this.swing.applyShown(this.world, doc);
     const c = this.playView ?? this.project.camera;
     return { ...c, target: { ...c.target } };
   };
 
-  /** 物理に渡すレイヤーの重心(正規化座標)。回転で揺れる大きさを決める */
-  centerOf = (l: Layer): { x: number; y: number } => {
-    const doc = this.doc;
-    if (!doc) return { x: 0, y: 0 };
-    const c = this.layerCenter(doc, l), k = Math.max(doc.image.width, doc.image.height) / 2;
-    return { x: c.x / k, y: c.y / k };
-  };
-
-  /** レイヤーのウェイトの重心(画像のローカル座標、元画像のピクセル) */
-  private layerCenter(doc: Document, l: Layer): { x: number; y: number } {
-    let c = this.centers.get(l.id);
-    if (!c) {
-      const { u, v } = l.weights.centroidUV();
-      this.centers.set(l.id, (c = { x: (u - 0.5) * doc.image.width, y: (v - 0.5) * doc.image.height }));
-    }
-    return c;
-  }
+  /** 物理に渡すレイヤーの重心(正規化座標)。回転で揺れる大きさを決める(playback/stageSwing.ts) */
+  get centerOf(): (l: Layer) => { x: number; y: number } { return this.swing.centerOf; }
 
   private recordStep = (): void => {
     const w = this.world, c = this.project.camera, take = this.project.take;
@@ -1761,35 +1731,12 @@ export class App extends Emitter<AppEvents> {
 
   /**
    * 画像全体のずれ(ピストン)を画面上で止める / 戻す。塗りや膨らませる範囲のドラッグの間、当たり判定(pick)が
-   * 画像の動きでずれないようにする。物理はそのまま進む。戻すときは、止めていた所から BASE_EASE でならして動きに戻す
+   * 画像の動きでずれないようにする(playback/stageSwing.ts)
    */
-  holdImage(on: boolean): void {
-    const b = this.base;
-    if (on) { b.held ??= { ...b.shown }; return; }
-    if (!b.held) return;
-    b.fix = { x: b.held.x - b.live.x, y: b.held.y - b.live.y, z: b.held.z - b.live.z };
-    b.held = null;
-  }
+  holdImage(on: boolean): void { this.swing.holdImage(on); }
 
   /** 画像全体が画面上で元の位置からずれているか(ブラシの円を毎フレーム当て直すかの判断に使う) */
-  get imageShifted(): boolean { const s = this.base.shown; return !this.view.flat && (s.x !== 0 || s.y !== 0 || s.z !== 0); }
-
-  /** ライブ表示の画像全体のずれを決めて Stage へ入れる(applySwing の後に呼ぶ) */
-  private showBase(dt: number, doc: Document): void {
-    const w = this.world, b = this.base, k = this.imageLong / 2, g = w.baseOffset(doc.layers);
-    const live = { x: g.x * k, y: g.y * k, z: g.z * k };
-    // 自動揺らし・一時停止・周期・強さ・動かすレイヤーとその設定が変わると、画像が飛ぶ。その差を fix に入れてならす
-    const d = w.baseDriver(doc.layers), a = w.autoSwing;
-    const key = d ? `${d.id}|${a.period}|${a.strength}|${JSON.stringify(d.physics.motionParams)}` : '';
-    if (key !== b.key) { b.fix.x += b.live.x - live.x; b.fix.y += b.live.y - live.y; b.fix.z += b.live.z - live.z; b.key = key; }
-    const e = Math.exp(-dt / BASE_EASE);
-    b.fix.x *= e; b.fix.y *= e; b.fix.z *= e;
-    if (Math.abs(b.fix.x) + Math.abs(b.fix.y) + Math.abs(b.fix.z) < 0.05) b.fix = { x: 0, y: 0, z: 0 };
-    b.live = live;
-    b.shown = b.held ? { ...b.held } : { x: live.x + b.fix.x, y: live.y + b.fix.y, z: live.z + b.fix.z };
-    this.stage.setBaseOffset(b.shown);
-    this.stage.setBaseReach(w.baseReach(doc.layers) * k);
-  }
+  get imageShifted(): boolean { return !this.view.flat && this.swing.shifted; }
 
   /** 溜まっているウェイトの変更を GPU へ送る(描画・書き出しの直前に呼ぶ) */
   flushWeights(): void {
@@ -1820,7 +1767,7 @@ export class App extends Emitter<AppEvents> {
     this.world.autoSwing = this.project.autoSwing;
     this.world.advance(dt, doc.layers, this.recordStep);
     this.applySwing(this.world, doc);
-    this.showBase(dt, doc);
+    this.swing.showBase(dt, this.world, doc); // ライブ表示の画像全体のずれ(applySwing の後)
     if (p) t = p.lap('physics', t, performance.now());
     this.flushWeights();
     if (p) t = p.lap('upload', t, performance.now());
@@ -1848,10 +1795,6 @@ export class App extends Emitter<AppEvents> {
       this.emit('status', undefined);
     }
   }
-}
-
-function freshBase() {
-  return { shown: { x: 0, y: 0, z: 0 }, live: { x: 0, y: 0, z: 0 }, fix: { x: 0, y: 0, z: 0 }, key: '', held: null as Vec3 | null };
 }
 
 /** 視点(回転・ズーム・注視点)が同じか。画角は見ない */
