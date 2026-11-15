@@ -270,7 +270,7 @@ describe('記録のループ再生(LoopPlayback)', () => {
     expect(log).toEqual([]);
   });
 
-  it('止めてから・捨ててから始め直すと、前の再生でシークした印は持ち越さない(余分な控えを取らない)', () => {
+  it('シークしてから刻みを挟まずに止めても・捨てても、印は次の再生の最初の刻みまで残す(シークのリセットを操作の記録に残すため)', () => {
     for (const end of ['stop', 'discard'] as const) {
       const { pb, advance, stepped } = setup();
       pb.play();
@@ -278,7 +278,7 @@ describe('記録のループ再生(LoopPlayback)', () => {
       if (end === 'stop') pb.stop(); else pb.discard();
       pb.play();
       advance(2);
-      expect(stepped.map(s => s.seeked)).toEqual([false, false]);
+      expect(stepped.map(s => s.seeked), end).toEqual([true, false]);
     }
   });
 

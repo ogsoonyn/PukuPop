@@ -339,7 +339,7 @@
 - #127(Player)で考えること(レビューで挙がった点):
   - 再生していないときに視点を物理へ入れる処理(`App.recordStep` の中)と、1フレームの組み立て(`App.frame`・`App.applyDocument` の `world.unitPx` / `world.centerOf`)は `App` に残っている。Player も同じ並びが要る。
   - `LoopPlayback` の状態(`playing`・`paused`・`index`・`from`・`cam`)は外から書き換えられる。埋め込む側に見せるなら、読むだけにする。
-  - 再生を止めてもシークの印(`seeked`)が残り、次の再生の最初の刻みで余分な控えを1つ取る(分ける前からの動き)。
+  - 再生を止めてもシークの印(`seeked`)が残り、次の再生の最初の刻みで控えを1つ取る(分ける前からの動き。#127 で、これは要る控えだと分かった)。
 
 ## 2026-11-15 埋め込み用の再生の部品(Player)を作る(Issue #127)
 
@@ -361,6 +361,6 @@
   - 読めないファイル・新しい版は、`deserializeProject` / `migrate` のメッセージのまま失敗する(埋め込み先がそのまま画面に出せる)。Player だけの読み込みの経路は作らない。新しい版のメッセージは「アプリを更新してください」で、埋め込み先には少し合わないが、指示どおり変えていない。
   - 描画ループの例外は止めずに続け(編集アプリと同じ)、console には最初の1回だけ出す。コンテキストを失ったときの知らせ(toast)は `App` の側にあるので Player では出ない。失われたら描画を止め、戻ったら続けるだけ(止めているときは1回描き直す)。埋め込み先に知らせる口は足していない。
 - 編集アプリと共通にした範囲(#123 で「#127 で考えること」に挙がった点): `playback/frame.ts` に、物理の準備(`preparePhysics`: `unitPx`・`centerOf`)、再生していないときに視点を物理へ入れる処理(`feedView`。「揺らす」ツールの量は引数で足す)、物理を進めて揺れを当てる所(`advanceSwing`: 自動揺らしを渡す → `advance` → `applySwing` → `showBase`)を出し、`App` と Player の両方が使う。そのあとの `applyRig` → `render` は1行ずつなので並びだけを揃えた。1フレームを丸ごと1つにすると、`App` の計測(`perf`)・溜めたウェイトの転送・3面図・書き出し中の扱いがまた入り込むので、小さい単位にとどめた。`App` の刻みごとの処理(`MotionRecorder` への記録・記録中の操作)は今までどおり `App.recordStep` に残る。
-- `LoopPlayback` の状態(`playing`・`paused`・`index`・`from`・`cam`)は private にして読むだけのゲッターにした。再生を止めてもシークの印が残り、次の再生の最初の刻みで余分な控えを1つ取っていたのは、`play` と `discard` で印を消すよう直した(「直前の操作を再生」の書き出しのための控えが1つ減るだけで、控えから同じ刻みを進め直すので、書き出しの結果は変わらないはず)。
+- `LoopPlayback` の状態(`playing`・`paused`・`index`・`from`・`cam`)は private にして読むだけのゲッターにした。再生を止めてもシークの印(`seeked`)が残るのは、直さずに残した(編集アプリの動きは変えていない)。#123 では「余分な控え」と見ていたが、余分ではなかった: `seek` は `world.reset()` するが、物理の刻みを1つも挟まずに止めるとそのリセットは `MotionRecorder` に残らない。次の再生の最初の刻みで控えを取るので、「直前の操作を再生」の書き出しをリセットした状態から正しく進め直せる。印を `play` / `discard` で消すと、書き出しに消えたはずの揺れが残る(レビューで見つかり、元に戻した)。
 - `decodeForDisplay` / `browserDecodeGray`(`src/ui/imageio.ts`)と `smoothZoom`(`src/ui/smoothZoom.ts`)は、型のほかに何も import せず、読んだだけで何もしないので、移さずに Player から使う。`src/ui/fine.ts` はモジュールを読んだだけで `window` にキーの受け口を付けるので、Player からは使わない(ホイールの縦の量の求め方は Player に同じ式を書いた)。
 - 確認用のページは `player.html`(リポジトリの直下)と `src/player/demo.ts`。Vite の本番のビルドは `index.html` だけを入口にするので入らない(ビルド結果に Player のコードが無いことを確かめた)。Player は埋め込み先と同じく `import()` で読み、読んだだけで `window` などに触らないかを E2E で確かめられるようにした。`?preserve` を付けると、確認用のページが WebGL の `preserveDrawingBuffer` を入れ、E2E が画素を読める(Player は関わらない)。

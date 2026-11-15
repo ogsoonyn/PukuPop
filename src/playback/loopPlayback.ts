@@ -51,7 +51,11 @@ export class LoopPlayback {
    */
   get from(): CameraState | null { return this._from; }
   get cam(): CameraState | null { return this._cam; }
-  /** シークで揺れを消した直後か(次の刻みで操作の記録に控えを取る) */
+  /**
+   * シークで揺れを消した直後か(次の刻みで操作の記録に控えを取る)。止めても・捨てても消さない:
+   * シークの world.reset() は MotionRecorder に残らないので、物理の刻みを挟まずに止めたときは、次の再生の最初の刻みで
+   * 控えを取り、「直前の操作を再生」の書き出しをリセットした状態から進め直せるようにする
+   */
   private seeked = false;
 
   constructor(
@@ -70,7 +74,6 @@ export class LoopPlayback {
     if (!take?.samples.length) return;
     this._index = 0;
     this._paused = false;
-    this.seeked = false; // 前の再生でシークした印を持ち越さない
     // 視点を記録の初めへ動かし、そこを画像を動かす基準にする(始めは画像が元の置き場所にある)
     const s0 = take.samples[0].camera;
     c.yaw = s0.yaw; c.pitch = s0.pitch; c.roll = s0.roll; c.zoom = s0.zoom; c.target = { ...s0.target };
@@ -105,7 +108,7 @@ export class LoopPlayback {
 
   /** 再生の状態を黙って捨てる(別の作業に切り替えるとき。知らせは呼ぶ側がまとめて出す) */
   discard(): void {
-    this._index = 0; this._paused = false; this._playing = false; this.seeked = false;
+    this._index = 0; this._paused = false; this._playing = false;
     this._from = this._cam = null; this.world.viewRig = null; this.stage.setRig(null);
   }
 
