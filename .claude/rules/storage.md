@@ -4,6 +4,8 @@ paths:
   - "src/model/**"
   - "src/physics/take.ts"
   - "src/app.ts"
+  - "src/app/tab.ts"
+  - "src/app/autosave.ts"
   - "src/main.ts"
   - "src/ui/panels.ts"
   - "src/ui/toolOptions.ts"

@@ -22,10 +22,14 @@ npm run e2e        # E2E テスト(Playwright。エージェントは下の「�
 | `src/stage` | three.js の描画。ウェイトをテクスチャ配列にまとめ、頂点シェーダで持ち上げる |
 | `src/storage` | `.pukupop`(旧 `.popstage`)の読み書き、IndexedDB への自動保存 |
 | `src/export` | フレーム単位の書き出し |
+| `src/playback` | 再生のつなぎ(物理の結果を Stage へ当てる、記録のループ再生)。編集アプリと再生専用の部品で共有する |
 | `src/ui` | 画面の部品(入力、パネル、ダイアログ、3面図) |
-| `src/app.ts` | 各モジュールをつなぐ本体 |
+| `src/app` | 編集アプリだけの部品(タブ、自動保存、記録を取る側、キーフレームの下書き、膨らませる・全体ぼかしのプレビュー、新しい画像の既定) |
+| `src/app.ts` | 各モジュールをつなぐ本体。画面の部品と E2E(`window.popstage`)が使う公開面を持ち、中身は `src/playback`・`src/app` へ委ねる |
 
 - `model` / `commands` / `paint` / `physics` / `storage` は DOM と three.js を参照しない。ブラウザ無しで単体テストできるようにするため。
+- `playback` は `model` / `physics` と、Stage の要るメソッドだけのインターフェース(`src/playback/stageApi.ts`)だけを参照し、`App`・アンドゥ・タブ・DOM(`src/ui`)・`prefs`・自動保存に依存しない。再生専用の部品(Issue #127)と共有するため。外の世界(今のプロジェクト・状態が変わったことの知らせ)は引数・関数・フックで受ける。
+- `src/app` の部品は `App` の型を import せず、要る分だけの小さなインターフェースで受ける。
 - `develop` / `main` 向けの PR と `develop` への push では、GitHub Actions(`.github/workflows/ci.yml`)が型検査・単体テスト・ビルドを流す。E2E は流れない。
 - `main` へ push すると、GitHub Actions(`.github/workflows/deploy-pages.yml`)がテストとビルドを行い、GitHub Pages へ公開する(リポジトリを作り直したときは、Settings → Pages で Source を「GitHub Actions」にする)。ビルド結果は相対パスで参照し合う(`base: './'`)。
 - アプリアイコンは `scripts/icon-art.mjs` の SVG から作る。絵を変えたら `node scripts/make-icons.mjs` で `public/icons/` を作り直す。

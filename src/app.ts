@@ -1,23 +1,33 @@
 /**
  * アプリ本体。モデル・コマンド・描画・物理・保存・書き出しをつなぐ。
  * 画面の部品(ui/)はここを経由して状態を読み書きする。
+ * 機能ごとの中身は、再生のつなぎ(playback/。再生専用の部品と共有する)と、編集アプリだけの部品(app/)にあり、
+ * App は同じ名前のメソッド・ゲッターからそこへ委ね、イベントは App が出す。
  */
-import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegments, alphaSpreadPx, frontCamera, wrapAngle, defaultOrthoView, LIMITS, PRESETS, applyPreset, type PresetName, type CameraState, type Vec3, type OrthoView, type Project, type Document, type Layer } from './model/project';
+import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegments, alphaSpreadPx, frontCamera, wrapAngle, LIMITS, PRESETS, applyPreset, type PresetName, type CameraState, type Vec3, type OrthoView, type Project, type Document, type Layer } from './model/project';
 import { projectDataBytes, sumMemory, type MemoryUsage, type TabMemory } from './model/memory';
-import { History, emptyHistory, shrinkHistory, type HistoryState } from './commands/history';
+import { History, emptyHistory } from './commands/history';
 import type { Rect } from './model/weightmap';
-import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation, diffTiles } from './commands/commands';
+import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation } from './commands/commands';
 import type { Command } from './commands/history';
-import { captureFavorite, copyPhysics, sameLayer, nextFavoriteName, applyView, FAVORITE_NAME_MAX } from './model/favorites';
+import { captureFavorite, favoriteChanges, nextFavoriteName, applyView, FAVORITE_NAME_MAX } from './model/favorites';
 import { Stage, type ViewOptions } from './stage/stage';
-import { PhysicsWorld, PHYSICS_DT } from './physics/world';
-import { MotionRecorder, applySample, type RecordSample } from './physics/recorder';
-import { finalizeTake, takeFromKeys, takeSeconds, TAKE_MAX_SECONDS, TAKE_MIN_SECONDS, KEY_SECONDS, MAX_KEYS, normalizeKeys, moveKey as movedKeys, type ViewKey, type KeyFrame } from './physics/take';
+import { StageSwing, type BaseState } from './playback/stageSwing';
+import { LoopPlayback } from './playback/loopPlayback';
+import { TakeRecording, type TakeState } from './app/recording';
+import { KeyframeEditor } from './app/keyframes';
+import { BlurPreview } from './app/blurPreview';
+import { InflatePreview, type InflateArea, type InflateSettings, type InflateState } from './app/inflatePreview';
+import { countLabel } from './app/labels';
+import { createTab, tabName, suggestedName, trimHiddenHistory, MAX_TABS, TABS_FULL_NOTE, type Tab } from './app/tab';
+import { TabAutosaver } from './app/autosave';
+import { newImageDefaults } from './app/newImage';
+import { PhysicsWorld } from './physics/world';
+import { MotionRecorder } from './physics/recorder';
+import { takeSeconds, type KeyFrame } from './physics/take';
 import { Stroke, type PaintMode } from './paint/stroke';
-import { inflateShape, type InflateProfile, type InflateBlend } from './paint/inflate';
-import { serializeProject, serializeProjectBlob, deserializeProject, FILE_EXTENSION, type PngCacheEntry } from './storage/popstage';
-import { autosave } from './storage/autosave';
-import { autosaveFailureReason, isQuotaExceeded, requestPersistOnce } from './storage/persist';
+import { serializeProject, deserializeProject, FILE_EXTENSION, type PngCacheEntry } from './storage/popstage';
+import { requestPersistOnce } from './storage/persist';
 import { recent, type RecentKind } from './storage/recent';
 import { prefs } from './storage/prefs';
 import { runExport, type ExportSettings } from './export/exporter';
@@ -32,37 +42,12 @@ export type Tool = 'brush' | 'erase' | 'smooth' | 'inflate' | 'grab' | 'shake' |
 /** ウェイトを塗るツール */
 export const PAINT_TOOLS: readonly Tool[] = ['brush', 'erase', 'smooth', 'inflate'];
 export type PressureMode = 'strength' | 'size' | 'none';
-/** 操作の記録の状態。記録中・ループ再生中・どちらでもない */
-export type TakeState = 'idle' | 'recording' | 'playing';
+export type { TakeState } from './app/recording';
 
 export interface BrushOptions { size: number; strength: number; hardness: number; pressure: PressureMode }
 
-/** 「膨らませる」の範囲。中心と幅・縦は元画像のピクセル単位(中心が原点、y は上向き) */
-export interface InflateArea { x: number; y: number; w: number; h: number }
-export interface InflateSettings {
-  shape: 'ellipse' | 'rect';
-  /** 頂上の高さ(元画像のピクセル)。null はレイヤーのポップ量と同じ */
-  height: number | null;
-  softness: number; // 0〜1
-  /** 形の傾き(度、-90〜90)。正で時計回り */
-  angle: number;
-  profile: InflateProfile;
-  blend: InflateBlend;
-}
-/** 形の傾きの範囲(度) */
-export const INFLATE_ANGLE = { min: -90, max: 90 };
-export interface InflateState {
-  /** 範囲を描いたレイヤー */
-  readonly layerId: string;
-  readonly area: InflateArea;
-  readonly settings: InflateSettings & { height: number };
-  /** 範囲を描いたレイヤーのポップ量(プレビュー中は変えない) */
-  readonly sourcePop: number;
-  /** 高さがポップ量を超えるので新しいレイヤーに作るときの、そのレイヤーの名前とポップ量 */
-  readonly newLayer: { readonly name: string; readonly pop: number } | null;
-  /** 高さがポップ量を超えるが、レイヤーが上限の枚数なので新しいレイヤーを作れない(ポップ量の高さで止まる) */
-  readonly limited: boolean;
-}
+export { INFLATE_ANGLE, type InflateArea, type InflateSettings, type InflateState } from './app/inflatePreview';
+export { countLabel } from './app/labels';
 
 type AppEvents = {
   tool: Tool;
@@ -85,72 +70,7 @@ type AppEvents = {
   tabs: void;
 };
 
-/** 一度に開いておけるタブの数 */
-export const MAX_TABS = 5;
-/** タブが上限のときの案内(開く系のメニューの注意書きと、開こうとしたときの知らせで共通) */
-export const TABS_FULL_NOTE = `タブは ${MAX_TABS} 枚までです。開くには、どれかのタブを閉じてください。`;
-
-/**
- * アプリの中のタブ1枚分の作業(プロジェクトと、それに付く画面の状態)。描画・物理・画面の部品は1つを使い回し、
- * タブを切り替えるときは、ここに預けた中身を丸ごと入れ替える。
- * 表に出ているタブの値は App のゲッター・セッター(fileName など)から読み書きする。作業ごとの値を App に足すときは、ここに足す
- */
-export interface Tab {
-  /** 自動保存のキーにも使う */
-  readonly id: string;
-  /** 並び(自動保存から戻すときの順) */
-  readonly order: number;
-  project: Project;
-  /** 裏にいる間のアンドゥの積み(表に出ている間は App.history が持つ) */
-  history: HistoryState;
-  /** 最後に表に出した時刻。全部のタブのアンドゥが上限を超えたら、古いタブの積みから捨てる */
-  shownAt: number;
-  /** サンプルか空で始めたタブ。変更していなければ、次に開いたファイルで置き換える */
-  sample: boolean;
-  fileHandle: FileSystemFileHandle | null;
-  fileName: string | null;
-  dirty: boolean;
-  /** 変更のたびに増える番号。保存中に変更があったかを見分けるのに使う */
-  revision: number;
-  lastSaved: Date | null;
-  lastAutosave: Date | null;
-  /** 直近の自動保存が失敗していればその理由 */
-  autosaveError: string | null;
-  /** 直近の自動保存の失敗が、ブラウザの保存領域の容量不足か(文言ではなくこれで見分ける) */
-  autosaveQuota: boolean;
-  /** 実行中の自動保存(終わるのを待ってから自動保存を消すため) */
-  autosaving: Promise<void>;
-  autosaveTimer: number;
-  activeLayerId: string | null;
-  selectedLayerIds: Set<string>;
-  keyDraft: KeyFrame[];
-  multiOrtho: OrthoView;
-  /** 表示用にデコードした画像。裏に回すと捨て(メモリのため)、表に出すときにデコードし直す */
-  imageCanvas: HTMLCanvasElement | null;
-  /** 自動保存用に、変わっていないレイヤーのウェイト PNG を使い回す(手動の保存では使わない) */
-  pngCache: Map<string, PngCacheEntry>;
-  /** レイヤーごとのウェイトの重心(元画像のピクセル、塗った範囲の広がりの中心)。ウェイトが変わったら捨てる */
-  centers: Map<string, { x: number; y: number }>;
-}
-
-let tabSeq = 0;
-function createTab(project: Project, init: Partial<Pick<Tab, 'id' | 'order' | 'sample' | 'fileName' | 'fileHandle' | 'dirty'>> = {}): Tab {
-  const seq = tabSeq++;
-  return {
-    id: init.id ?? `tab-${Date.now().toString(36)}-${seq.toString(36)}`,
-    order: init.order ?? Date.now() + seq,
-    project, history: emptyHistory(), shownAt: 0, sample: init.sample ?? false,
-    fileHandle: init.fileHandle ?? null, fileName: init.fileName ?? null, dirty: init.dirty ?? false, revision: 0,
-    lastSaved: null, lastAutosave: null, autosaveError: null, autosaveQuota: false, autosaving: Promise.resolve(), autosaveTimer: 0,
-    activeLayerId: null, selectedLayerIds: new Set(),
-    // 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れて始める
-    keyDraft: project.take?.keys ? structuredClone([...project.take.keys]) : [],
-    multiOrtho: defaultOrthoView(), imageCanvas: null, pngCache: new Map(), centers: new Map(),
-  };
-}
-
-/** 画像全体のずれ(ピストン)の飛びをならす時定数(秒)。自動揺らしの切り替えや、塗り終わりで止めていた画像を戻すとき */
-const BASE_EASE = 0.05;
+export { MAX_TABS, TABS_FULL_NOTE, type Tab } from './app/tab';
 
 /**
  * 動作の重さの計測の受け口。デバッグ表示(?debug、debug/perfOverlay.ts)を開いたときだけ付く。
@@ -166,7 +86,6 @@ export interface PerfProbe {
 }
 
 const PROJECT_TYPES: FilePickerAcceptType[] = [{ description: 'PukuPop プロジェクト', accept: { 'application/zip': [FILE_EXTENSION] } }];
-const AUTOSAVE_DELAY = 2000;
 
 export type OverlayMode = 'off' | 'selected' | 'all';
 
@@ -235,11 +154,10 @@ export class App extends Emitter<AppEvents> {
   set fileName(n: string | null) { this.tab.fileName = n; }
   get dirty(): boolean { return this.tab.dirty; }
   set dirty(on: boolean) { this.tab.dirty = on; }
-  /**
-   * 画面に出している画像全体のずれ(ピストン、元画像のピクセル)。ライブ表示だけの値で、物理と書き出しには関わらない。
-   * 塗り・膨らませる範囲のドラッグ中は止めて(held)、当たり判定がずれないようにする。設定の切り替えで飛ぶ分は fix でならす
-   */
-  private base = freshBase();
+  /** 物理の結果を Stage へ当てるつなぎ(src/playback。再生専用の部品と共有する) */
+  private readonly swing: StageSwing;
+  /** 画面に出している画像全体のずれ(ピストン)の状態(playback/stageSwing.ts)。画面の部品からは使わない(E2E が fix を読む) */
+  get base(): Readonly<BaseState> { return this.swing.base; }
   private get centers(): Map<string, { x: number; y: number }> { return this.tab.centers; }
   /** まだ GPU へ送っていない、レイヤーごとの変わった矩形 */
   private pendingUploads = new Map<string, Rect>();
@@ -252,24 +170,21 @@ export class App extends Emitter<AppEvents> {
   get lastAutosave(): Date | null { return this.tab.lastAutosave; }
 
   /** 操作の記録の状態 */
-  takeState: TakeState = 'idle';
-  /** 記録中の操作(止めたときに finalizeTake で整える) */
-  private takeRaw: RecordSample[] = [];
-  /** ループ再生で次に入れる記録の位置 */
-  private playIndex = 0;
+  get takeState(): TakeState { return this.recording.active ? 'recording' : this.playback.playing ? 'playing' : 'idle'; }
+  /** 操作の記録を取る側(app/recording.ts) */
+  private readonly recording: TakeRecording;
   /**
-   * ループ再生では視点の代わりに画像を動かし、視点は自由に動かせるようにする。
-   * playFrom は再生を始めたときの視点(記録の初めの視点)で、画像はここから見て記録どおりに映るように動く。
-   * playCam は今の刻みの記録の視点。見る視点が playFrom のままなら、画面は記録の視点で見たのと同じになる
+   * 記録のループ再生(src/playback。再生専用の部品と共有する)。再生の状態は Tab に置かず、タブを切り替えると捨てる
    */
-  private playFrom: CameraState | null = null;
-  private playCam: CameraState | null = null;
+  private readonly playback: LoopPlayback;
   /**
    * キーフレームの下書き(画面だけ)。作った記録はそのキーフレームも持つので、
    * 記録が差し替わったら(開く・アンドゥなど)その記録のキーフレームに合わせる
    */
   get keyDraft(): KeyFrame[] { return this.tab.keyDraft; }
   set keyDraft(k: KeyFrame[]) { this.tab.keyDraft = k; }
+  /** キーフレームの下書きの編集(app/keyframes.ts) */
+  private readonly keys: KeyframeEditor;
   /** キーフレームの重ね表示(経路・ゴースト)。ブラウザに覚える(ui/keyPath.ts) */
   keyOverlay = { path: true, ghost: false };
   setKeyOverlay(key: 'path' | 'ghost', on: boolean): void {
@@ -278,6 +193,8 @@ export class App extends Emitter<AppEvents> {
     this.emit('view', undefined);
   }
 
+  /** タブごとの自動保存(app/autosave.ts) */
+  private readonly autosaver: TabAutosaver;
   private loading = false;
   /** タブを表に出している最中(Store の差し替えで、そのタブの控えを捨てない) */
   private switching = false;
@@ -292,6 +209,43 @@ export class App extends Emitter<AppEvents> {
   constructor(canvas: HTMLCanvasElement) {
     super();
     this.stage = new Stage(canvas);
+    const app = this;
+    this.swing = new StageSwing(this.stage, { get doc() { return app.doc; }, get centers() { return app.tab.centers; } });
+    this.playback = new LoopPlayback(this.world, this.stage, () => this.project, {
+      stateChanged: () => this.emit('take', this.takeState),
+      viewChanged: () => this.emit('status', undefined),
+      // 「直前の操作を再生」の書き出しのために、再生した刻みも記録に残す
+      stepped: (sample, snapshot, seeked) => this.recorder.record(sample, snapshot, seeked),
+    });
+    this.recording = new TakeRecording({
+      get doc() { return app.doc; }, get project() { return app.project; },
+      get paused() { return app.paused; }, setPaused: on => this.setPaused(on),
+      get playing() { return app.playback.playing; }, stopTake: () => this.stopTake(),
+      execute: cmd => this.history.execute(cmd),
+      stateChanged: () => this.emit('take', this.takeState),
+    });
+    this.autosaver = new TabAutosaver({
+      get tabs() { return app.tabs; }, get activeTab() { return app.tab; },
+      get unsettled() { return !!app.stroke || app.previewingBlur || app.previewingInflate; },
+      get perf() { return app.perf; },
+      statusChanged: () => this.emit('status', undefined),
+    });
+    this.blur = new BlurPreview(this.store, this.history);
+    this.inflate = new InflatePreview({
+      store: this.store, history: this.history,
+      get inflateSettings() { return app.inflateSettings; }, set inflateSettings(v) { app.inflateSettings = v; },
+      setActiveLayer: id => this.setActiveLayer(id),
+      ended: () => this.emit('inflate', 'end'),
+    });
+    this.keys = new KeyframeEditor({
+      get keyDraft() { return app.keyDraft; }, set keyDraft(k) { app.keyDraft = k; },
+      get project() { return app.project; }, get doc() { return app.doc; },
+      get exporting() { return app.exporting; }, get takeState() { return app.takeState; },
+      stopTake: () => this.stopTake(), playTake: () => this.playTake(), cutView: () => this.world.cutView(),
+      execute: cmd => this.history.execute(cmd),
+      draftChanged: () => this.emit('take', this.takeState),
+      viewChanged: () => this.emit('status', undefined),
+    });
     this.stage.onContextChange = lost => this.onContextChange(lost);
     this.wireStore();
     this.history.on('change', () => this.trimHiddenHistory());
@@ -449,7 +403,7 @@ export class App extends Emitter<AppEvents> {
 
   /** 自動で入れた重ね表示を切る。塗るツールのままか「全体をぼかす」の途中なら、まだ切らない */
   private autoHideOverlay(): void {
-    if (!this.overlayAutoShown || PAINT_TOOLS.includes(this.tool) || this.blurPreview) return;
+    if (!this.overlayAutoShown || PAINT_TOOLS.includes(this.tool) || this.blur.active) return;
     this.overlayAutoShown = false;
     if (this.autoOverlayOff) this.setOverlayMode('off');
   }
@@ -590,7 +544,7 @@ export class App extends Emitter<AppEvents> {
   }
 
   /** タブの見出し(ファイル名、無ければ画像の名前) */
-  tabName(t: Tab): string { return t.fileName ?? t.project.documents[0]?.name ?? ''; }
+  tabName(t: Tab): string { return tabName(t); }
 
   /**
    * プロジェクトを読み込む。先に画像をデコードし、成功してから状態を一度に差し替える。
@@ -639,11 +593,12 @@ export class App extends Emitter<AppEvents> {
     this.loading = true;
     try {
       // 記録中・再生中の操作は前の作業のものなので捨てる
-      this.takeRaw = []; this.playIndex = 0; this.playPaused = false;
-      if (this.takeState !== 'idle') { this.takeState = 'idle'; this.emit('take', 'idle'); }
+      const was = this.takeState;
+      this.recording.discard();
+      this.playback.discard();
+      if (was !== 'idle') this.emit('take', 'idle');
       this.world.grab = null; this.world.grabGains.clear(); this.shake = { x: 0, y: 0, z: 0 };
-      this.playFrom = this.playCam = null; this.world.viewRig = null; this.stage.setRig(null);
-      this.base = freshBase(); // 画像全体のずれは前の画像のピクセル単位なので持ち越さない
+      this.swing.resetBase(); // 画像全体のずれは前の画像のピクセル単位なので持ち越さない
       this.tab = tab;
       tab.shownAt = Date.now();
       this.switching = true;
@@ -664,10 +619,7 @@ export class App extends Emitter<AppEvents> {
   }
 
   /** タブの自動保存を取り消して消す(実行中のものは終わってから消す) */
-  private dropTabAutosave(t: Tab): void {
-    clearTimeout(t.autosaveTimer); t.autosaveTimer = 0;
-    void t.autosaving.then(() => autosave.clear(t.id));
-  }
+  private dropTabAutosave(t: Tab): void { this.autosaver.drop(t); }
 
   /** タブを表に出す。切り替えたら true */
   async switchTab(id: string): Promise<boolean> {
@@ -755,12 +707,7 @@ export class App extends Emitter<AppEvents> {
    * あふれたら、裏のタブのうち長く出していないものの古い手から捨てる(表のタブの積みは History が自分で収める)
    */
   private trimHiddenHistory(): void {
-    const limit = this.history.options.maxBytes, hidden = this.tabs.filter(t => t !== this.tab);
-    let total = this.history.bytes + hidden.reduce((a, t) => a + t.history.bytes, 0);
-    for (const t of hidden.sort((a, b) => a.shownAt - b.shownAt)) {
-      if (total <= limit) break;
-      total -= shrinkHistory(t.history, t.history.bytes - (total - limit));
-    }
+    trimHiddenHistory(this.history.options.maxBytes, this.history.bytes, this.tabs.filter(t => t !== this.tab));
   }
 
   async loadSample(opts: { replace?: boolean } = {}): Promise<boolean> {
@@ -838,19 +785,7 @@ export class App extends Emitter<AppEvents> {
    * (main.ts で覚える)。無ければ今の作業の値を引き継ぐ。
    */
   private newImageDefaults(): Pick<Project, 'background' | 'autoSwing'> & { fov: number } {
-    const prev = this.project, d = prefs.get<Record<string, unknown>>('newImage') ?? {};
-    const num = (v: unknown, lim: { min: number; max: number }, def: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lim.min, Math.min(lim.max, v)) : def);
-    const a = (d.autoSwing && typeof d.autoSwing === 'object' ? d.autoSwing : {}) as Record<string, unknown>;
-    const bg = d.background === null || (typeof d.background === 'string' && /^#[0-9a-f]{6}$/i.test(d.background)) ? d.background as string | null : prev.background;
-    return {
-      background: 'background' in d ? bg : prev.background,
-      autoSwing: {
-        enabled: typeof a.enabled === 'boolean' ? a.enabled : prev.autoSwing.enabled,
-        period: num(a.period, LIMITS.period, prev.autoSwing.period),
-        strength: num(a.strength, { min: 0, max: 1 }, prev.autoSwing.strength),
-      },
-      fov: num(d.fov, LIMITS.fov, prev.camera.fov),
-    };
+    return newImageDefaults(this.project, prefs.get<Record<string, unknown>>('newImage'));
   }
 
   /** 開けたら true */
@@ -904,11 +839,7 @@ export class App extends Emitter<AppEvents> {
 
   serialize(thumbnail?: Uint8Array): Uint8Array { return serializeProject(this.project, { thumbnail }); }
 
-  suggestedName(tab: Tab = this.tab): string {
-    if (tab.fileName) return tab.fileName;
-    const base = (tab.project.documents[0]?.name ?? 'untitled').replace(/\.[^.]+$/, '');
-    return `${base}${FILE_EXTENSION}`;
-  }
+  suggestedName(tab: Tab = this.tab): string { return suggestedName(tab); }
 
   async save(saveAs = false): Promise<boolean> {
     if (!this.doc) return false;
@@ -927,14 +858,9 @@ export class App extends Emitter<AppEvents> {
       tab.lastSaved = new Date();
       tab.sample = false; // 保存したら、次に開いたファイルで置き換えない
       tab.autosaveError = null; tab.autosaveQuota = false; // ファイルに保存できたので、自動保存の失敗の案内は消す
-      if (tab.revision === revision) {
-        tab.dirty = false;
-        // 予約中の自動保存は取り消し、実行中のものがあれば終わってから消す(古い内容が後から書き込まれないように)
-        clearTimeout(tab.autosaveTimer);
-        void tab.autosaving.then(() => { if (!tab.dirty) return autosave.clear(tab.id); });
-      } else {
-        this.scheduleAutosave(tab);
-      }
+      const settled = tab.revision === revision;
+      if (settled) tab.dirty = false;
+      this.autosaver.afterFileSave(tab, settled);
       this.emit('file', undefined);
       this.emit('tabs', undefined);
       toast(h ? `「${h.name}」に保存しました。` : `「${tab.fileName}」をダウンロードしました。`, 'success');
@@ -947,49 +873,8 @@ export class App extends Emitter<AppEvents> {
     }
   }
 
-  /** そのタブの自動保存を予約する。裏に回ったタブも中身は変わらないので、予約どおりに保存する */
-  private scheduleAutosave(tab: Tab = this.tab): void {
-    clearTimeout(tab.autosaveTimer);
-    /** 表のタブの塗りの最中・ぼかしのプレビュー中は、確定していない状態を保存しないよう後に回す */
-    const unsettled = () => tab === this.tab && (!!this.stroke || this.previewingBlur || this.previewingInflate);
-    const live = () => this.tabs.includes(tab) && tab.dirty && !!tab.project.documents[0];
-    tab.autosaveTimer = window.setTimeout(() => {
-      tab.autosaveTimer = 0;
-      if (!live()) return;
-      if (unsettled()) { this.scheduleAutosave(tab); return; }
-      const fail = (e: unknown) => {
-        console.warn('autosave failed', e);
-        tab.autosaveError = autosaveFailureReason(e);
-        tab.autosaveQuota = isQuotaExceeded(e);
-        // 裏のタブの失敗はステータスバーに出ないので、その場で知らせる
-        if (tab !== this.tab) toast(tab.autosaveQuota ? `「${this.tabName(tab)}」の自動保存に失敗しました。ブラウザの保存領域が足りません。そのタブをファイルに保存してください。` : `「${this.tabName(tab)}」の自動保存に失敗しました(${tab.autosaveError})。そのタブを保存してください。`, 'error', 8000);
-        this.emit('status', undefined);
-      };
-      // 直列化は重いので、操作の合間(アイドル時間)に行う
-      idle(() => {
-        if (!live()) return;
-        if (unsettled()) { this.scheduleAutosave(tab); return; }
-        try {
-          const t = performance.now();
-          const bytes = serializeProjectBlob(tab.project, { pngCache: tab.pngCache });
-          const t1 = performance.now();
-          const run = autosave.save(tab.id, { savedAt: Date.now(), name: this.suggestedName(tab), bytes, order: tab.order })
-            .then(() => {
-              tab.lastAutosave = new Date(); tab.autosaveError = null; tab.autosaveQuota = false; this.emit('status', undefined);
-              void requestPersistOnce();
-              // 書き込んでいる間にタブを閉じたら、書いた分を消す
-              if (!this.tabs.includes(tab)) return autosave.clear(tab.id);
-            }, fail);
-          if (this.perf) {
-            const p = this.perf;
-            p.event({ t, d: t1 - t, kind: 'autosave', detail: `${(bytes.size / 1e6).toFixed(1)}MB を直列化(メインスレッド)` });
-            void run.then(() => p.event({ t: t1, d: performance.now() - t1, kind: 'autosave-write', detail: 'IndexedDB への書き込み完了まで(非同期)' }));
-          }
-          tab.autosaving = tab.autosaving.then(() => run);
-        } catch (e) { fail(e); }
-      });
-    }, AUTOSAVE_DELAY);
-  }
+  /** そのタブの自動保存を予約する。裏に回ったタブも中身は変わらないので、予約どおりに保存する(app/autosave.ts) */
+  private scheduleAutosave(tab: Tab = this.tab): void { this.autosaver.schedule(tab); }
 
   /* ---------- 塗り ---------- */
 
@@ -1060,75 +945,35 @@ export class App extends Emitter<AppEvents> {
 
   /* 全体をぼかす(ガウス): プレビューしながら半径を決め、適用で1手として記録する */
 
-  /** ぼかしているレイヤー(選んでいるレイヤー全部)と、それぞれの元のウェイト */
-  private blurPreview: { layers: { layerId: string; original: Uint8Array }[] } | null = null;
+  /** 全体ぼかしのプレビュー(app/blurPreview.ts) */
+  private readonly blur: BlurPreview;
 
   beginBlurPreview(): boolean {
-    const layers = this.selectedLayers; if (!layers.length || this.blurPreview) return false;
-    this.blurPreview = { layers: layers.map(l => ({ layerId: l.id, original: l.weights.data.slice() })) };
+    if (!this.blur.begin(this.selectedLayers)) return false;
     this.autoShowOverlay();
     this.emit('blur', 'begin');
     return true;
   }
 
   /** radius は元画像のピクセル単位。0 で元に戻した状態を表示する。 */
-  previewBlur(radius: number): void {
-    const p = this.blurPreview, doc = this.doc; if (!p || !doc) return;
-    for (const e of p.layers) {
-      const layer = this.store.findLayer(e.layerId)?.layer; if (!layer) continue;
-      const wm = layer.weights;
-      wm.data.set(e.original);
-      if (radius > 0) wm.gaussianBlur(radius * (wm.width / doc.image.width));
-      this.store.weightsChanged(e.layerId, wm.fullRect, false);
-    }
-  }
+  previewBlur(radius: number): void { this.blur.preview(radius); }
 
   endBlurPreview(apply: boolean, radius: number): void {
-    const p = this.blurPreview; if (!p) return;
-    this.blurPreview = null;
-    try { this.finishBlur(p, apply, radius); } finally { this.emit('blur', 'end'); this.autoHideOverlay(); }
+    if (!this.blur.active) return;
+    try { this.blur.end(apply, radius); } finally { this.emit('blur', 'end'); this.autoHideOverlay(); }
   }
 
-  private finishBlur(p: NonNullable<App['blurPreview']>, apply: boolean, radius: number): void {
-    const label = `全体をぼかす(半径 ${radius}px)`, cmds: WeightEdit[] = [];
-    for (const e of p.layers) {
-      const layer = this.store.findLayer(e.layerId)?.layer; if (!layer) continue;
-      const wm = layer.weights;
-      if (!apply) { wm.data.set(e.original); this.store.weightsChanged(e.layerId, wm.fullRect, false); continue; }
-      const tiles = diffTiles(e.original, wm);
-      if (tiles.length) cmds.push(new WeightEdit(label, e.layerId, tiles));
-    }
-    if (!apply) return;
-    if (!cmds.length) { toast('変化はありませんでした。'); return; }
-    this.history.push(p.layers.length === 1 ? cmds[0] : new Batch(countLabel(label, p.layers.length), cmds));
-    this.store.emit('change', undefined);
-  }
-
-  get previewingBlur(): boolean { return !!this.blurPreview; }
+  get previewingBlur(): boolean { return this.blur.active; }
 
   /* 膨らませる: 範囲(楕円・矩形)を、指定した高さと断面で一括して膨らませる。
-     プレビューしながら数値を決め、適用で1手として記録する。
-     高さが範囲を描いたレイヤーのポップ量を超えるときは、そのレイヤーには触れず、ポップ量 = 高さの新しいレイヤーに作る
-     (今の塗りを縮めてポップ量を上げると、揺れも小さくなり、8 ビットのウェイトの階調も粗くなるため)。
-     新しいレイヤーはプレビューの間だけ仮に挿入し、アンドゥにも「未保存」にも数えない */
+     プレビューしながら数値を決め、適用で1手として記録する(app/inflatePreview.ts) */
 
-  private inflateSession: {
-    layerId: string; original: Uint8Array; area: InflateArea; settings: InflateSettings & { height: number };
-    sourcePop: number;
-    /** プレビュー中に仮に挿入している新しいレイヤー(同じレイヤーに作るときは null) */
-    newLayer: Layer | null;
-    /** 新しいレイヤーに作るときの名前(仮に挿入していなくても決めておく) */
-    newName: string;
-    limited: boolean;
-  } | null = null;
+  private readonly inflate: InflatePreview;
 
-  get previewingInflate(): boolean { return !!this.inflateSession; }
+  get previewingInflate(): boolean { return this.inflate.active; }
   /** 全体ぼかし・膨らませるのプレビュー中か。プレビュー中のウェイトを元に戻したりしないよう、使える操作を絞る */
   get previewing(): boolean { return this.previewingBlur || this.previewingInflate; }
-  get inflateState(): InflateState | null {
-    const s = this.inflateSession; if (!s) return null;
-    return { layerId: s.layerId, area: s.area, settings: s.settings, sourcePop: s.sourcePop, limited: s.limited, newLayer: s.newLayer && { name: s.newLayer.name, pop: s.newLayer.pop } };
-  }
+  get inflateState(): InflateState | null { return this.inflate.state; }
 
   /** 範囲を描き始める(ドラッグの最初の動きで呼ぶ) */
   beginInflateArea(area: InflateArea): boolean {
@@ -1136,115 +981,19 @@ export class App extends Emitter<AppEvents> {
     if (this.previewingBlur) { toast('「全体をぼかす」を適用するかキャンセルしてから膨らませてください。', 'warning'); return false; }
     if (!layer || !doc || this.busy) return false;
     if (!layer.visible) { toast('非表示のレイヤーには塗れません。', 'warning'); return false; }
-    const st = this.inflateSettings;
-    this.inflateSession = {
-      layerId: layer.id, original: layer.weights.data.slice(), area: { ...area },
-      // 高さの初期値は前回の値、初めてならポップ量と同じ(ポップ量が 0 なら既定のポップ量)
-      // 前回の高さは引き継ぐが、このレイヤーのポップ量は超えない(いきなり新しいレイヤーに作らない)
-      settings: { ...st, height: layer.pop > 0 ? Math.min(st.height ?? layer.pop, layer.pop) : (st.height ?? LIMITS.pop.def) },
-      sourcePop: layer.pop, newLayer: null, newName: nextInflateLayerName(doc), limited: false,
-    };
-    this.renderInflate();
+    this.inflate.begin(layer, doc, area);
     this.emit('inflate', 'begin');
     return true;
   }
 
   updateInflate(patch: { area?: Partial<InflateArea>; settings?: Partial<InflateSettings> }): void {
-    const s = this.inflateSession; if (!s) return;
-    if (patch.area) s.area = { ...s.area, ...patch.area };
-    if (patch.settings) s.settings = { ...s.settings, ...patch.settings, height: patch.settings.height ?? s.settings.height };
-    this.renderInflate();
+    if (!this.inflate.active) return;
+    this.inflate.update(patch);
     this.emit('inflate', 'change');
   }
 
-  /**
-   * プレビュー用の新しいレイヤーを、範囲を描いたレイヤーのすぐ上に仮に入れる / 外す。
-   * 構成が変わったことだけを知らせ(GPU への全面転送とレイヤー一覧の更新)、変更としては数えない
-   */
-  private setPreviewLayer(on: boolean): void {
-    const s = this.inflateSession, doc = this.doc; if (!s || !doc) return;
-    if (on && !s.newLayer) {
-      const f = this.store.findLayer(s.layerId); if (!f) return;
-      const layer = createLayer(doc, s.newName);
-      // 揺れ方は元のレイヤーにそろえる(同じ物の一部として揺れるように)
-      layer.physics = { ...f.layer.physics, motionParams: { ...f.layer.physics.motionParams } };
-      doc.layers.splice(f.index + 1, 0, layer);
-      s.newLayer = layer;
-      this.store.emit('layers', { docId: doc.id });
-    } else if (!on && s.newLayer) {
-      const i = doc.layers.indexOf(s.newLayer);
-      if (i >= 0) doc.layers.splice(i, 1);
-      s.newLayer = null;
-      this.store.emit('layers', { docId: doc.id });
-    }
-  }
-
-  private renderInflate(): void {
-    const s = this.inflateSession, doc = this.doc; if (!s || !doc) return;
-    const source = this.store.findLayer(s.layerId)?.layer; if (!source) return;
-    const st = s.settings;
-    // 仮のレイヤーは数えずに、もう1枚足せるか
-    const layerCount = doc.layers.length - (s.newLayer ? 1 : 0);
-    const over = st.height > s.sourcePop, useNew = over && layerCount < LIMITS.maxLayers;
-    s.limited = over && !useNew;
-    // 範囲を描いたレイヤーは、新しいレイヤーに作るときは元のまま、そうでなければ元の上に重ねる
-    source.weights.data.set(s.original);
-    this.store.weightsChanged(s.layerId, source.weights.fullRect, false);
-    this.setPreviewLayer(useNew);
-    const target = s.newLayer ?? source, wm = target.weights;
-    if (s.newLayer) {
-      wm.data.fill(0);
-      const pop = Math.min(LIMITS.pop.max, Math.ceil(st.height));
-      if (s.newLayer.pop !== pop) { s.newLayer.pop = pop; this.store.emit('layer', { layerId: s.newLayer.id, keys: ['pop'] }); }
-    }
-    const base = s.newLayer ? wm.data.slice() : s.original;
-    const a = s.area, kx = wm.width / doc.image.width, ky = wm.height / doc.image.height;
-    const level = target.pop > 0 ? Math.min(1, st.height / target.pop) : 0;
-    inflateShape(wm, base, {
-      kind: st.shape, cx: (a.x / doc.image.width + 0.5) * wm.width, cy: (0.5 - a.y / doc.image.height) * wm.height, rx: a.w / 2 * kx, ry: a.h / 2 * ky,
-      angle: st.angle * Math.PI / 180,
-    }, { level, softness: st.softness, profile: st.profile, blend: st.blend });
-    this.store.weightsChanged(target.id, wm.fullRect, false);
-  }
-
-  endInflate(apply: boolean): void {
-    const s = this.inflateSession, doc = this.doc; if (!s) return;
-    const source = this.store.findLayer(s.layerId)?.layer, newLayer = s.newLayer;
-    if (!apply || !doc || !source) {
-      this.setPreviewLayer(false);
-      if (source) { source.weights.data.set(s.original); this.store.weightsChanged(s.layerId, source.weights.fullRect, false); }
-      this.inflateSession = null;
-      this.emit('inflate', 'end');
-      return;
-    }
-    this.inflateSession = null;
-    const st = s.settings;
-    this.inflateSettings = { ...st }; // 次に描くときも同じ設定で始める
-    const shape = `${st.shape === 'ellipse' ? '楕円' : '矩形'} ${Math.round(s.area.w)}×${Math.round(s.area.h)}px${st.angle ? `・${st.angle}°` : ''}`;
-    if (newLayer && !newLayer.weights.data.some(v => v > 0)) {
-      // 範囲がすべて画像の外などで何も膨らまなかったときは、空のレイヤーを残さない
-      this.inflateSession = s;
-      this.endInflate(false);
-      toast('変化はありませんでした。');
-      return;
-    }
-    if (newLayer) {
-      // 仮に入れたレイヤーをそのまま正式に追加する。戻すとレイヤーごと消え、元のレイヤーは触れていないので元どおり
-      const index = doc.layers.indexOf(newLayer);
-      this.history.push(new InsertLayer(`膨らませる(${shape}・高さ ${st.height}px・新しいレイヤー「${newLayer.name}」)`, doc.id, newLayer, index));
-      this.store.emit('change', undefined);
-      this.setActiveLayer(newLayer.id);
-    } else {
-      const tiles = diffTiles(s.original, source.weights);
-      const height = s.limited ? s.sourcePop : st.height; // 上限の枚数で新しいレイヤーを作れないときは、ポップ量で止まる
-      if (!tiles.length) toast('変化はありませんでした。');
-      else {
-        this.history.push(new WeightEdit(`膨らませる(${shape}・高さ ${height}px)`, s.layerId, tiles));
-        this.store.emit('change', undefined);
-      }
-    }
-    this.emit('inflate', 'end');
-  }
+  /** 適用で1手として記録し、キャンセルで元に戻す。終えたら 'inflate' の 'end' を送る */
+  endInflate(apply: boolean): void { this.inflate.end(apply); }
 
   fromAlpha(): void {
     const c = this.imageCanvas, layer = this.activeLayer, doc = this.doc; if (!c || !layer || !doc) return;
@@ -1336,7 +1085,7 @@ export class App extends Emitter<AppEvents> {
     }
     const pr = PRESETS[name], label = countLabel(`プリセット「${pr.label}」`, n);
     // 選んでいないレイヤーで揺れているもの(表示中・揺れがオン・塗ってある)があるか。膨らませるのプレビューで仮に入れたレイヤーは数えない
-    const temp = this.inflateSession?.newLayer?.id;
+    const temp = this.inflate.tempLayerId;
     const others = this.doc?.layers.some(o => !this.selectedLayerIds.has(o.id) && o.id !== temp && o.visible && o.physics.enabled && o.weights.data.some(v => v > 0)) ?? false;
     const changePeriod = !others && this.project.autoSwing.period !== pr.period;
     this.history.execute(new Batch(label, [
@@ -1398,41 +1147,25 @@ export class App extends Emitter<AppEvents> {
     const doc = this.doc, f = this.project.favorites.find(x => x.id === id);
     if (!doc || !f || !this.canEditFavorites) return;
     this.stopTake();
-    const label = `お気に入り「${f.name}」`, cam = this.project.camera, cmds: Command[] = [];
-    let missing = 0;
-    for (const fl of f.layers) {
-      const l = doc.layers.find(x => x.id === fl.id);
-      if (!l) { missing++; continue; }
-      if (!sameLayer(fl, l)) cmds.push(PatchLayer.from(this.store, l.id, { pop: fl.pop, blend: fl.blend, physics: copyPhysics(fl.physics) }, label));
-    }
-    const a = f.autoSwing, b = this.project.autoSwing;
-    if (a.enabled !== b.enabled || a.period !== b.period || a.strength !== b.strength) cmds.push(PatchProject.from(this.store, { autoSwing: { ...a } }, label));
-    if (f.take !== this.project.take) cmds.push(new SetTake(label, this.project.take, f.take));
-    if (f.camera.fov !== cam.fov) cmds.push(new SetFov(label, cam.fov, f.camera.fov));
+    // 何をどう変えるかは model/favorites.ts で決め、ここではアンドゥのコマンドにして1手で積む
+    const ch = favoriteChanges(f, this.project, doc), label = `お気に入り「${f.name}」`, cmds: Command[] = [];
+    for (const { id: layerId, patch } of ch.layers) cmds.push(PatchLayer.from(this.store, layerId, patch, label));
+    if (ch.autoSwing) cmds.push(PatchProject.from(this.store, { autoSwing: ch.autoSwing }, label));
+    if (ch.take !== undefined) cmds.push(new SetTake(label, this.project.take, ch.take));
+    if (ch.fov !== null) cmds.push(new SetFov(label, this.project.camera.fov, ch.fov));
     if (cmds.length) this.history.execute(new Batch(label, cmds));
     // 画角を変えると camera は新しいオブジェクトに差し替わるので、実行したあとの camera に当てる
-    applyView(this.project.camera, f.camera);
+    applyView(this.project.camera, ch.view);
     this.world.cutView(); // 視点が飛ぶだけなので揺らさない
     this.emit('status', undefined);
-    if (f.playing && this.project.take) this.playTake();
-    if (missing) toast(`「${f.name}」にあったレイヤーのうち ${missing} 枚は、もう無いので飛ばしました。`, 'info', 5000);
+    if (ch.play && this.project.take) this.playTake();
+    if (ch.missing) toast(`「${f.name}」にあったレイヤーのうち ${ch.missing} 枚は、もう無いので飛ばしました。`, 'info', 5000);
   }
 
   /* ---------- 物理と描画のループ ---------- */
 
-  applySwing = (world: PhysicsWorld, doc: Document): void => {
-    const k = Math.max(doc.image.width, doc.image.height) / 2;
-    doc.layers.forEach((l, i) => {
-      const s = world.displacement(l.id), on = l.visible && l.physics.enabled;
-      this.stage.setSwing(i, { x: s.x * k, y: s.y * k, z: s.z * k }, on);
-      // 塗った範囲の広がり(ためて膨らむ2 など、physics/motion.ts の SPREAD_MOTIONS)。重心はウェイトが変わったときだけ求め直す
-      const r = world.spread(l.id);
-      this.stage.setSpread(i, r ? this.layerCenter(doc, l) : { x: 0, y: 0 }, r, on);
-    });
-    // 画像全体の動き(揺らし方「ピストン」)。一時停止中・自動揺らしが切れているときは 0
-    const g = world.baseOffset(doc.layers);
-    this.stage.setBaseOffset({ x: g.x * k, y: g.y * k, z: g.z * k });
-  };
+  /** 揺れを Stage へ当てる(playback/stageSwing.ts。書き出しにも渡す) */
+  get applySwing(): (world: PhysicsWorld, doc: Document) => void { return this.swing.applySwing; }
 
   /**
    * 静止画の書き出し用。画面の物理(今見えている揺れ)を Stage へ戻し、撮る視点を返す。
@@ -1443,58 +1176,18 @@ export class App extends Emitter<AppEvents> {
    */
   currentShot = (): CameraState => {
     const doc = this.doc;
-    if (doc) {
-      this.applySwing(this.world, doc);
-      this.stage.setBaseOffset(this.base.shown);
-    }
+    if (doc) this.swing.applyShown(this.world, doc);
     const c = this.playView ?? this.project.camera;
     return { ...c, target: { ...c.target } };
   };
 
-  /** 物理に渡すレイヤーの重心(正規化座標)。回転で揺れる大きさを決める */
-  centerOf = (l: Layer): { x: number; y: number } => {
-    const doc = this.doc;
-    if (!doc) return { x: 0, y: 0 };
-    const c = this.layerCenter(doc, l), k = Math.max(doc.image.width, doc.image.height) / 2;
-    return { x: c.x / k, y: c.y / k };
-  };
-
-  /** レイヤーのウェイトの重心(画像のローカル座標、元画像のピクセル) */
-  private layerCenter(doc: Document, l: Layer): { x: number; y: number } {
-    let c = this.centers.get(l.id);
-    if (!c) {
-      const { u, v } = l.weights.centroidUV();
-      this.centers.set(l.id, (c = { x: (u - 0.5) * doc.image.width, y: (v - 0.5) * doc.image.height }));
-    }
-    return c;
-  }
+  /** 物理に渡すレイヤーの重心(正規化座標)。回転で揺れる大きさを決める(playback/stageSwing.ts) */
+  get centerOf(): (l: Layer) => { x: number; y: number } { return this.swing.centerOf; }
 
   private recordStep = (): void => {
-    const w = this.world, c = this.project.camera, take = this.project.take;
-    if (this.takeState === 'playing' && take?.samples.length) {
-      // ループ再生: 記録どおりにつかみを物理へ入れ、視点の代わりに画像を動かす(画角は今のまま)。
-      // 揺れは、動く画像を今の視点(見る人が動かしてよい)から見た動きで決める
-      const i = this.playIndex % take.samples.length, smp = take.samples[i], from = this.playFrom!;
-      applySample(w, smp);
-      const angles = (a: CameraState) => ({ yaw: a.yaw, pitch: a.pitch, roll: a.roll, zoom: a.zoom });
-      w.viewRig = { from: { target: { ...from.target }, view: angles(from) }, to: { target: { ...(smp.viewTarget ?? smp.camera.target) }, view: angles(smp.camera) } };
-      w.viewTarget = { ...c.target };
-      w.viewAngles = angles(c);
-      this.playCam = { ...smp.camera, fov: c.fov, target: { ...smp.camera.target } };
-      // 一時停止中(シークバーで止めた・ドラッグしている間)は同じ所にとどまる。揺れはそのまま落ち着いていく
-      if (!this.playPaused) this.playIndex = i + 1;
-      // 「直前の操作を再生」の書き出しには、記録の視点で残す(見る視点を動かした分は入らない)
-      // 見る視点を動かしていれば、控えの「1刻み前の視点」は見る視点のものなので、測り直す印にして残す(書き出しの初めで弾まないように)
-      // シークで跳んだ刻みは、揺れを消して視点を測り直したことも残す(書き出しで跳んだ分が揺れにならないように)
-      const moved = !sameView(c, from), seeked = this.playSeeked;
-      this.playSeeked = false;
-      this.recorder.record({ ...smp, ...(w.viewCut ? { viewCut: true } : {}), camera: { ...this.playCam, target: { ...this.playCam.target } } }, () => {
-        const snap = w.snapshot();
-        if (moved) snap.base = null;
-        return snap;
-      }, seeked);
-      return;
-    }
+    // ループ再生中は、記録どおりに物理へ入れる(playback/loopPlayback.ts)
+    if (this.playback.step()) return;
+    const w = this.world, c = this.project.camera;
     // 平行移動・回転・ズームでも、「揺らす」で振っても揺らす
     const s = this.shake;
     w.viewTarget = { x: c.target.x + s.x, y: c.target.y + s.y, z: c.target.z + s.z };
@@ -1506,78 +1199,34 @@ export class App extends Emitter<AppEvents> {
       grabGains: [...w.grabGains],
       camera: { fov: c.fov, yaw: c.yaw, pitch: c.pitch, roll: c.roll, zoom: c.zoom, target: { ...c.target } },
     }, () => w.snapshot());
-    if (this.takeState === 'recording') {
-      // 1フレームで何刻みも進むことがあるので、最長に達したあとの刻みは積まない
-      if (this.takeRaw.length < Math.round(TAKE_MAX_SECONDS / PHYSICS_DT)) this.takeRaw.push({
-        grab: w.grab ? { ...w.grab } : null, grabGains: [...w.grabGains], viewTarget: { ...w.viewTarget }, viewCut: w.viewCut || undefined,
-        camera: { fov: c.fov, yaw: c.yaw, pitch: c.pitch, roll: c.roll, zoom: c.zoom, target: { ...c.target } },
-      });
-      // 最長まで記録したら止める(物理を進めている途中なので、止めるのは刻みのあと)
-      if (this.takeRaw.length >= Math.round(TAKE_MAX_SECONDS / PHYSICS_DT)) queueMicrotask(() => this.stopRecording(true));
-    }
+    // 記録中なら、操作の記録にも積む(app/recording.ts)
+    this.recording.capture(w, c);
   };
 
   /* ---------- 操作の記録とループ再生 ---------- */
 
   /** 記録中なら記録した長さ、それ以外は保存してある記録の長さ(秒) */
-  get takeLength(): number { return this.takeState === 'recording' ? this.takeRaw.length * PHYSICS_DT : takeSeconds(this.project.take); }
+  get takeLength(): number { return this.recording.active ? this.recording.seconds : takeSeconds(this.project.take); }
   /** ループ再生を一時停止しているか(シークバーの ⏸。揺れの一時停止とは別で、物理は進む) */
-  playPaused = false;
-  /** シークで揺れを消した直後か(次の刻みで操作の記録に控えを取る) */
-  private playSeeked = false;
+  get playPaused(): boolean { return this.playback.paused; }
 
   /** ループ再生を一時停止する・続ける(再生中だけ) */
-  setPlayPaused(on: boolean): void {
-    if (this.takeState !== 'playing' || this.playPaused === on) return;
-    this.playPaused = on;
-    this.emit('take', this.takeState);
-  }
+  setPlayPaused(on: boolean): void { this.playback.setPaused(on); }
 
-  /**
-   * ループ再生の位置を移す(秒。1周の中に丸める)。跳んだ先の揺れは落ち着いた状態から始める
-   * (記録に揺れの途中の状態は残っていないため)。視点が飛ぶ分でも揺らさない
-   */
-  seekTake(seconds: number): void {
-    const n = this.project.take?.samples.length ?? 0;
-    if (this.takeState !== 'playing' || !n || !Number.isFinite(seconds)) return;
-    const i = Math.round(seconds / PHYSICS_DT);
-    this.playIndex = ((i % n) + n) % n;
-    this.world.reset();
-    this.playSeeked = true;
-    // 位置はバーが描画のたびに追うので、ここでは 'take' を送らない(ドラッグの間、ほかの部品を描き直さない)
-  }
+  /** ループ再生の位置を移す(秒。1周の中に丸める。playback/loopPlayback.ts) */
+  seekTake(seconds: number): void { this.playback.seek(seconds); }
 
   /** ループ再生中の位置(秒) */
-  get takePosition(): number {
-    const n = this.project.take?.samples.length ?? 0;
-    return this.takeState === 'playing' && n ? (this.playIndex % n) * PHYSICS_DT : 0;
-  }
+  get takePosition(): number { return this.playback.position; }
 
   /** ループ再生中の、画像から見た今の視点(記録の視点)。再生していなければ null */
-  get playView(): CameraState | null { return this.takeState === 'playing' ? this.playCam : null; }
+  get playView(): CameraState | null { return this.playback.view; }
 
-  private setTakeState(s: TakeState): void { this.takeState = s; this.emit('take', s); }
-
-  /** 記録を始める。つかむ・揺らす・移動・視点の操作を、止めるまで(最長 60 秒)覚える */
-  startRecording(): void {
-    if (!this.doc || this.takeState === 'recording') return;
-    if (this.takeState === 'playing') this.stopTake();
-    if (this.paused) this.setPaused(false); // 一時停止中は物理が進まず、記録もされない
-    this.takeRaw = [];
-    this.setTakeState('recording');
-  }
+  /** 記録を始める。つかむ・揺らす・移動・視点の操作を、止めるまで(最長 60 秒)覚える(app/recording.ts) */
+  startRecording(): void { this.recording.start(); }
 
   /** 記録を止めて、ループ再生できる形にして残す(アンドゥできる)。full は最長まで記録して止まったとき */
-  stopRecording(full = false): void {
-    if (this.takeState !== 'recording') return;
-    const take = finalizeTake(this.takeRaw);
-    this.takeRaw = [];
-    this.setTakeState('idle');
-    if (!take) { toast(`記録が短すぎます。「記録」を押したあと、${TAKE_MIN_SECONDS} 秒以上動かしてください。`, 'warning'); return; }
-    this.history.execute(new SetTake('操作の記録', this.project.take, take));
-    const sec = takeSeconds(take).toFixed(1);
-    toast(full ? `最長の ${sec} 秒まで記録したので止めました。` : `${sec} 秒の操作を記録しました。「ループ再生」でくり返し再生できます。`, 'success');
-  }
+  stopRecording(full = false): void { this.recording.stop(full); }
 
   toggleRecording(): void { if (this.takeState === 'recording') this.stopRecording(); else this.startRecording(); }
 
@@ -1587,144 +1236,54 @@ export class App extends Emitter<AppEvents> {
     if (!take?.samples.length || !this.doc) return;
     if (this.takeState === 'recording') this.stopRecording();
     if (this.paused) this.setPaused(false);
-    this.playIndex = 0;
-    this.playPaused = false;
-    // 視点を記録の初めへ動かし、そこを画像を動かす基準にする(始めは画像が元の置き場所にある)
-    const c = this.project.camera, s0 = take.samples[0].camera;
-    c.yaw = s0.yaw; c.pitch = s0.pitch; c.roll = s0.roll; c.zoom = s0.zoom; c.target = { ...s0.target };
-    this.playFrom = { ...c, target: { ...c.target } };
-    this.playCam = { ...this.playFrom, target: { ...c.target } };
-    this.world.cutView(); // 今の視点から記録の初めへ飛ぶ分では揺らさない
-    this.world.grab = null; this.world.grabGains.clear();
     this.shake = { x: 0, y: 0, z: 0 };
-    if (this.takeState !== 'playing') this.setTakeState('playing');
-    this.emit('status', undefined);
+    // 視点を記録の初めへ動かし、そこから記録どおりに画像を動かす(playback/loopPlayback.ts)
+    this.playback.play(take);
   }
 
   /**
    * ループ再生をやめる(記録中なら何もしない)。画像は元の置き場所へ戻る。
    * 再生中に視点を動かしていなければ、視点を止めた所の記録の視点にする(画面はそのまま)。動かしていれば、その視点のまま
    */
-  stopTake(): void {
-    if (this.takeState !== 'playing') return;
-    const c = this.project.camera, from = this.playFrom, at = this.playCam;
-    if (from && at && sameView(c, from)) { c.yaw = at.yaw; c.pitch = at.pitch; c.roll = at.roll; c.zoom = at.zoom; c.target = { ...at.target }; }
-    this.playFrom = this.playCam = null;
-    this.playPaused = false;
-    this.world.viewRig = null;
-    this.stage.setRig(null);
-    // 画面を触って止めたときは、すぐ後の当たり判定(pick)が今の視点で行われるようにする
-    this.stage.applyCamera(c);
-    this.world.grab = null; this.world.grabGains.clear();
-    this.world.cutView(); // 物理に伝える注視点が記録の値から今の視点へ戻る分では揺らさない
-    this.setTakeState('idle');
-    this.emit('status', undefined);
-  }
+  stopTake(): void { this.playback.stop(); }
 
   /** ループ再生中に、見る視点を再生の基準の視点(撮影カメラ。記録の初めの視点)へ戻す。再生は続ける */
-  resetPlayView(): void {
-    const from = this.playFrom;
-    if (this.takeState !== 'playing' || !from) return;
-    const c = this.project.camera;
-    c.yaw = from.yaw; c.pitch = from.pitch; c.roll = from.roll; c.zoom = from.zoom; c.target = { ...from.target };
-    this.world.cutView(); // 視点が飛ぶだけなので揺らさない
-    this.emit('status', undefined);
-  }
+  resetPlayView(): void { this.playback.resetView(); }
 
   togglePlay(): void { if (this.takeState === 'playing') this.stopTake(); else this.playTake(); }
 
   /* ---------- キーフレームから動きを作る ---------- */
 
   /** 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れる。reset なら、そうでなくても下書きを空にする */
-  private syncKeyDraft(reset = false): void {
-    const k = this.project.take?.keys;
-    if (k) this.keyDraft = structuredClone([...k]);
-    else if (reset) this.keyDraft = [];
-    else return;
-    this.emit('take', this.takeState);
-  }
+  private syncKeyDraft(reset = false): void { this.keys.sync(reset); }
 
-  private viewKey(): ViewKey {
-    const c = this.project.camera;
-    return { yaw: c.yaw, pitch: c.pitch, roll: c.roll, zoom: c.zoom, target: { ...c.target } };
-  }
-
-  /** 今の視点を末尾のキーフレームとして足す。時間とつなぎ方は1つ前のフレームに合わせる */
-  addKey(): void {
-    if (this.keyDraft.length >= MAX_KEYS) return;
-    this.stopTake();
-    const prev = this.keyDraft.at(-1);
-    this.keyDraft.push({ view: this.viewKey(), seconds: prev?.seconds ?? KEY_SECONDS.def, mode: prev?.mode ?? 'smooth' });
-    this.emit('take', this.takeState);
-  }
+  /** 今の視点を末尾のキーフレームとして足す。時間とつなぎ方は1つ前のフレームに合わせる(app/keyframes.ts) */
+  addKey(): void { this.keys.add(); }
 
   /** i 番目のキーフレームを今の視点で登録し直す */
-  setKey(i: number): void {
-    const k = this.keyDraft[i];
-    if (!k) return;
-    this.stopTake();
-    k.view = this.viewKey();
-    this.emit('take', this.takeState);
-  }
+  setKey(i: number): void { this.keys.set(i); }
 
-  removeKey(i: number): void {
-    if (!this.keyDraft[i]) return;
-    this.keyDraft.splice(i, 1);
-    this.emit('take', this.takeState);
-  }
+  removeKey(i: number): void { this.keys.remove(i); }
 
   /** from 番目のキーフレームを to 番目へ動かす(秒数は場所に残す。physics/take.ts の moveKey) */
-  moveKey(from: number, to: number): void {
-    const n = this.keyDraft.length;
-    if (from === to || from < 0 || from >= n || to < 0 || to >= n) return;
-    this.keyDraft = movedKeys(this.keyDraft, from, to);
-    this.emit('take', this.takeState);
-  }
+  moveKey(from: number, to: number): void { this.keys.move(from, to); }
 
   /** 視点を i 番目のキーフレームへ動かす(確かめる用。その動きでは揺らさない) */
-  gotoKey(i: number): void {
-    const k = this.keyDraft[i]?.view;
-    if (!k) return;
-    this.stopTake();
-    const c = this.project.camera;
-    c.yaw = k.yaw; c.pitch = k.pitch; c.roll = k.roll; c.zoom = k.zoom; c.target = { ...k.target };
-    this.world.cutView();
-    this.emit('status', undefined);
-  }
+  gotoKey(i: number): void { this.keys.goto(i); }
 
-  setKeyOption(i: number, patch: Partial<Pick<KeyFrame, 'seconds' | 'mode'>>): void {
-    const k = this.keyDraft[i];
-    if (!k) return;
-    if (patch.seconds !== undefined) k.seconds = Math.max(KEY_SECONDS.min, Math.min(KEY_SECONDS.max, Math.round(patch.seconds * 10) / 10));
-    if (patch.mode) k.mode = patch.mode;
-    this.emit('take', this.takeState);
-  }
+  setKeyOption(i: number, patch: Partial<Pick<KeyFrame, 'seconds' | 'mode'>>): void { this.keys.setOption(i, patch); }
 
   /**
    * キーフレームの動きを再生できるか(2つ以上で1周が短すぎず、止まっているとき)。
    * 手で記録した操作があるときは、黙ってキーフレームの記録に入れ替えないよう使えなくする(右パネルの「再生」で入れ替える)
    */
-  get canPlayKeys(): boolean {
-    const n = this.keyDraft.length, total = this.keyDraft.reduce((a, k) => a + k.seconds, 0), take = this.project.take;
-    return n >= 2 && total >= TAKE_MIN_SECONDS - 1e-9 && !!this.doc && !this.exporting && this.takeState === 'idle' && (!take || !!take.keys);
-  }
+  get canPlayKeys(): boolean { return this.keys.canPlay; }
 
   /** キーフレームの動きを再生する。一覧が今の記録と同じならそのまま再生し、違えば作り直す(元に戻せる) */
-  playKeys(): void {
-    if (!this.canPlayKeys) return;
-    const take = this.project.take;
-    if (take?.keys && JSON.stringify(take.keys) === JSON.stringify(normalizeKeys(this.keyDraft))) this.playTake();
-    else this.makeKeyTake();
-  }
+  playKeys(): void { this.keys.play(); }
 
   /** キーフレームを順に通ってくり返す記録を作り(今の記録と入れ替え、アンドゥできる)、ループ再生する */
-  makeKeyTake(): void {
-    if (!this.doc || this.takeState === 'recording') return;
-    const take = takeFromKeys(this.keyDraft, this.project.camera.fov);
-    if (!take) return;
-    this.history.execute(new SetTake('キーフレームから動きを作る', this.project.take, take));
-    this.playTake();
-  }
+  makeKeyTake(): void { this.keys.makeTake(); }
 
   /** 記録を消す(アンドゥできる) */
   clearTake(): void {
@@ -1761,35 +1320,12 @@ export class App extends Emitter<AppEvents> {
 
   /**
    * 画像全体のずれ(ピストン)を画面上で止める / 戻す。塗りや膨らませる範囲のドラッグの間、当たり判定(pick)が
-   * 画像の動きでずれないようにする。物理はそのまま進む。戻すときは、止めていた所から BASE_EASE でならして動きに戻す
+   * 画像の動きでずれないようにする(playback/stageSwing.ts)
    */
-  holdImage(on: boolean): void {
-    const b = this.base;
-    if (on) { b.held ??= { ...b.shown }; return; }
-    if (!b.held) return;
-    b.fix = { x: b.held.x - b.live.x, y: b.held.y - b.live.y, z: b.held.z - b.live.z };
-    b.held = null;
-  }
+  holdImage(on: boolean): void { this.swing.holdImage(on); }
 
   /** 画像全体が画面上で元の位置からずれているか(ブラシの円を毎フレーム当て直すかの判断に使う) */
-  get imageShifted(): boolean { const s = this.base.shown; return !this.view.flat && (s.x !== 0 || s.y !== 0 || s.z !== 0); }
-
-  /** ライブ表示の画像全体のずれを決めて Stage へ入れる(applySwing の後に呼ぶ) */
-  private showBase(dt: number, doc: Document): void {
-    const w = this.world, b = this.base, k = this.imageLong / 2, g = w.baseOffset(doc.layers);
-    const live = { x: g.x * k, y: g.y * k, z: g.z * k };
-    // 自動揺らし・一時停止・周期・強さ・動かすレイヤーとその設定が変わると、画像が飛ぶ。その差を fix に入れてならす
-    const d = w.baseDriver(doc.layers), a = w.autoSwing;
-    const key = d ? `${d.id}|${a.period}|${a.strength}|${JSON.stringify(d.physics.motionParams)}` : '';
-    if (key !== b.key) { b.fix.x += b.live.x - live.x; b.fix.y += b.live.y - live.y; b.fix.z += b.live.z - live.z; b.key = key; }
-    const e = Math.exp(-dt / BASE_EASE);
-    b.fix.x *= e; b.fix.y *= e; b.fix.z *= e;
-    if (Math.abs(b.fix.x) + Math.abs(b.fix.y) + Math.abs(b.fix.z) < 0.05) b.fix = { x: 0, y: 0, z: 0 };
-    b.live = live;
-    b.shown = b.held ? { ...b.held } : { x: live.x + b.fix.x, y: live.y + b.fix.y, z: live.z + b.fix.z };
-    this.stage.setBaseOffset(b.shown);
-    this.stage.setBaseReach(w.baseReach(doc.layers) * k);
-  }
+  get imageShifted(): boolean { return !this.view.flat && this.swing.shifted; }
 
   /** 溜まっているウェイトの変更を GPU へ送る(描画・書き出しの直前に呼ぶ) */
   flushWeights(): void {
@@ -1820,15 +1356,12 @@ export class App extends Emitter<AppEvents> {
     this.world.autoSwing = this.project.autoSwing;
     this.world.advance(dt, doc.layers, this.recordStep);
     this.applySwing(this.world, doc);
-    this.showBase(dt, doc);
+    this.swing.showBase(dt, this.world, doc); // ライブ表示の画像全体のずれ(applySwing の後)
     if (p) t = p.lap('physics', t, performance.now());
     this.flushWeights();
     if (p) t = p.lap('upload', t, performance.now());
-    // ループ再生中は、視点の代わりに画像を動かす
-    // 画角は今のものにそろえる(再生中に画角を変えても、画像が近づいたり離れたりしないように)
-    const fov = this.project.camera.fov;
-    if (this.takeState === 'playing' && this.playFrom && this.playCam) this.stage.setRig({ ...this.playFrom, fov }, { ...this.playCam, fov });
-    else this.stage.setRig(null);
+    // ループ再生中は、視点の代わりに画像を動かす(画角は今のものにそろえる)
+    this.playback.applyRig();
     this.stage.render(this.project.camera, this.multiCam, this.multiOrtho);
     if (p) p.lap('render', t, performance.now());
     this.emit('frame', undefined);
@@ -1850,41 +1383,16 @@ export class App extends Emitter<AppEvents> {
   }
 }
 
-function freshBase() {
-  return { shown: { x: 0, y: 0, z: 0 }, live: { x: 0, y: 0, z: 0 }, fix: { x: 0, y: 0, z: 0 }, key: '', held: null as Vec3 | null };
-}
-
-/** 視点(回転・ズーム・注視点)が同じか。画角は見ない */
-function sameView(a: CameraState, b: CameraState): boolean {
-  return a.yaw === b.yaw && a.pitch === b.pitch && a.roll === b.roll && a.zoom === b.zoom && a.target.x === b.target.x && a.target.y === b.target.y && a.target.z === b.target.z;
-}
-
-/** 膨らませるで作るレイヤーの名前(膨らみ1, 膨らみ2, …のうち、まだ無いもの) */
-function nextInflateLayerName(doc: Document): string {
-  let n = 1;
-  while (doc.layers.some(l => l.name === `膨らみ${n}`)) n++;
-  return `膨らみ${n}`;
-}
-
 function nextLayerName(doc: Document): string {
   let n = doc.layers.length + 1;
   while (doc.layers.some(l => l.name === `レイヤー${n}`)) n++;
   return `レイヤー${n}`;
 }
 
-/** ブラウザが暇なときに実行する(requestIdleCallback が無ければすぐ後に) */
-function idle(fn: () => void): void {
-  if ('requestIdleCallback' in window) window.requestIdleCallback(fn, { timeout: 2000 });
-  else setTimeout(fn, 0);
-}
-
 function unionRect(a: Rect, b: Rect): Rect {
   const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
   return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
 }
-
-/** 複数のレイヤーにまとめてかけた操作の名前(履歴とアンドゥのメニューに出す) */
-export function countLabel(label: string, n: number): string { return n > 1 ? `${label}(${n}枚)` : label; }
 
 /** 1つならそのまま、複数なら1手にまとめる */
 function batchOf(label: string, cmds: Command[]): Command { return cmds.length === 1 ? cmds[0] : new Batch(label, cmds); }
