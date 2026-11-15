@@ -27,7 +27,6 @@ import { MotionRecorder } from './physics/recorder';
 import { takeSeconds, type KeyFrame } from './physics/take';
 import { Stroke, type PaintMode } from './paint/stroke';
 import { serializeProject, deserializeProject, FILE_EXTENSION, type PngCacheEntry } from './storage/popstage';
-import { autosave } from './storage/autosave';
 import { requestPersistOnce } from './storage/persist';
 import { recent, type RecentKind } from './storage/recent';
 import { prefs } from './storage/prefs';
@@ -859,14 +858,9 @@ export class App extends Emitter<AppEvents> {
       tab.lastSaved = new Date();
       tab.sample = false; // 保存したら、次に開いたファイルで置き換えない
       tab.autosaveError = null; tab.autosaveQuota = false; // ファイルに保存できたので、自動保存の失敗の案内は消す
-      if (tab.revision === revision) {
-        tab.dirty = false;
-        // 予約中の自動保存は取り消し、実行中のものがあれば終わってから消す(古い内容が後から書き込まれないように)
-        clearTimeout(tab.autosaveTimer);
-        void tab.autosaving.then(() => { if (!tab.dirty) return autosave.clear(tab.id); });
-      } else {
-        this.scheduleAutosave(tab);
-      }
+      const settled = tab.revision === revision;
+      if (settled) tab.dirty = false;
+      this.autosaver.afterFileSave(tab, settled);
       this.emit('file', undefined);
       this.emit('tabs', undefined);
       toast(h ? `「${h.name}」に保存しました。` : `「${tab.fileName}」をダウンロードしました。`, 'success');

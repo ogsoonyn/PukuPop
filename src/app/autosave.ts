@@ -72,6 +72,17 @@ export class TabAutosaver {
     }, AUTOSAVE_DELAY);
   }
 
+  /**
+   * ファイルへ保存できたあとの後始末。保存の間に変更が無かったとき(settled)は、予約中の自動保存を取り消し、
+   * 実行中のものがあれば終わってから、そのときまだ未保存になっていなければ消す(古い内容が後から書き込まれないように)。
+   * 変更があったときは、改めて予約する
+   */
+  afterFileSave(tab: Tab, settled: boolean): void {
+    if (!settled) { this.schedule(tab); return; }
+    clearTimeout(tab.autosaveTimer);
+    void tab.autosaving.then(() => { if (!tab.dirty) return autosave.clear(tab.id); });
+  }
+
   /** タブの自動保存を取り消して消す(実行中のものは終わってから消す) */
   drop(t: Tab): void {
     clearTimeout(t.autosaveTimer); t.autosaveTimer = 0;
