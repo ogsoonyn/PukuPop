@@ -227,6 +227,8 @@ class PlayerImpl {
   /** 描画ループの予約(動いている間)と、止めている間の1回だけの描き直しの予約 */
   private raf = 0;
   private redraw = 0;
+  /** ResizeObserver の通知を受けて、次のフレームで大きさを当てる予約 */
+  private fitRaf = 0;
   private prev = 0;
   private running = false;
   private disposed = false;
@@ -267,9 +269,9 @@ class PlayerImpl {
     stage.onContextChange = lost => { if (!lost) this.requestRender(); };
     if (options.interaction !== 'none') this.unbind = bindViewInput(canvas, () => project.camera, () => this.requestRender());
     // 大きさはキャンバスの要素だけを見て追う(大きさ 0 で作っても、大きさが付いた時点で正しい縦横比で描く)。
-    // 通知の中では描画バッファの大きさ(canvas.width / height)だけを変え、CSS の大きさは書かない(通知の輪にならないように)
+    // 通知の中では大きさを当てず、次のフレームに回す(scheduleFit)。CSS の大きさは書かない
     if (options.autoResize !== false && typeof ResizeObserver === 'function') {
-      this.observer = new ResizeObserver(() => this.fit());
+      this.observer = new ResizeObserver(() => this.scheduleFit());
       this.observer.observe(canvas);
     }
     this.loopWanted = !!project.take;
@@ -340,10 +342,25 @@ class PlayerImpl {
     return true;
   }
 
-  /** 大きさと倍率を測り直し、変わっていれば描画へ当てる(止めているときは1回描き直す) */
+  /**
+   * ResizeObserver の通知を受けて、大きさを当てるのを次のフレームに回す(1フレームに1回にまとめる)。
+   * 通知の中で描画バッファを変えると、幅だけ CSS で決めて高さを属性に任せたキャンバスでは CSS の高さが端数のぶん変わり、
+   * その変化の通知がそのループで届かず、ブラウザが window に「ResizeObserver loop completed with undelivered notifications」の
+   * error イベントを出す(埋め込み先の window.onerror に拾われうる)。フレームの中で当てれば、変化は次の通知で届くだけで済む
+   */
+  private scheduleFit(): void {
+    if (this.disposed || this.fitRaf) return;
+    this.fitRaf = requestAnimationFrame(() => { this.fitRaf = 0; this.fit(); });
+  }
+
+  /** 大きさと倍率を測り直し、変わっていれば描画へ当てて描き直す(止めているときも) */
   private fit(): void {
     if (this.disposed) return;
-    if (this.measure()) this.requestRender();
+    if (!this.measure()) return;
+    // 描画バッファの大きさを変えると中身が消えるので、待たずに描き直す(次のフレームまで透けて見えないように)。
+    // 動いているときは、このフレームの描画が済んでいても描き直す(物理は進めない)
+    if (this.redraw) { cancelAnimationFrame(this.redraw); this.redraw = 0; }
+    this.guarded(() => this.frame(0));
   }
 
   /**
@@ -375,8 +392,8 @@ class PlayerImpl {
     if (this.disposed) return;
     this.disposed = true;
     this.running = false;
-    cancelAnimationFrame(this.raf); cancelAnimationFrame(this.redraw);
-    this.raf = this.redraw = 0;
+    cancelAnimationFrame(this.raf); cancelAnimationFrame(this.redraw); cancelAnimationFrame(this.fitRaf);
+    this.raf = this.redraw = this.fitRaf = 0;
     this.observer?.disconnect();
     this.unbind?.();
     this.loop.discard();

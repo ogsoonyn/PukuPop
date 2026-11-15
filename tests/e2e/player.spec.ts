@@ -422,6 +422,24 @@ test.describe('画面の倍率が 2(CSS で大きさを決めたキャンバス)
   });
 });
 
+test('幅だけ CSS で決め高さを属性に任せたキャンバスで幅を変えても、window に ResizeObserver のエラーを出さない', async ({ page }) => {
+  await open(page);
+  // 控えるのはテストのページの側(Player は window に受け口を付けない)
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__winErrors = [];
+    window.addEventListener('error', e => w.__winErrors.push(e.message));
+  });
+  await createOutside(page, 'wonly', 'width:100%;display:block', true);
+  for (const width of ['333px', '517.3px', '401.7px', '250.5px', '612px']) {
+    await page.locator('#wonly-wrap').evaluate((d, width) => { (d as HTMLElement).style.width = width; }, width);
+    await frames(page, 4);
+  }
+  await expect.poll(async () => { const s = await sizeOf(page, 'wonly'); return [s.css[0], bufferFits(s)]; }).toEqual([612, true]);
+  expect(await read<string[]>(page, '__winErrors')).toEqual([]);
+  await expect.poll(async () => drawn(await snap(page, 'wonly'))).toBe(true);
+});
+
 test('autoResize: false なら追わず、resize() で測り直す', async ({ page }) => {
   await open(page);
   await create(page, { autoSwing: false }, { autoResize: false });
