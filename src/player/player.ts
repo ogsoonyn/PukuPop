@@ -24,7 +24,7 @@ import { StageSwing } from '../playback/stageSwing';
 import { LoopPlayback } from '../playback/loopPlayback';
 import { advanceSwing, feedView, preparePhysics } from '../playback/frame';
 import { bindViewInput } from './viewInput';
-import { claimCanvas } from './context';
+import { claimCanvas, isSpent, markSpent } from './context';
 import { PlayerError, abortedError, loadError } from './errors';
 
 export { PlayerError } from './errors';
@@ -129,6 +129,8 @@ const OTHER_USE = 'このキャンバスはほかの用途(2D の描画など)�
 export async function createPlayer(canvas: HTMLCanvasElement, bytes: Uint8Array | ArrayBuffer, options: PlayerOptions = {}): Promise<Player> {
   const { signal } = options;
   if (signal?.aborted) throw abortedError(signal.reason);
+  // 自分が描画を作って捨てたキャンバスは、three.js を呼ぶ前に断る(player/context.ts)
+  if (isSpent(canvas)) throw new PlayerError('canvas-unusable', LOST);
   // 印は最初の await より前に付ける(同じキャンバスで2つ目が読み込み中に始まっても重なりが分かるように。player/context.ts)
   const release = claimCanvas(canvas);
   if (!release) throw new PlayerError('canvas-unusable', IN_USE);
@@ -160,6 +162,7 @@ export async function createPlayer(canvas: HTMLCanvasElement, bytes: Uint8Array 
       return impl.api;
     } catch (e) {
       stage.dispose();
+      markSpent(canvas); // コンテキストを手放したので、もう使えない
       throw e instanceof PlayerError ? e : new PlayerError('invalid-file', e instanceof Error && e.message ? e.message : 'ファイルを表示できませんでした', { cause: e });
     }
   } finally {
@@ -169,7 +172,8 @@ export async function createPlayer(canvas: HTMLCanvasElement, bytes: Uint8Array 
 }
 
 /**
- * 描画(three.js の WebGLRenderer)を作る。コンテキストが失われているキャンバス(dispose() した・ほかのライブラリが手放した)は断る。
+ * 描画(three.js の WebGLRenderer)を作る。コンテキストが失われているキャンバス(ほかのライブラリが手放した)は断る
+ * (自分が dispose() したキャンバスは、createPlayer の初めに断り済み)。
  * 先に自分で getContext を呼んで確かめると three.js と違う属性で作られてしまうので、作ってから確かめる
  */
 function createStage(canvas: HTMLCanvasElement): Stage {
@@ -185,6 +189,7 @@ function createStage(canvas: HTMLCanvasElement): Stage {
   }
   if (stage.renderer.getContext().isContextLost()) {
     stage.dispose();
+    markSpent(canvas);
     throw new PlayerError('canvas-unusable', LOST);
   }
   return stage;
@@ -416,7 +421,8 @@ class PlayerImpl {
     if (this.disposed) return;
     this.detach();
     this.stage.dispose();
-    // コンテキストを手放したので、このキャンバスは印を外しても使えない(次の createPlayer は 'canvas-unusable' で断る)
+    // コンテキストを手放したので、このキャンバスは印を外しても使えない(覚えておき、次の createPlayer は 'canvas-unusable' で断る)
+    markSpent(this.canvas);
     this.release();
   }
 

@@ -506,7 +506,9 @@ test('新しいキャンバスなら、読み込み → 再生 → dispose を 2
   expect(warnings).toEqual([]);
 });
 
-test('dispose() したキャンバスで作ると、canvas-unusable で断られる(新しいキャンバスなら作れる)', async ({ page }) => {
+test('dispose() したキャンバスで作ると、three.js を呼ぶ前に canvas-unusable で断られる(新しいキャンバスなら作れる)', async ({ page }) => {
+  const logs: string[] = [];
+  page.on('console', m => { if (m.type() === 'warning' || m.type() === 'error') logs.push(m.text()); });
   await open(page);
   const r = await page.evaluate(async () => {
     const d = (window as any).playerDemo, m = await d.load(), bytes = await d.sample({}), c = d.canvas();
@@ -522,6 +524,29 @@ test('dispose() したキャンバスで作ると、canvas-unusable で断られ
   });
   const lost = [true, 'canvas-unusable', 'このキャンバスはもう使えません。新しい canvas を渡してください。'];
   expect(r).toEqual({ again: lost, twice: lost, fresh: 'ok' });
+  // three.js が失われたコンテキストで初期化に失敗した console.error などを出さない
+  expect(logs.filter(l => /THREE|WebGL/i.test(l))).toEqual([]);
+});
+
+test('コンテキストが失われている間に dispose() したキャンバスは、あとでコンテキストが戻っても canvas-unusable で断られる', async ({ page }) => {
+  await open(page);
+  await create(page, { autoSwing: true });
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__gl = w.inner.stage.renderer.getContext();
+    w.__ext = w.__gl.getExtension('WEBGL_lose_context');
+    w.__ext.loseContext();
+  });
+  await expect.poll(() => read<boolean>(page, 'inner.stage.contextLost')).toBe(true);
+  await page.evaluate(() => (window as any).player.dispose());
+  // ブラウザがコンテキストを戻した(スマホで表に戻した)のと同じ状態にする
+  await page.evaluate(() => (window as any).__ext.restoreContext());
+  await expect.poll(() => read<boolean>(page, '__gl.isContextLost()')).toBe(false);
+  const again = await page.evaluate(async () => {
+    const d = (window as any).playerDemo, m = await d.load();
+    return m.createPlayer(d.canvas(), await d.sample({})).then((p: any) => { p.dispose(); return 'ok'; }, (e: any) => e.code);
+  });
+  expect(again).toBe('canvas-unusable');
 });
 
 test('同じキャンバスで2つ同時に createPlayer を呼ぶと、2つ目は canvas-unusable で断られ、1つ目はふつうに絵が出る', async ({ page }) => {
