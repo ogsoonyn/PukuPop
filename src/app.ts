@@ -288,6 +288,7 @@ export class App extends Emitter<AppEvents> {
   constructor(canvas: HTMLCanvasElement) {
     super();
     this.stage = new Stage(canvas);
+    this.stage.onContextChange = lost => this.onContextChange(lost);
     this.wireStore();
     this.history.on('change', () => this.trimHiddenHistory());
   }
@@ -1792,9 +1793,21 @@ export class App extends Emitter<AppEvents> {
     this.pendingUploads.clear();
   }
 
+  /**
+   * WebGL のコンテキストが失われた・戻ったとき(スマホで裏に回した後、GPU のリセット、メモリ不足など)。
+   * 失われている間は frame が描画(と物理)を止め、書き出しは失敗で終わる。全部のタブで共通の画面の状態なので Tab には置かない。
+   * 戻ったときに送り直すものは無い: 画像・ウェイト・メッシュ・書き出し用の描画先は three.js が次の描画で CPU 側の中身から作り直し、
+   * 背景色と部分転送の確認は Stage が戻す。溜めていたウェイトの変更(pendingUploads)は、次の flushWeights で全面転送になる
+   */
+  private onContextChange(lost: boolean): void {
+    if (lost) toast('3Dビューの描画が止まりました。戻らないときは保存してから読み込み直してください。', 'warning', 8000);
+    else toast('3Dビューの描画が戻りました。', 'success');
+    this.emit('status', undefined);
+  }
+
   frame(dt: number): void {
     const doc = this.doc;
-    if (this.exporting || !doc || !this.stage.hasDocument) return;
+    if (this.exporting || this.stage.contextLost || !doc || !this.stage.hasDocument) return;
     const p = this.perf;
     let t = p ? performance.now() : 0;
     this.world.autoSwing = this.project.autoSwing;

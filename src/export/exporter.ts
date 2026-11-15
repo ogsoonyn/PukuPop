@@ -43,12 +43,18 @@ const WARMUP_SECONDS = 20;
 /** 記録のループ再生を慣らす時間(秒、最低2周)。1周目の初めは揺れが無いので、継ぎ目が揃うまで回してから撮る */
 const LOOP_WARMUP_SECONDS = 6;
 
+const CONTEXT_LOST_MESSAGE = '3Dビューの描画が止まったため、書き出しを中止しました。描画が戻ってからもう一度お試しください。';
+
 export async function runExport(
   ctx: ExportContext, s: ExportSettings,
   onProgress: (done: number, total: number) => void, signal: AbortSignal,
 ): Promise<ExportResult> {
   const doc = ctx.store.doc;
   if (!doc) throw new Error('書き出す画像がありません');
+  if (ctx.stage.contextLost) throw new Error(CONTEXT_LOST_MESSAGE);
+  // 途中で一度でも失われたら、その間のコマは描けていないので失敗にする(すぐ戻っても続けない)
+  const losses = ctx.stage.contextLosses;
+  const checkContext = () => { if (ctx.stage.contextLost || ctx.stage.contextLosses !== losses) throw new Error(CONTEXT_LOST_MESSAGE); };
   const width = even(s.width), height = even(s.height);
   const total = Math.max(1, Math.round(s.duration * s.fps));
   const stepsPerFrame = Math.round(1 / s.fps / PHYSICS_DT);
@@ -100,7 +106,9 @@ export async function runExport(
         camera = wrap ? { ...smp.camera, fov: project.camera.fov } : smp.camera;
       }
       ctx.applySwing(world, doc);
-      ctx.stage.renderFrame(width, height, camera, background, frame);
+      try { ctx.stage.renderFrame(width, height, camera, background, frame); }
+      catch (e) { checkContext(); if ((e as Error).name === 'ContextLostError') throw new Error(CONTEXT_LOST_MESSAGE); throw e; }
+      checkContext();
       await encoder.addFrame(frame, f);
       for (let k = 0; k < stepsPerFrame; k++) {
         if (samples) applySample(world, samples[at(f * stepsPerFrame + k)]);
@@ -109,6 +117,7 @@ export async function runExport(
       onProgress(f + 1, total);
       if (f % 4 === 3) await new Promise(r => setTimeout(r, 0));
     }
+    checkContext();
     const blob = await encoder.finish();
     return { blob, filename: fileName(doc.name, info.ext), frames: total };
   } catch (e) {
