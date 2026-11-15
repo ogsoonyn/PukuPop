@@ -11,8 +11,9 @@ import type { Command } from './commands/history';
 import { captureFavorite, copyPhysics, sameLayer, nextFavoriteName, applyView, FAVORITE_NAME_MAX } from './model/favorites';
 import { Stage, type ViewOptions } from './stage/stage';
 import { StageSwing, type BaseState } from './playback/stageSwing';
+import { LoopPlayback } from './playback/loopPlayback';
 import { PhysicsWorld, PHYSICS_DT } from './physics/world';
-import { MotionRecorder, applySample, type RecordSample } from './physics/recorder';
+import { MotionRecorder, type RecordSample } from './physics/recorder';
 import { finalizeTake, takeFromKeys, takeSeconds, TAKE_MAX_SECONDS, TAKE_MIN_SECONDS, KEY_SECONDS, MAX_KEYS, normalizeKeys, moveKey as movedKeys, type ViewKey, type KeyFrame } from './physics/take';
 import { Stroke, type PaintMode } from './paint/stroke';
 import { inflateShape, type InflateProfile, type InflateBlend } from './paint/inflate';
@@ -249,18 +250,15 @@ export class App extends Emitter<AppEvents> {
   get lastAutosave(): Date | null { return this.tab.lastAutosave; }
 
   /** 操作の記録の状態 */
-  takeState: TakeState = 'idle';
+  get takeState(): TakeState { return this.recording ? 'recording' : this.playback.playing ? 'playing' : 'idle'; }
+  /** 記録中か */
+  private recording = false;
   /** 記録中の操作(止めたときに finalizeTake で整える) */
   private takeRaw: RecordSample[] = [];
-  /** ループ再生で次に入れる記録の位置 */
-  private playIndex = 0;
   /**
-   * ループ再生では視点の代わりに画像を動かし、視点は自由に動かせるようにする。
-   * playFrom は再生を始めたときの視点(記録の初めの視点)で、画像はここから見て記録どおりに映るように動く。
-   * playCam は今の刻みの記録の視点。見る視点が playFrom のままなら、画面は記録の視点で見たのと同じになる
+   * 記録のループ再生(src/playback。再生専用の部品と共有する)。再生の状態は Tab に置かず、タブを切り替えると捨てる
    */
-  private playFrom: CameraState | null = null;
-  private playCam: CameraState | null = null;
+  private readonly playback: LoopPlayback;
   /**
    * キーフレームの下書き(画面だけ)。作った記録はそのキーフレームも持つので、
    * 記録が差し替わったら(開く・アンドゥなど)その記録のキーフレームに合わせる
@@ -291,6 +289,12 @@ export class App extends Emitter<AppEvents> {
     this.stage = new Stage(canvas);
     const app = this;
     this.swing = new StageSwing(this.stage, { get doc() { return app.doc; }, get centers() { return app.tab.centers; } });
+    this.playback = new LoopPlayback(this.world, this.stage, () => this.project, {
+      stateChanged: () => this.emit('take', this.takeState),
+      viewChanged: () => this.emit('status', undefined),
+      // 「直前の操作を再生」の書き出しのために、再生した刻みも記録に残す
+      stepped: (sample, snapshot, seeked) => this.recorder.record(sample, snapshot, seeked),
+    });
     this.stage.onContextChange = lost => this.onContextChange(lost);
     this.wireStore();
     this.history.on('change', () => this.trimHiddenHistory());
@@ -638,10 +642,11 @@ export class App extends Emitter<AppEvents> {
     this.loading = true;
     try {
       // 記録中・再生中の操作は前の作業のものなので捨てる
-      this.takeRaw = []; this.playIndex = 0; this.playPaused = false;
-      if (this.takeState !== 'idle') { this.takeState = 'idle'; this.emit('take', 'idle'); }
+      const was = this.takeState;
+      this.takeRaw = []; this.recording = false;
+      this.playback.discard();
+      if (was !== 'idle') this.emit('take', 'idle');
       this.world.grab = null; this.world.grabGains.clear(); this.shake = { x: 0, y: 0, z: 0 };
-      this.playFrom = this.playCam = null; this.world.viewRig = null; this.stage.setRig(null);
       this.swing.resetBase(); // 画像全体のずれは前の画像のピクセル単位なので持ち越さない
       this.tab = tab;
       tab.shownAt = Date.now();
@@ -1440,31 +1445,9 @@ export class App extends Emitter<AppEvents> {
   get centerOf(): (l: Layer) => { x: number; y: number } { return this.swing.centerOf; }
 
   private recordStep = (): void => {
-    const w = this.world, c = this.project.camera, take = this.project.take;
-    if (this.takeState === 'playing' && take?.samples.length) {
-      // ループ再生: 記録どおりにつかみを物理へ入れ、視点の代わりに画像を動かす(画角は今のまま)。
-      // 揺れは、動く画像を今の視点(見る人が動かしてよい)から見た動きで決める
-      const i = this.playIndex % take.samples.length, smp = take.samples[i], from = this.playFrom!;
-      applySample(w, smp);
-      const angles = (a: CameraState) => ({ yaw: a.yaw, pitch: a.pitch, roll: a.roll, zoom: a.zoom });
-      w.viewRig = { from: { target: { ...from.target }, view: angles(from) }, to: { target: { ...(smp.viewTarget ?? smp.camera.target) }, view: angles(smp.camera) } };
-      w.viewTarget = { ...c.target };
-      w.viewAngles = angles(c);
-      this.playCam = { ...smp.camera, fov: c.fov, target: { ...smp.camera.target } };
-      // 一時停止中(シークバーで止めた・ドラッグしている間)は同じ所にとどまる。揺れはそのまま落ち着いていく
-      if (!this.playPaused) this.playIndex = i + 1;
-      // 「直前の操作を再生」の書き出しには、記録の視点で残す(見る視点を動かした分は入らない)
-      // 見る視点を動かしていれば、控えの「1刻み前の視点」は見る視点のものなので、測り直す印にして残す(書き出しの初めで弾まないように)
-      // シークで跳んだ刻みは、揺れを消して視点を測り直したことも残す(書き出しで跳んだ分が揺れにならないように)
-      const moved = !sameView(c, from), seeked = this.playSeeked;
-      this.playSeeked = false;
-      this.recorder.record({ ...smp, ...(w.viewCut ? { viewCut: true } : {}), camera: { ...this.playCam, target: { ...this.playCam.target } } }, () => {
-        const snap = w.snapshot();
-        if (moved) snap.base = null;
-        return snap;
-      }, seeked);
-      return;
-    }
+    // ループ再生中は、記録どおりに物理へ入れる(playback/loopPlayback.ts)
+    if (this.playback.step()) return;
+    const w = this.world, c = this.project.camera;
     // 平行移動・回転・ズームでも、「揺らす」で振っても揺らす
     const s = this.shake;
     w.viewTarget = { x: c.target.x + s.x, y: c.target.y + s.y, z: c.target.z + s.z };
@@ -1492,41 +1475,19 @@ export class App extends Emitter<AppEvents> {
   /** 記録中なら記録した長さ、それ以外は保存してある記録の長さ(秒) */
   get takeLength(): number { return this.takeState === 'recording' ? this.takeRaw.length * PHYSICS_DT : takeSeconds(this.project.take); }
   /** ループ再生を一時停止しているか(シークバーの ⏸。揺れの一時停止とは別で、物理は進む) */
-  playPaused = false;
-  /** シークで揺れを消した直後か(次の刻みで操作の記録に控えを取る) */
-  private playSeeked = false;
+  get playPaused(): boolean { return this.playback.paused; }
 
   /** ループ再生を一時停止する・続ける(再生中だけ) */
-  setPlayPaused(on: boolean): void {
-    if (this.takeState !== 'playing' || this.playPaused === on) return;
-    this.playPaused = on;
-    this.emit('take', this.takeState);
-  }
+  setPlayPaused(on: boolean): void { this.playback.setPaused(on); }
 
-  /**
-   * ループ再生の位置を移す(秒。1周の中に丸める)。跳んだ先の揺れは落ち着いた状態から始める
-   * (記録に揺れの途中の状態は残っていないため)。視点が飛ぶ分でも揺らさない
-   */
-  seekTake(seconds: number): void {
-    const n = this.project.take?.samples.length ?? 0;
-    if (this.takeState !== 'playing' || !n || !Number.isFinite(seconds)) return;
-    const i = Math.round(seconds / PHYSICS_DT);
-    this.playIndex = ((i % n) + n) % n;
-    this.world.reset();
-    this.playSeeked = true;
-    // 位置はバーが描画のたびに追うので、ここでは 'take' を送らない(ドラッグの間、ほかの部品を描き直さない)
-  }
+  /** ループ再生の位置を移す(秒。1周の中に丸める。playback/loopPlayback.ts) */
+  seekTake(seconds: number): void { this.playback.seek(seconds); }
 
   /** ループ再生中の位置(秒) */
-  get takePosition(): number {
-    const n = this.project.take?.samples.length ?? 0;
-    return this.takeState === 'playing' && n ? (this.playIndex % n) * PHYSICS_DT : 0;
-  }
+  get takePosition(): number { return this.playback.position; }
 
   /** ループ再生中の、画像から見た今の視点(記録の視点)。再生していなければ null */
-  get playView(): CameraState | null { return this.takeState === 'playing' ? this.playCam : null; }
-
-  private setTakeState(s: TakeState): void { this.takeState = s; this.emit('take', s); }
+  get playView(): CameraState | null { return this.playback.view; }
 
   /** 記録を始める。つかむ・揺らす・移動・視点の操作を、止めるまで(最長 60 秒)覚える */
   startRecording(): void {
@@ -1534,7 +1495,8 @@ export class App extends Emitter<AppEvents> {
     if (this.takeState === 'playing') this.stopTake();
     if (this.paused) this.setPaused(false); // 一時停止中は物理が進まず、記録もされない
     this.takeRaw = [];
-    this.setTakeState('recording');
+    this.recording = true;
+    this.emit('take', 'recording');
   }
 
   /** 記録を止めて、ループ再生できる形にして残す(アンドゥできる)。full は最長まで記録して止まったとき */
@@ -1542,7 +1504,8 @@ export class App extends Emitter<AppEvents> {
     if (this.takeState !== 'recording') return;
     const take = finalizeTake(this.takeRaw);
     this.takeRaw = [];
-    this.setTakeState('idle');
+    this.recording = false;
+    this.emit('take', 'idle');
     if (!take) { toast(`記録が短すぎます。「記録」を押したあと、${TAKE_MIN_SECONDS} 秒以上動かしてください。`, 'warning'); return; }
     this.history.execute(new SetTake('操作の記録', this.project.take, take));
     const sec = takeSeconds(take).toFixed(1);
@@ -1557,49 +1520,19 @@ export class App extends Emitter<AppEvents> {
     if (!take?.samples.length || !this.doc) return;
     if (this.takeState === 'recording') this.stopRecording();
     if (this.paused) this.setPaused(false);
-    this.playIndex = 0;
-    this.playPaused = false;
-    // 視点を記録の初めへ動かし、そこを画像を動かす基準にする(始めは画像が元の置き場所にある)
-    const c = this.project.camera, s0 = take.samples[0].camera;
-    c.yaw = s0.yaw; c.pitch = s0.pitch; c.roll = s0.roll; c.zoom = s0.zoom; c.target = { ...s0.target };
-    this.playFrom = { ...c, target: { ...c.target } };
-    this.playCam = { ...this.playFrom, target: { ...c.target } };
-    this.world.cutView(); // 今の視点から記録の初めへ飛ぶ分では揺らさない
-    this.world.grab = null; this.world.grabGains.clear();
     this.shake = { x: 0, y: 0, z: 0 };
-    if (this.takeState !== 'playing') this.setTakeState('playing');
-    this.emit('status', undefined);
+    // 視点を記録の初めへ動かし、そこから記録どおりに画像を動かす(playback/loopPlayback.ts)
+    this.playback.play(take);
   }
 
   /**
    * ループ再生をやめる(記録中なら何もしない)。画像は元の置き場所へ戻る。
    * 再生中に視点を動かしていなければ、視点を止めた所の記録の視点にする(画面はそのまま)。動かしていれば、その視点のまま
    */
-  stopTake(): void {
-    if (this.takeState !== 'playing') return;
-    const c = this.project.camera, from = this.playFrom, at = this.playCam;
-    if (from && at && sameView(c, from)) { c.yaw = at.yaw; c.pitch = at.pitch; c.roll = at.roll; c.zoom = at.zoom; c.target = { ...at.target }; }
-    this.playFrom = this.playCam = null;
-    this.playPaused = false;
-    this.world.viewRig = null;
-    this.stage.setRig(null);
-    // 画面を触って止めたときは、すぐ後の当たり判定(pick)が今の視点で行われるようにする
-    this.stage.applyCamera(c);
-    this.world.grab = null; this.world.grabGains.clear();
-    this.world.cutView(); // 物理に伝える注視点が記録の値から今の視点へ戻る分では揺らさない
-    this.setTakeState('idle');
-    this.emit('status', undefined);
-  }
+  stopTake(): void { this.playback.stop(); }
 
   /** ループ再生中に、見る視点を再生の基準の視点(撮影カメラ。記録の初めの視点)へ戻す。再生は続ける */
-  resetPlayView(): void {
-    const from = this.playFrom;
-    if (this.takeState !== 'playing' || !from) return;
-    const c = this.project.camera;
-    c.yaw = from.yaw; c.pitch = from.pitch; c.roll = from.roll; c.zoom = from.zoom; c.target = { ...from.target };
-    this.world.cutView(); // 視点が飛ぶだけなので揺らさない
-    this.emit('status', undefined);
-  }
+  resetPlayView(): void { this.playback.resetView(); }
 
   togglePlay(): void { if (this.takeState === 'playing') this.stopTake(); else this.playTake(); }
 
@@ -1771,11 +1704,8 @@ export class App extends Emitter<AppEvents> {
     if (p) t = p.lap('physics', t, performance.now());
     this.flushWeights();
     if (p) t = p.lap('upload', t, performance.now());
-    // ループ再生中は、視点の代わりに画像を動かす
-    // 画角は今のものにそろえる(再生中に画角を変えても、画像が近づいたり離れたりしないように)
-    const fov = this.project.camera.fov;
-    if (this.takeState === 'playing' && this.playFrom && this.playCam) this.stage.setRig({ ...this.playFrom, fov }, { ...this.playCam, fov });
-    else this.stage.setRig(null);
+    // ループ再生中は、視点の代わりに画像を動かす(画角は今のものにそろえる)
+    this.playback.applyRig();
     this.stage.render(this.project.camera, this.multiCam, this.multiOrtho);
     if (p) p.lap('render', t, performance.now());
     this.emit('frame', undefined);
@@ -1795,11 +1725,6 @@ export class App extends Emitter<AppEvents> {
       this.emit('status', undefined);
     }
   }
-}
-
-/** 視点(回転・ズーム・注視点)が同じか。画角は見ない */
-function sameView(a: CameraState, b: CameraState): boolean {
-  return a.yaw === b.yaw && a.pitch === b.pitch && a.roll === b.roll && a.zoom === b.zoom && a.target.x === b.target.x && a.target.y === b.target.y && a.target.z === b.target.z;
 }
 
 /** 膨らませるで作るレイヤーの名前(膨らみ1, 膨らみ2, …のうち、まだ無いもの) */
