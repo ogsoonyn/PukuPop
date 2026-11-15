@@ -213,7 +213,7 @@ function refreshStatus(): void {
   if (deg) ui.sRoll.textContent = `↻ ${deg}°`;
   ui.sImage.textContent = d ? `${d.image.width}×${d.image.height}px・ウェイト ${d.layers[0]?.weights.width ?? 0}×${d.layers[0]?.weights.height ?? 0}` : '-';
   if (!app.exporting) ui.sRec.textContent = [app.view.flat && 'ポップOFF', app.paused && '揺れ一時停止中'].filter(Boolean).join('・');
-  ui.sSave.textContent = app.autosaveError ? (app.autosaveError === QUOTA_MESSAGE ? `自動保存に失敗しました。${QUOTA_MESSAGE}` : `自動保存に失敗しました(${app.autosaveError})。こまめに保存してください。`) : app.dirty ? (app.lastAutosave ? `未保存の変更あり(${app.lastAutosave.toLocaleTimeString()} に自動保存)` : '未保存の変更あり') : app.lastSaved ? `保存済み ${app.lastSaved.toLocaleTimeString()}` : '';
+  ui.sSave.textContent = app.autosaveError ? (app.autosaveQuota ? `自動保存に失敗しました。${QUOTA_MESSAGE}` : `自動保存に失敗しました(${app.autosaveError})。こまめに保存してください。`) : app.dirty ? (app.lastAutosave ? `未保存の変更あり(${app.lastAutosave.toLocaleTimeString()} に自動保存)` : '未保存の変更あり') : app.lastSaved ? `保存済み ${app.lastSaved.toLocaleTimeString()}` : '';
 }
 function refreshTitle(): void {
   const name = app.tabName(app.activeTab);

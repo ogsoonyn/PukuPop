@@ -44,8 +44,7 @@ paths:
 ## 保存領域の永続化
 
 - `src/storage/persist.ts` が `navigator.storage.persist()` を頼む。頼むのは最初の自動保存の成功かファイルの保存のあとで、ページを開いている間に1回だけ。起動直後には頼まない。
-- 断られた日時は prefs の `storagePersistDeniedAt`(ミリ秒。通ったら `null`)。30 日は頼み直さない。キーを変えるときは前の値を引き継ぐ。
-- `navigator.storage` が無い・例外が出たときは黙って続ける。保存は止めない。
+- 断られた日時は prefs の `storagePersistDeniedAt`(ミリ秒。通ったら `null`)。30 日は頼み直さない。
 
 ## どこに覚えるか
 

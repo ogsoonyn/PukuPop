@@ -11,12 +11,18 @@ export function bindMemoryStatus(app: App): void {
   const root = ui.sMem.parentElement!;
   let lastText = '';
   // ブラウザの保存領域は非同期で調べる。開いたとき(と、開いている間は 5 秒おき)に調べ直す
-  let storage: StorageInfo | null = null, storageAt = 0;
+  let storage: StorageInfo | null = null, storageAt = 0, checking = false;
   const refreshStorage = () => {
+    if (checking) return; // 調べている最中は重ねて呼ばない
     const now = performance.now();
     if (now - storageAt < 5000) return;
     storageAt = now;
-    void storageInfo().then(s => { storage = s; });
+    checking = true;
+    void storageInfo().then(s => { storage = s; }).finally(() => {
+      checking = false;
+      // 結果が返ったらすぐ描き直す(欄が遅れて出て高さが変わらないように)
+      if (root.matches(':focus-within') && ui.sMem.offsetParent) renderDetail(app.memoryUsage(), app.history.options.maxBytes, storage);
+    });
   };
 
   const refresh = () => {
@@ -70,7 +76,7 @@ function renderDetail(m: MemoryUsage, historyLimit: number, storage: StorageInfo
   if (storage) {
     parts.push(title('ブラウザの保存領域'), table([], [
       ['残している量', `${formatBytes(storage.usage)} / 使える量 ${formatBytes(storage.quota)}`],
-      ['消されないよう頼んだ', storage.persisted === null ? '分かりません' : storage.persisted ? '通っています' : 'まだ通っていません'],
+      ['空きが減っても消さない', storage.persisted === null ? '分かりません' : storage.persisted ? 'はい' : 'いいえ'],
     ]));
   }
   parts.push(note);

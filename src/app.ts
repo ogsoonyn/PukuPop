@@ -17,7 +17,7 @@ import { Stroke, type PaintMode } from './paint/stroke';
 import { inflateShape, type InflateProfile, type InflateBlend } from './paint/inflate';
 import { serializeProject, serializeProjectBlob, deserializeProject, FILE_EXTENSION, type PngCacheEntry } from './storage/popstage';
 import { autosave } from './storage/autosave';
-import { autosaveFailureReason, isQuotaExceeded, QUOTA_MESSAGE, requestPersistOnce } from './storage/persist';
+import { autosaveFailureReason, isQuotaExceeded, requestPersistOnce } from './storage/persist';
 import { recent, type RecentKind } from './storage/recent';
 import { prefs } from './storage/prefs';
 import { runExport, type ExportSettings } from './export/exporter';
@@ -116,6 +116,8 @@ export interface Tab {
   lastAutosave: Date | null;
   /** 直近の自動保存が失敗していればその理由 */
   autosaveError: string | null;
+  /** 直近の自動保存の失敗が、ブラウザの保存領域の容量不足か(文言ではなくこれで見分ける) */
+  autosaveQuota: boolean;
   /** 実行中の自動保存(終わるのを待ってから自動保存を消すため) */
   autosaving: Promise<void>;
   autosaveTimer: number;
@@ -139,7 +141,7 @@ function createTab(project: Project, init: Partial<Pick<Tab, 'id' | 'order' | 's
     order: init.order ?? Date.now() + seq,
     project, history: emptyHistory(), shownAt: 0, sample: init.sample ?? false,
     fileHandle: init.fileHandle ?? null, fileName: init.fileName ?? null, dirty: init.dirty ?? false, revision: 0,
-    lastSaved: null, lastAutosave: null, autosaveError: null, autosaving: Promise.resolve(), autosaveTimer: 0,
+    lastSaved: null, lastAutosave: null, autosaveError: null, autosaveQuota: false, autosaving: Promise.resolve(), autosaveTimer: 0,
     activeLayerId: null, selectedLayerIds: new Set(),
     // 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れて始める
     keyDraft: project.take?.keys ? structuredClone([...project.take.keys]) : [],
@@ -244,6 +246,7 @@ export class App extends Emitter<AppEvents> {
   private get pngCache(): Map<string, PngCacheEntry> { return this.tab.pngCache; }
   /** 直近の自動保存が失敗していればその理由 */
   get autosaveError(): string | null { return this.tab.autosaveError; }
+  get autosaveQuota(): boolean { return this.tab.autosaveQuota; }
   exporting = false;
   get lastSaved(): Date | null { return this.tab.lastSaved; }
   get lastAutosave(): Date | null { return this.tab.lastAutosave; }
@@ -923,7 +926,7 @@ export class App extends Emitter<AppEvents> {
       if (h) tab.fileName = h.name; else tab.fileName ??= this.suggestedName(tab);
       tab.lastSaved = new Date();
       tab.sample = false; // 保存したら、次に開いたファイルで置き換えない
-      tab.autosaveError = null; // ファイルに保存できたので、自動保存の失敗の案内は消す
+      tab.autosaveError = null; tab.autosaveQuota = false; // ファイルに保存できたので、自動保存の失敗の案内は消す
       if (tab.revision === revision) {
         tab.dirty = false;
         // 予約中の自動保存は取り消し、実行中のものがあれば終わってから消す(古い内容が後から書き込まれないように)
@@ -957,8 +960,9 @@ export class App extends Emitter<AppEvents> {
       const fail = (e: unknown) => {
         console.warn('autosave failed', e);
         tab.autosaveError = autosaveFailureReason(e);
+        tab.autosaveQuota = isQuotaExceeded(e);
         // 裏のタブの失敗はステータスバーに出ないので、その場で知らせる
-        if (tab !== this.tab) toast(isQuotaExceeded(e) ? `「${this.tabName(tab)}」の自動保存に失敗しました。${QUOTA_MESSAGE}` : `「${this.tabName(tab)}」の自動保存に失敗しました(${tab.autosaveError})。そのタブを保存してください。`, 'error', 8000);
+        if (tab !== this.tab) toast(tab.autosaveQuota ? `「${this.tabName(tab)}」の自動保存に失敗しました。ブラウザの保存領域が足りません。そのタブをファイルに保存してください。` : `「${this.tabName(tab)}」の自動保存に失敗しました(${tab.autosaveError})。そのタブを保存してください。`, 'error', 8000);
         this.emit('status', undefined);
       };
       // 直列化は重いので、操作の合間(アイドル時間)に行う
@@ -971,7 +975,7 @@ export class App extends Emitter<AppEvents> {
           const t1 = performance.now();
           const run = autosave.save(tab.id, { savedAt: Date.now(), name: this.suggestedName(tab), bytes, order: tab.order })
             .then(() => {
-              tab.lastAutosave = new Date(); tab.autosaveError = null; this.emit('status', undefined);
+              tab.lastAutosave = new Date(); tab.autosaveError = null; tab.autosaveQuota = false; this.emit('status', undefined);
               void requestPersistOnce();
               // 書き込んでいる間にタブを閉じたら、書いた分を消す
               if (!this.tabs.includes(tab)) return autosave.clear(tab.id);

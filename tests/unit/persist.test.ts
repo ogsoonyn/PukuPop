@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { shouldRequestPersist, isQuotaExceeded, autosaveFailureReason, PERSIST_RETRY_DAYS, QUOTA_MESSAGE } from '../../src/storage/persist';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -38,5 +38,43 @@ describe('容量不足の見分け', () => {
     expect(autosaveFailureReason({ name: 'QuotaExceededError', message: 'raw' })).toBe(QUOTA_MESSAGE);
     expect(autosaveFailureReason(new Error('壊れた'))).toBe('壊れた');
     expect(autosaveFailureReason('文字列')).toBe('文字列');
+  });
+});
+
+describe('requestPersistOnce', () => {
+  // asked がモジュールの変数なので、テストごとに読み込み直す。prefs は localStorage / window を使うので、必要な分だけ差し替える
+  const load = async (storage: unknown) => {
+    vi.resetModules();
+    const ls = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => ls.get(k) ?? null, setItem: (k: string, v: string) => { ls.set(k, v); } });
+    vi.stubGlobal('window', { addEventListener: () => {}, setTimeout: (f: () => void) => setTimeout(f, 0) });
+    vi.stubGlobal('navigator', storage === undefined ? {} : { storage });
+    return (await import('../../src/storage/persist')).requestPersistOnce;
+  };
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('2回同時に呼んでも persist は1回だけ', async () => {
+    const persist = vi.fn(async () => true);
+    const once = await load({ persist, persisted: async () => false });
+    await Promise.all([once(), once()]);
+    await once();
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+  it('persisted が reject しても、例外を投げずに終わる', async () => {
+    const persist = vi.fn(async () => true);
+    const once = await load({ persist, persisted: () => Promise.reject(new Error('x')) });
+    await expect(once()).resolves.toBeUndefined();
+  });
+  it('persist が返らない間に呼んだ2回目は、待たずにすぐ返る', async () => {
+    const persist = vi.fn(() => new Promise<boolean>(() => {}));
+    const once = await load({ persist, persisted: async () => false });
+    void once(); // 返らない
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    await expect(once()).resolves.toBeUndefined();
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+  it('navigator.storage が無ければ、何もせず返る', async () => {
+    const once = await load(undefined);
+    await expect(once()).resolves.toBeUndefined();
   });
 });

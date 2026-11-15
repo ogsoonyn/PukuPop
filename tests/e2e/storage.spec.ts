@@ -407,15 +407,14 @@ test('最近開いたファイル: ファイルの場所を覚えて開き直し
   expect(await page.evaluate(() => (window as any).popstage.fileName)).toBe('work.popstage');
 });
 
-test('保存領域の永続化は、最初の自動保存のあとに1回だけ頼む(起動直後・通っているときは頼まない)', async ({ page }) => {
-  // ページの中で persist / persisted を差し替える(起動前に入れ、呼ばれた回数を数える)
+test('保存領域の永続化は、最初の自動保存のあとに1回だけ頼む(起動直後は頼まない)', async ({ page }) => {
+  // persist は通る(true)・persisted は false のまま。通っても印が消えないので、2回目を止めるのは「ページを開いている間に1回だけ」の判定だけになる
   await page.addInitScript(() => {
     const w = window as any;
     w.__persistCalls = 0;
-    w.__persisted = false;
     Object.defineProperty(navigator, 'storage', {
       configurable: true,
-      value: { persist: async () => { w.__persistCalls++; return false; }, persisted: async () => w.__persisted, estimate: async () => ({ usage: 1e6, quota: 1e9 }) },
+      value: { persist: async () => { w.__persistCalls++; return true; }, persisted: async () => false, estimate: async () => ({ usage: 1e6, quota: 1e9 }) },
     });
   });
   await boot(page);
@@ -428,9 +427,7 @@ test('保存領域の永続化は、最初の自動保存のあとに1回だけ�
   await dragOnStage(page, [0.45, 0.5], [0.55, 0.5]);
   await expect.poll(async () => (await autosaveOp(page, 'list') as string[]).length, { timeout: 10000 }).toBe(1);
   await expect.poll(calls, { timeout: 10000 }).toBe(1);
-  // 断られた日時を覚える
-  await expect.poll(() => page.evaluate(() => typeof JSON.parse(localStorage.getItem('popstage.prefs.v1') ?? '{}').storagePersistDeniedAt), { timeout: 5000 }).toBe('number');
-  // さらに保存しても、頼み直さない
+  // さらに自動保存とファイルの保存をしても、頼み直さない
   await dragOnStage(page, [0.3, 0.3], [0.4, 0.4]);
   await page.evaluate(async () => {
     const a = (window as any).popstage;
@@ -439,6 +436,20 @@ test('保存領域の永続化は、最初の自動保存のあとに1回だけ�
   });
   await nextFrames(page);
   expect(await calls()).toBe(1);
+});
+
+test('永続化を断られたら、その日時を覚える', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'storage', {
+      configurable: true,
+      value: { persist: async () => false, persisted: async () => false, estimate: async () => ({ usage: 1e6, quota: 1e9 }) },
+    });
+  });
+  await boot(page);
+  await page.evaluate(() => (window as any).popstage.setTool('brush'));
+  await dragOnStage(page, [0.45, 0.5], [0.55, 0.5]);
+  await expect.poll(async () => (await autosaveOp(page, 'list') as string[]).length, { timeout: 10000 }).toBe(1);
+  await expect.poll(() => page.evaluate(() => typeof JSON.parse(localStorage.getItem('popstage.prefs.v1') ?? '{}').storagePersistDeniedAt), { timeout: 5000 }).toBe('number');
 });
 
 test('保存領域がすでに永続化されていれば、頼まない', async ({ page }) => {

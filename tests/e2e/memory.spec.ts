@@ -29,7 +29,7 @@ test('ステータスバーにメモリの見積もりを出し、押すと内�
   await expect(detail).toContainText('アンドゥ');
   await expect(detail).toContainText('JS のヒープ');
   await expect(detail).toContainText('ブラウザの保存領域');
-  await expect(detail).toContainText('まだ通っていません');
+  await expect(detail).toContainText('空きが減っても消さない');
   // Esc で閉じる
   await page.keyboard.press('Escape');
   await expect(detail).toBeHidden();
