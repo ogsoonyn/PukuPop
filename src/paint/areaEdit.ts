@@ -57,9 +57,12 @@ export function resizeArea(a: Area, angleDeg: number, h: Handle, start: Pt, p: P
   let w = h.su ? Math.max(MIN_SIZE, a.w + h.su * du * k) : a.w;
   let hh = h.sv ? Math.max(MIN_SIZE, a.h + h.sv * dv * k) : a.h;
   if (o.keepAspect) {
-    // 角は大きく変わった方(広げるのも縮めるのも)に合わせ、辺は動かした向きの倍率をもう一方にも掛ける
-    const fu = w / a.w, fv = hh / a.h;
-    const f = h.su && h.sv ? (Math.abs(Math.log(fu)) >= Math.abs(Math.log(fv)) ? fu : fv) : h.su ? fu : fv;
+    // 角は、ポインタの動きを止める角(Alt なら中心)から掴んだ角への対角線の向きに射影して倍率を決める。
+    // 縦と横の大きく変わった方に合わせると、斜めに動かしたとき合わせる向きが途中で入れ替わって跳ぶため。
+    // 辺は動かした向きの倍率をもう一方にも掛ける
+    const f = h.su && h.sv
+      ? 1 + k * (h.su * du * a.w + h.sv * dv * a.h) / (a.w * a.w + a.h * a.h)
+      : h.su ? w / a.w : hh / a.h;
     const fMin = Math.max(MIN_SIZE / a.w, MIN_SIZE / a.h);
     const g = Math.max(f, fMin);
     w = a.w * g; hh = a.h * g;
