@@ -53,6 +53,8 @@ export class Stage {
   private weightSize = { w: 1, h: 1 };
   private imageSize = { w: 1, h: 1 };
   private exportTarget: THREE.WebGLRenderTarget | null = null;
+  /** renderFrame の読み出し用。大きさが同じ間は使い回す */
+  private readBuf: Uint8Array | null = null;
   private ray = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
   private hit = new THREE.Vector3();
@@ -94,7 +96,7 @@ export class Stage {
 
   constructor(readonly canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(this.pixelRatio());
     // ライティング無しで画像をそのまま出すので、色空間の変換は挟まない
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.renderer.setClearColor(0x000000, 0);
@@ -396,9 +398,15 @@ export class Stage {
     return { right: { x: e[0], y: e[1], z: e[2] }, up: { x: e[4], y: e[5], z: e[6] } };
   }
 
+  /** 描画の倍率。上限は 2 */
+  private pixelRatio(): number { return Math.min(window.devicePixelRatio || 1, 2); }
+
   resize(): void {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (!w || !h) return;
+    // モニターの移動やブラウザの拡大で倍率が変わったら、読み直す
+    const dpr = this.pixelRatio();
+    if (dpr !== this.renderer.getPixelRatio()) this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);
     const m = this.main();
     this.camera.aspect = m.w / Math.max(1, m.h);
@@ -634,7 +642,9 @@ export class Stage {
     this.renderer.setRenderTarget(this.exportTarget);
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
-    const raw = new Uint8Array(width * height * 4);
+    // 読み出し用のバッファは、大きさが同じ間は使い回す(1フレームごとに作り直さない)
+    const need = width * height * 4;
+    const raw = this.readBuf?.length === need ? this.readBuf : (this.readBuf = new Uint8Array(need));
     this.renderer.readRenderTargetPixels(this.exportTarget, 0, 0, width, height, raw);
     this.renderer.setRenderTarget(null);
     this.renderer.setClearColor(clear, clearAlpha);
@@ -659,7 +669,17 @@ export class Stage {
     return px;
   }
 
+  /**
+   * 書き出し用の大きなバッファと描画先を手放す。サムネイル(小さい大きさ)と書き出しで大きさが入れ替わるため、
+   * 書き出しが終わったら持ち続けない(描画先はマルチサンプルで GPU のメモリも大きい。次に要るときに作り直す)
+   */
+  releaseExportBuffers(): void {
+    this.readBuf = null;
+    this.exportTarget?.dispose(); this.exportTarget = null;
+  }
+
   dispose(): void {
+    this.readBuf = null;
     this.mapTex?.dispose(); this.weightTex?.dispose(); this.exportTarget?.dispose();
     this.mesh?.geometry.dispose(); this.material.dispose(); this.renderer.dispose();
     this.ghostGeo?.dispose(); for (const m of this.ghostMats) m.dispose();

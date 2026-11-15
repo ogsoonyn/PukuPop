@@ -63,3 +63,22 @@ test('書き出し: 直前の操作を再生', async ({ page }) => {
   });
   expect(r).toBe(45);
 });
+
+test('書き出し: 読み出しバッファを使い回し・手放しても、描いた中身は変わらない', async ({ page }) => {
+  await boot(page);
+  const r = await page.evaluate(() => {
+    const a = (window as any).popstage, s = a.stage;
+    const draw = (w: number, h: number) => Array.from(s.renderFrame(w, h, a.project.camera, '#336699') as Uint8ClampedArray);
+    const first = draw(64, 48);
+    const again = draw(64, 48); // 同じ大きさ: バッファを使い回す
+    draw(32, 24); // 大きさが入れ替わる
+    const swapped = draw(64, 48);
+    s.releaseExportBuffers();
+    const released = draw(64, 48); // 手放したあと: 作り直す
+    const same = (x: number[], y: number[]) => x.length === y.length && x.every((v, i) => v === y[i]);
+    return { len: first.length, nonBlank: first.some((v, i) => i % 4 !== 3 && v !== first[0]), again: same(first, again), swapped: same(first, swapped), released: same(first, released) };
+  });
+  expect(r.len).toBe(64 * 48 * 4);
+  expect(r.nonBlank).toBe(true);
+  expect(r.again && r.swapped && r.released).toBe(true);
+});

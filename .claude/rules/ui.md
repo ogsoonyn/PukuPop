@@ -24,7 +24,7 @@ paths:
 | 項目の説明(「?」で開く。`data-help` に説明の id) | `src/ui/help.ts` |
 | 開いている作業のタブ(PC はメニューバーの右、スマホは上の見出しから開く一覧) | `src/ui/docTabs.ts` |
 | スマホのシートへ移す部品(`index.html` の `data-m-slot` と、移す先のタブ) | `src/ui/mobile.ts` の `MOBILE_SLOTS` |
-| スマホのシートの一番上の操作(左のツールバーの操作を横1列に。出さないものは `MOBILE_NAV_SKIP` と `defaultHidden`) | `src/ui/actions.ts` の `NAV_ACTIONS` |
+| スマホのシートの一番上の操作(左のツールバーの操作を横1列に。出さないものは `MOBILE_NAV_SKIP`。出す・隠すは左のツールバーと同じ設定で、映すのは `src/ui/settingsDialog.ts`) | `src/ui/actions.ts` の `NAV_ACTIONS` |
 
 ## 説明の出し方
 
@@ -50,7 +50,7 @@ paths:
 
 - スマホの部品は作り直さず、PC の DOM をシートへ移す。処理を PC と共通にするため。
 - シートへ移す部品を DOM の並びで決めない。スマホで隠す部品を CSS の `:has()` で隠さない。
-- シートの中のスライダーは、ブラウザに触らせず `src/ui/touchSlider.ts` が動かす(横に引いた分だけ。縦はスクロール)。シートにスライダーを足すときは、`input` と `change` で受ければそのまま動く。
+- 指で触ったスライダーは(スマホの配置ではいつも、PC の配置では指で触っている間)、ブラウザに触らせず `src/ui/touchSlider.ts` が動かす(横に引いた分だけ。縦はスクロール。html に `touch-sliders`)。スライダーを足すときは、`input` と `change` で受ければそのまま動く。スライダーの親(入れ物)は、指の横の動きを受けるので `touch-action: pan-y` になる。
 
 ## 状態の変え方
 

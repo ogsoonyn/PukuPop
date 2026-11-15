@@ -26,6 +26,7 @@ npm run e2e        # E2E テスト(Playwright。エージェントは下の「�
 | `src/app.ts` | 各モジュールをつなぐ本体 |
 
 - `model` / `commands` / `paint` / `physics` / `storage` は DOM と three.js を参照しない。ブラウザ無しで単体テストできるようにするため。
+- `develop` / `main` 向けの PR と `develop` への push では、GitHub Actions(`.github/workflows/ci.yml`)が型検査・単体テスト・ビルドを流す。E2E は流れない。
 - `main` へ push すると、GitHub Actions(`.github/workflows/deploy-pages.yml`)がテストとビルドを行い、GitHub Pages へ公開する(リポジトリを作り直したときは、Settings → Pages で Source を「GitHub Actions」にする)。ビルド結果は相対パスで参照し合う(`base: './'`)。
 - アプリアイコンは `scripts/icon-art.mjs` の SVG から作る。絵を変えたら `node scripts/make-icons.mjs` で `public/icons/` を作り直す。
 - service worker は `public/sw.js`。本番ビルドのときだけ登録する(`?e2e` 付きのときも登録しない)。

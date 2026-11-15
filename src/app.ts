@@ -1712,9 +1712,15 @@ export class App extends Emitter<AppEvents> {
   private frames = 0;
   private fpsTime = 0;
 
+  /** 描画ループの中で出た例外の知らせ先。ループは止めずに続ける(main.ts が画面への知らせを結ぶ) */
+  onFrameError: (e: unknown) => void = e => console.error(e);
+
   start(): void {
     this.loops++;
     const loop = (now: number) => {
+      // 次のフレームを先に予約し、frame で例外が出てもループが止まらないようにする
+      requestAnimationFrame(loop);
+      try {
       this.perf?.frame(now);
       const raw = this.prev ? (now - this.prev) / 1000 : 0, dt = Math.min(raw, 0.1);
       // 物理は 0.1 秒で打ち切るので、その間の平行移動を 1 刻みの動きとして扱うと強く弾みすぎる。測り直す
@@ -1723,7 +1729,7 @@ export class App extends Emitter<AppEvents> {
       this.frame(dt);
       this.frames++; this.fpsTime += dt;
       if (this.fpsTime >= 0.5) { this.fps = Math.round(this.frames / this.fpsTime); this.frames = 0; this.fpsTime = 0; this.emit('fps', this.fps); }
-      requestAnimationFrame(loop);
+      } catch (e) { this.onFrameError(e); }
     };
     requestAnimationFrame(loop);
   }
@@ -1800,6 +1806,7 @@ export class App extends Emitter<AppEvents> {
     try {
       return await runExport({ stage: this.stage, store: this.store, recorder: this.recorder, applySwing: this.applySwing, centerOf: this.centerOf }, s, onProgress, signal);
     } finally {
+      this.stage.releaseExportBuffers();
       this.exporting = false;
       this.emit('status', undefined);
     }

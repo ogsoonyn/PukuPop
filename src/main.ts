@@ -14,6 +14,7 @@ import { bindMultiView } from './ui/multiView';
 import { bindRecentDialog } from './ui/recentDialog';
 import { bindSettingsDialog } from './ui/settingsDialog';
 import { bindMobileLayout } from './ui/mobile';
+import { bindTouchSliders } from './ui/touchSlider';
 import { bindTakeControls } from './ui/take';
 import { bindPlayBar } from './ui/playBar';
 import { bindHideUi } from './ui/hideUi';
@@ -29,10 +30,12 @@ import { FILE_EXTENSION, LEGACY_FILE_EXTENSION } from './storage/popstage';
 import { ask, toast, retryWithClick } from './ui/dom';
 import { autosave } from './storage/autosave';
 import { prefs, persistControls } from './storage/prefs';
+import { bindErrorReport, reportError } from './ui/errorReport';
 import { isImageFile, isProjectFile } from './ui/imageio';
 
 // 画面の要素をまとめて取る(index.html と ui/ids.ts の一覧が合わなければ、ここで止まる)
 initUI();
+bindErrorReport();
 bindHelp();
 const canvas = ui.view;
 let app: App;
@@ -47,6 +50,7 @@ const e2e = params.has('e2e');
 /** E2E で自動保存の復元を試すときだけ、?e2e&restore で復元の確認を出す */
 const checkRestore = !e2e || params.has('restore');
 (window as unknown as { popstage: App }).popstage = app;
+app.onFrameError = reportError;
 
 /** パフォーマンスのデバッグ表示(?debug か Ctrl+Shift+Alt+P)。使うときだけ読み込む */
 const togglePerf = () => void import('./debug/perfOverlay').then(m => m.togglePerfOverlay(app)).catch(e => console.error(e));
@@ -156,6 +160,8 @@ bindMemoryStatus(app);
 const settingsDialog = bindSettingsDialog();
 // スマホの配置。右パネルなどの部品を移すので、ほかの部品を結び付けたあとに呼ぶ
 bindMobileLayout(app);
+// 指で触ったスライダーは、横に引いたときだけ動かす(縦はスクロール。スマホの配置ではいつも)
+bindTouchSliders(() => document.documentElement.classList.contains('mobile'));
 
 /* ---------- ドラッグ&ドロップ ---------- */
 
@@ -222,6 +228,12 @@ app.on('tabs', refreshTitle);
 
 window.addEventListener('beforeunload', e => { if (app.anyDirty) e.preventDefault(); });
 new ResizeObserver(() => { app.stage.resize(); multiView.layout(); }).observe(canvas);
+// 大きさが変わらずに devicePixelRatio だけ変わる(モニターの移動など)ときも描画の倍率を読み直す。倍率ごとに登録し直す
+const watchPixelRatio = (): void => {
+  const mq = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+  mq.addEventListener('change', () => { app.stage.resize(); multiView.layout(); watchPixelRatio(); }, { once: true });
+};
+watchPixelRatio();
 
 /* ---------- 起動 ---------- */
 

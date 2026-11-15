@@ -44,17 +44,41 @@ describe('枠のハンドルで範囲を直す', () => {
   it('Shift では縦横比を保つ(辺でも角でも)', () => {
     const e = resizeArea(A, 0, { su: 1, sv: 0 }, { x: 60, y: 20 }, { x: 110, y: 20 }, { keepAspect: true });
     close(e, { w: 150, h: 90, y: 20 });
-    const c = resizeArea(A, 0, { su: 1, sv: 1 }, { x: 60, y: 50 }, { x: 70, y: 80 }, { keepAspect: true });
+    // 角は対角線の向きに沿って動かした分だけ広がる
+    const c = resizeArea(A, 0, { su: 1, sv: 1 }, { x: 60, y: 50 }, { x: 110, y: 80 }, { keepAspect: true });
     expect(c.w / c.h).toBeCloseTo(A.w / A.h);
     expect(c.h).toBeCloseTo(90);
     close(areaPoint(c, 0, -1, -1), areaPoint(A, 0, -1, -1));
   });
 
   it('Shift で角を内側へ動かすと、縦横比を保ったまま縮む', () => {
-    // 横だけ内側へ寄せても、縮んだ方(横)に合わせて縦も縮む
-    const c = resizeArea(A, 0, { su: 1, sv: 1 }, { x: 60, y: 50 }, { x: 10, y: 50 }, { keepAspect: true });
+    const c = resizeArea(A, 0, { su: 1, sv: 1 }, { x: 60, y: 50 }, { x: 10, y: 20 }, { keepAspect: true });
     close(c, { w: 50, h: 30 });
     close(areaPoint(c, 0, -1, -1), areaPoint(A, 0, -1, -1));
+    // 横だけ内側へ寄せても、対角線の向きへ射影した分だけ縦も縮む
+    const e = resizeArea(A, 0, { su: 1, sv: 1 }, { x: 60, y: 50 }, { x: 10, y: 50 }, { keepAspect: true });
+    expect(e.w).toBeCloseTo(100 * (1 - 5000 / 13600), 6);
+    expect(e.w / e.h).toBeCloseTo(A.w / A.h);
+  });
+
+  it('Shift で角を斜めに動かしても、大きさは跳ばずに続けて変わる(#91)', () => {
+    // 横を広げて縦を縮める向きへ少しずつ動かす。縦横の大きく変わった方に合わせると途中で入れ替わって跳んでいた
+    const ang = 20, h = { su: 1, sv: 1 } as const, s0 = areaPoint(A, ang, 1, 1);
+    let prev = A.w;
+    for (let i = 1; i <= 200; i++) {
+      const t = i * 0.5;
+      const p = { x: s0.x + t * 1.2, y: s0.y - t * 0.9 };
+      const r = resizeArea(A, ang, h, s0, p, { keepAspect: true });
+      expect(Math.abs(r.w - prev)).toBeLessThan(1);
+      expect(r.w / r.h).toBeCloseTo(A.w / A.h);
+      prev = r.w;
+    }
+  });
+
+  it('Shift と Alt で角を動かすと、中心を止めて対角線の向きに広がる', () => {
+    const h = { su: 1, sv: 1 } as const, s0 = areaPoint(A, 0, 1, 1);
+    const r = resizeArea(A, 0, h, s0, { x: s0.x + 25, y: s0.y + 15 }, { keepAspect: true, fromCenter: true });
+    close(r, { x: A.x, y: A.y, w: 150, h: 90 });
   });
 
   it('大きさを整数にそろえても、止める側の辺は動かない', () => {

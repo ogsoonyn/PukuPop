@@ -239,15 +239,16 @@ html.mobile #mSheet { display: flex !important; }
 .m-act:active { background: var(--color-base-300); }
 .m-act:disabled { opacity: .35; }
 .m-act[aria-pressed="true"] { background: color-mix(in oklab, var(--color-primary) 22%, var(--color-base-100)); outline: 1px solid color-mix(in oklab, var(--color-primary) 60%, transparent); outline-offset: -1px; font-weight: 600; }
+#mNav .nav-off, #mNav.nav-off { display: none !important; }
 .m-act-sep { flex-shrink: 0; width: 1px; margin: .375rem .125rem; background: var(--color-base-300); }
 .m-tabs { display: flex; border-bottom: 1px solid var(--color-base-300); padding: 0 .5rem; flex-shrink: 0; }
 .m-tabs button { flex: 1; min-width: 0; height: 2.625rem; border-bottom: 2px solid transparent; opacity: .65; cursor: pointer; }
 .m-tabs button[aria-selected="true"] { opacity: 1; font-weight: 600; border-bottom-color: var(--color-primary); }
 /* 下の余白は、いちばん下の項目がツールバーに隠れないよう、シートの中に収める */
 #mPanes { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: .75rem max(1rem, env(safe-area-inset-right, 0px)) 1.5rem max(1rem, env(safe-area-inset-left, 0px)); }
-/* 横の動きはスクロールにせず、スライダーに使う(ui/touchSlider.ts) */
-#mPanes { touch-action: pan-y; }
-html.mobile #mPanes input[type=range] { pointer-events: none; }
+/* 指で使っている間は、スライダーはブラウザに触らせず、入れ物で受けた横の動きで動かす(ui/touchSlider.ts) */
+#mPanes, html.touch-sliders :has(> input[type=range]) { touch-action: pan-y; }
+html.touch-sliders input[type=range] { pointer-events: none; }
 .m-pane { display: flex; flex-direction: column; gap: 1rem; }
 .m-pane[hidden] { display: none; }
 .m-btns { display: flex; flex-wrap: wrap; gap: .5rem; }

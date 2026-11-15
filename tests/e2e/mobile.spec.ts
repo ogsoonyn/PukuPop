@@ -94,11 +94,12 @@ test('シートを開くと3Dビューはシートの上に縮み、シートの
 
 test('シートの一番上に左のツールバーの操作が横に並び、プリセットはレイヤーのタブで選べる', async ({ page }) => {
   await boot(page);
-  // 左のツールバーの、その場で効く操作(ツールと、既定で隠すもの・3面図は出さない)
+  // 左のツールバーの、その場で効く操作(ツールと3面図は出さない。既定で隠すものは PC と同じく隠す)
   const nav = page.locator('#mNav');
   await expect(nav).toBeVisible();
-  for (const cmd of ['recent', 'smoothAll', 'toggleOverlay', 'resetView', 'toggleAutoSwing', 'toggleKeyPlay', 'addFavorite']) await expect(nav.locator(`[data-cmd=${cmd}]`)).toHaveCount(1);
-  for (const cmd of ['open', 'save', 'export', 'toggleMulti']) await expect(nav.locator(`[data-cmd=${cmd}]`)).toHaveCount(0);
+  for (const cmd of ['recent', 'smoothAll', 'toggleOverlay', 'resetView', 'toggleAutoSwing', 'toggleKeyPlay', 'addFavorite']) await expect(nav.locator(`[data-cmd=${cmd}]`)).toBeVisible();
+  for (const cmd of ['open', 'save', 'export']) await expect(nav.locator(`[data-cmd=${cmd}]`)).toBeHidden();
+  await expect(nav.locator('[data-cmd=toggleMulti]')).toHaveCount(0);
   await expect(nav.locator('[data-tool]')).toHaveCount(0);
   // 横に送れる(画面より長い)
   expect(await nav.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
@@ -185,13 +186,65 @@ test('シートのスライダーは横に引くと動き、縦に動かす・�
   expect(await pop()).toBeLessThanOrEqual(v0 + 1);
 });
 
-test('上のメニューから設定を開ける。左のツールバーが無いので、その欄は出さない', async ({ page }) => {
+test('上のメニューから設定を開ける。シートの一番上に出すボタンを、PC の左のツールバーと同じ設定で選べる', async ({ page }) => {
   await boot(page);
   await page.locator('#mTop [aria-label=メニュー]').click();
   await page.locator('#mTop [data-cmd=settings]').click();
   await expect(page.locator('#settingsDialog')).toBeVisible();
   await expect(page.locator('#vAutoOverlay')).toBeVisible();
-  await expect(page.locator('#setToolbarList')).toBeHidden();
+  const list = page.locator('#setToolbarList');
+  await expect(list).toBeVisible();
+  await expect(page.locator('#setToolbarLabel .m-only')).toBeVisible();
+  await expect(page.locator('#setToolbarLabel .d-only')).toBeHidden();
+  // ツールと3面図はスマホでは出さないので、選ぶ欄にも出さない
+  await expect(list.locator('input[data-nav=brush]')).toBeHidden();
+  await expect(list.locator('input[data-nav=toggleMulti]')).toBeHidden();
+  // 隠すとシートから消え、まとまりが空になったら区切りも消える(端に残らず、続けて並ばない)
+  const nav = page.locator('#mNav');
+  /** 見えている並び(区切りは '|') */
+  const shown = () => nav.evaluate(el => [...el.children].filter(c => getComputedStyle(c).display !== 'none').map(c => (c as HTMLElement).dataset.nav ?? '|'));
+  const sepsOk = (v: string[]) => v[0] !== '|' && v.at(-1) !== '|' && !v.some((x, i) => x === '|' && v[i + 1] === '|');
+  await expect(nav.locator('[data-nav=normalize]')).toBeVisible();
+  for (const id of ['recent', 'smoothAll', 'normalize', 'invert']) await list.locator(`input[data-nav=${id}]`).uncheck();
+  await expect(nav.locator('[data-nav=normalize]')).toBeHidden();
+  let v = await shown();
+  expect(v[0]).toBe('toggleOverlay');
+  expect(sepsOk(v)).toBe(true);
+  for (const id of ['toggleAutoSwing', 'toggleKeyPlay', 'toggleKeyPath', 'toggleKeyGhost', 'addFavorite']) await list.locator(`input[data-nav=${id}]`).uncheck();
+  v = await shown();
+  expect(v.at(-1)).toBe('resetRotation');
+  expect(sepsOk(v)).toBe(true);
+  // 全部隠すと帯ごと消え、閉じたシートの高さも縮む。1つ出すと戻る
+  const sheetH = () => page.locator('#mSheet').evaluate(el => el.getBoundingClientRect().height);
+  const h0 = await sheetH();
+  for (const cb of await list.locator('input:visible').all()) await cb.uncheck();
+  await expect(nav).toBeHidden();
+  await expect.poll(sheetH).toBeLessThan(h0);
+  await list.locator('input[data-nav=resetView]').check();
+  await expect(nav).toBeVisible();
+  await expect.poll(sheetH).toBe(h0);
+  // 既定で隠す開く・保存・書き出しも出せる
+  await expect(nav.locator('[data-nav=save]')).toBeHidden();
+  await list.locator('input[data-nav=save]').check();
+  await page.locator('#settingsDialog .modal-action button').click();
+  await expect(nav.locator('[data-nav=save]')).toBeVisible();
+  // 選んだことは覚える(PC の左のツールバーと同じ設定)
+  await boot(page);
+  await expect(page.locator('#mNav [data-nav=save]')).toBeVisible();
+  await expect(page.locator('#mNav [data-nav=normalize]')).toBeHidden();
+  // PC の幅で隠したツールは、スマホの「すべて出す」では戻さない
+  await page.evaluate(async () => {
+    const mod = '/src/storage/prefs.ts';
+    const { prefs } = await import(/* @vite-ignore */ mod);
+    prefs.set('toolbarHidden', ['brush', 'normalize']);
+  });
+  await boot(page);
+  await expect(page.locator('#mNav [data-nav=normalize]')).toBeHidden();
+  await page.locator('#mTop [aria-label=メニュー]').click();
+  await page.locator('#mTop [data-cmd=settings]').click();
+  await page.locator('#setToolbarReset').click();
+  await expect(page.locator('#mNav [data-nav=normalize]')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('popstage.prefs.v1')!).toolbarHidden)).toEqual(['brush']);
 });
 
 test('2本指で平行移動とピンチズームができ、画像の外をなぞると回転する', async ({ page }) => {
@@ -420,4 +473,37 @@ test('キーフレームはシートの中で指でつまみをドラッグし�
   expect(await page.evaluate(() => (window as any).popstage.keyDraft.map((k: any) => k.view.yaw))).toEqual([0.2, 0.3, 0.1]);
   // つまみを動かしてもシートは流れない
   expect(await scroll()).toBe(before);
+});
+
+test.describe('PC の配置', () => {
+  test.use({ viewport: { width: 1400, height: 900 }, isMobile: false, hasTouch: true, deviceScaleFactor: 1 });
+
+  test('指で触ったスライダーは横に引いたときだけ動き、マウスではブラウザのスライダーのまま', async ({ page }) => {
+    await boot(page);
+    await expect(page.locator('html')).not.toHaveClass(/mobile/);
+    const cdp = await page.context().newCDPSession(page);
+    await page.locator('#pTabs [data-ptab=layer]').click();
+    const range = page.locator('#pPop');
+    const pop = () => page.evaluate(() => (window as any).popstage.activeLayer.pop);
+    const v0 = await pop();
+    const b = (await range.boundingBox())!, y = b.y + b.height / 2;
+    // 触って縦に動かして離しても、値は変わらない
+    await swipe(cdp, [[b.x + b.width * 0.9, y]], [[b.x + b.width * 0.9, y + 80]], 10);
+    expect(await pop()).toBe(v0);
+    await expect(page.locator('html')).toHaveClass(/touch-sliders/);
+    // 横に引くと、引いた分だけ動く
+    await swipe(cdp, [[b.x + b.width * 0.2, y]], [[b.x + b.width * 0.4, y]], 10);
+    expect(await pop()).toBeGreaterThan(v0);
+    // 指を離した直後でも、キーボードで動かした分は効く
+    const vk = await pop();
+    await range.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(pop).not.toBe(vk);
+    const v1 = await pop();
+    // マウスを動かすとブラウザのスライダーに戻り、押した所へ値が移る
+    await page.mouse.move(b.x + b.width * 0.5, y - 40);
+    await expect(page.locator('html')).not.toHaveClass(/touch-sliders/);
+    await page.mouse.click(b.x + b.width * 0.95, y);
+    expect(await pop()).not.toBe(v1);
+  });
 });
