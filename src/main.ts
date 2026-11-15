@@ -1,7 +1,7 @@
 import './style.css';
 import { App, MAX_TABS } from './app';
 import { initUI, ui } from './ui/ids';
-import { bindStageInput } from './ui/input';
+import { bindStageInput, isTyping } from './ui/input';
 import { bindPanels } from './ui/panels';
 import { bindActions } from './ui/actions';
 import { bindExportDialog } from './ui/exportDialog';
@@ -31,7 +31,7 @@ import { ask, toast, retryWithClick } from './ui/dom';
 import { autosave } from './storage/autosave';
 import { prefs, persistControls } from './storage/prefs';
 import { bindErrorReport, reportError } from './ui/errorReport';
-import { isImageFile, isProjectFile } from './ui/imageio';
+import { IMAGE_TYPES, isImageFile, isProjectFile, pastedImageFile } from './ui/imageio';
 
 // 画面の要素をまとめて取る(index.html と ui/ids.ts の一覧が合わなければ、ここで止まる)
 initUI();

@@ -47,6 +47,12 @@ export interface ActionDeps {
   togglePerf: () => unknown;
 }
 
+/**
+ * ヘルプのキー一覧にだけ出すキー(コマンドではない)。Ctrl+V は `paste` イベントで処理する。
+ * 表の `keys` に書くとキー操作で横取りして `preventDefault` するため、文字欄のふつうの貼り付けまで効かなくなる
+ */
+const HELP_ONLY_KEYS: { label: string; keys: string[] }[] = [{ label: '貼り付けて開く', keys: ['Ctrl+V'] }];
+
 /** マウス・指を押しているか(ドラッグの途中にキーでタブを替えると、続きの操作が別のタブに効いてしまう) */
 let pointerHeld = false;
 
@@ -472,6 +478,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
       const row = a.helpRow ?? a.helpLabel ?? a.label;
       rows.set(row, [...(rows.get(row) ?? []), ...a.keys]);
     }
+    for (const h of HELP_ONLY_KEYS) rows.set(h.label, h.keys);
     // キーもマウスの操作と同じ書き方(キーの札)で出す
     ui.helpKeys.replaceChildren(...[...rows].flatMap(([label, keys]) => [
       Object.assign(document.createElement('span'), { textContent: label }),
