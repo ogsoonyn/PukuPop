@@ -215,6 +215,12 @@ app.on('tabs', refreshTitle);
 
 window.addEventListener('beforeunload', e => { if (app.anyDirty) e.preventDefault(); });
 new ResizeObserver(() => { app.stage.resize(); multiView.layout(); }).observe(canvas);
+// 大きさが変わらずに devicePixelRatio だけ変わる(モニターの移動など)ときも描画の倍率を読み直す。倍率ごとに登録し直す
+const watchPixelRatio = (): void => {
+  const mq = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+  mq.addEventListener('change', () => { app.stage.resize(); multiView.layout(); watchPixelRatio(); }, { once: true });
+};
+watchPixelRatio();
 
 /* ---------- 起動 ---------- */
 

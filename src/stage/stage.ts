@@ -94,7 +94,7 @@ export class Stage {
 
   constructor(readonly canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(this.pixelRatio());
     // ライティング無しで画像をそのまま出すので、色空間の変換は挟まない
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.renderer.setClearColor(0x000000, 0);
@@ -396,9 +396,15 @@ export class Stage {
     return { right: { x: e[0], y: e[1], z: e[2] }, up: { x: e[4], y: e[5], z: e[6] } };
   }
 
+  /** 描画の倍率。上限は 2 */
+  private pixelRatio(): number { return Math.min(window.devicePixelRatio || 1, 2); }
+
   resize(): void {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (!w || !h) return;
+    // モニターの移動やブラウザの拡大で倍率が変わったら、読み直す
+    const dpr = this.pixelRatio();
+    if (dpr !== this.renderer.getPixelRatio()) this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);
     const m = this.main();
     this.camera.aspect = m.w / Math.max(1, m.h);
