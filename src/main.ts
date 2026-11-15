@@ -181,6 +181,16 @@ window.addEventListener('drop', e => {
   else if (e.dataTransfer?.files.length) toast('PNG / JPEG / WebP の画像か、.pukupop ファイルをドロップしてください。', 'warning');
 });
 
+// コピーした画像(スクリーンショットなど)を Ctrl+V で新しいタブに開く。ボタンは置かない(クリップボードの読み取りに許可の確認が出るため)
+window.addEventListener('paste', e => {
+  if (isTyping(e)) return;
+  const f = [...(e.clipboardData?.files ?? [])].find(f => f.type in IMAGE_TYPES);
+  if (!f) return;
+  e.preventDefault();
+  if (anyDialogOpen()) { toast('ダイアログを閉じてから、もう一度貼り付けてください。', 'warning'); return; }
+  void app.openFile(pastedImageFile(f));
+});
+
 /* ---------- ステータスバーとタイトル ---------- */
 
 function refreshStatus(): void {
