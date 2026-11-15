@@ -15,7 +15,7 @@ E2E の流し方(ポート・設定ファイル・全件は最後に1回)は `CL
 
 ## E2E の書き方
 
-- 新しく作る spec は、`tests/e2e/helpers.ts` の `boot()` で起動し、ファイルの先頭で `watchGlErrors()` を呼ぶ(WebGL のエラーで失敗にするため)。`mobile.spec.ts` と `take.spec.ts` は自前の `boot` を持つ例外で、GL のエラーを見張っていない。
+- 新しく作る spec は、`tests/e2e/helpers.ts` の `boot()` で起動し、ファイルの先頭で `watchGlErrors()` を呼ぶ(WebGL のエラーで失敗にするため)。`mobile.spec.ts` と `take.spec.ts` は自前の `boot` を持つ例外で、GL のエラーを見張っていない。`player.spec.ts` は編集アプリでなく確認用のページ(`player.html`)を開くので自前の `open` を持ち、`listenGlErrors()` で GL のエラーを見張る。
 - 右パネルの部品を触る前に、`openTab()` でその部品のタブを開く。
 
 ## クラウドと手元で流すテストを分ける

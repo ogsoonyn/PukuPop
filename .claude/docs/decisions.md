@@ -340,3 +340,27 @@
   - 再生していないときに視点を物理へ入れる処理(`App.recordStep` の中)と、1フレームの組み立て(`App.frame`・`App.applyDocument` の `world.unitPx` / `world.centerOf`)は `App` に残っている。Player も同じ並びが要る。
   - `LoopPlayback` の状態(`playing`・`paused`・`index`・`from`・`cam`)は外から書き換えられる。埋め込む側に見せるなら、読むだけにする。
   - 再生を止めてもシークの印(`seeked`)が残り、次の再生の最初の刻みで余分な控えを1つ取る(分ける前からの動き)。
+
+## 2026-11-15 埋め込み用の再生の部品(Player)を作る(Issue #127)
+
+- `.pukupop` を別の Web アプリ(素材の一覧と詳細のモーダル)の中で揺れたままプレビューできるよう、編集 UI を持たない再生専用の部品を `src/player/` に作った(素の TypeScript。React などに依存しない)。入口は `src/player/index.ts` で、あとでライブラリとして出すときもここを入口にする。ライブラリのビルド(library mode・`package.json`・型定義・リリース)と保存形式の文書(`docs/format.md`)は次の PR に回した。
+- API は `createPlayer(canvas, bytes, { autoplay, interaction })` が `Player`(`info`・`playing`・`play`・`pause`・`setFavorite`・`resize`・`dispose`)を返す形。`bytes` は `Uint8Array` と `ArrayBuffer` を受ける。`info` は読むたびに今の値で作り直す(`setFavorite` で記録が入れ替わると `takeSeconds` が変わるため)。`playing` は読むだけで、あると埋め込み先がボタンの表示を決めやすいので足した。
+- 利用者が選んだ動き:
+  - `autoplay`(既定 true)は、記録があればループ再生し、無ければファイルの「自動で揺らす」の設定に従う(切ってあれば止まった絵のまま。強制的には揺らさない)。記録があるときの自動揺らしもファイルの設定のまま(編集アプリのループ再生と同じ)。false なら最初の1フレームを描いて止まった状態で始める(最初の1フレームは作ったときにすぐ描く)。
+  - `pause()` はその姿のまま止める(動画の一時停止と同じ)。揺れを消して平らに戻す `App.setPaused` は使わない。止めている間は `requestAnimationFrame` も回さない。`play()` では止めていた間の時間を1刻みにせず(前のフレームの時刻を捨てる)、`world.cutView()` で視点を測り直す(止めている間に回した視点の飛びで弾ませないため。止めている間も視点の操作は受ける)。
+  - `interaction` は `'none'` と `'view'` だけ(既定 `'view'`)。`'grab'` は型にも入れず、要るときに足す。`'none'` は受け口を1つも付けない。
+  - ズームは Ctrl(⌘)+ホイール・タッチパッドのピンチ(ctrlKey 付きのホイール)・2本指のピンチだけ。ただのホイールは `preventDefault` せず、埋め込み先のスクロールに任せる。平行移動・傾きは入れない。
+- 自分で決めたこと:
+  - `interaction: 'view'` のときはキャンバスに `touch-action: none` と `cursor: grab` を付け、`dispose()` で元に戻す。1本指の縦の動きも回すのに使うので、キャンバスの上でブラウザに縦スクロールさせると回せなくなる。キャンバスの中のことなので「キャンバスの外に触らない」約束の範囲。キャンバスの外は今までどおりスクロールできる。
+  - 視点の操作の感度・向き・上下の範囲・ズームの範囲は、編集アプリと同じ値を `model/project.ts`(`orbitCamera`・`VIEW_LIMITS`・`clampViewZoom`)に出して両方で使う。Ctrl+ホイールとピンチは見分けない(編集アプリは Ctrl キーの押し下げを `window` で覚えて見分けているが、Player は `window` に受け口を付けられない)。どちらも編集アプリのただのホイールと同じ感度で、`ui/smoothZoom.ts` でなめらかに寄せる。Ctrl・Shift で細かく動かす機能は入れていない。
+  - `setFavorite(id)` は知らない id なら例外にせず false を返す(埋め込み先が古い id を持っていても落ちないように)。当て方は `favoriteChanges` で求めた差分を、アンドゥを通さず `applyFavoriteChanges`(`model/favorites.ts`)で当てる。編集アプリのコマンドで当てたのと同じ状態になることは単体テストで比べる。お気に入りが「再生していた」印を持ち記録があればループ再生を始め、そうでなければ記録があってもループ再生しない(以後の `play()` もそれに従う)。動いているか止めているかは変えない(止めているときは描き直すだけ)。
+  - `resize(w?, h?)` は、渡された方だけキャンバスの CSS の大きさ(px)にし、どちらも無ければ今の大きさを読み直す。`devicePixelRatio` もそこで読み直す(`Stage.resize`)。止めているときは1回描き直す。Player は自分では `ResizeObserver` を持たない(Issue の「埋め込み先が `resize()` を呼ぶ」に従った。キャンバスだけを見るので約束には反しないが、まずは持たない)。
+  - `dispose()` は WebGL のコンテキストまで手放す(`Stage.dispose` の最後で `renderer.forceContextLoss()`)。埋め込み先は送るたびに作り直すので、Chrome のコンテキスト数の上限(16)に当たらないように。`Stage` と three.js のコンテキスト喪失の受け口を先に外してから手放す(失われた扱いにしない)。編集アプリは `Stage.dispose` を呼ばないので、動きは変わらない。
+  - 手放したキャンバスを使い回して作り直すと、失われたままのコンテキストが返って描けない。React でモーダルを開いたまま素材を送るとキャンバスが使い回されるので、`player/context.ts` で戻してから使う。失われている間は `getExtension('WEBGL_lose_context')` が null を返すので、拡張は作った直後に取って控える(キャンバスごとの `WeakMap`)。戻せるのは失われたときの `webglcontextlost` が `preventDefault` されたときだけなので、手放す前にキャンバスへ1回だけの受け口を付ける。Chrome は受け口を呼び終えたあとで「戻してよいか」を決めるので、戻すのは知らせの次のタスクまで待つ(すぐ戻すと「context restoration not allowed」になった)。
+  - `dispose()` のあとのメソッドは例外にせず何もしない(`setFavorite` は false)。2回呼んでも安全。`createPlayer` がデコードで失敗したときも、作りかけの Stage を解放してから失敗する。
+  - 読めないファイル・新しい版は、`deserializeProject` / `migrate` のメッセージのまま失敗する(埋め込み先がそのまま画面に出せる)。Player だけの読み込みの経路は作らない。新しい版のメッセージは「アプリを更新してください」で、埋め込み先には少し合わないが、指示どおり変えていない。
+  - 描画ループの例外は止めずに続け(編集アプリと同じ)、console には最初の1回だけ出す。コンテキストを失ったときの知らせ(toast)は `App` の側にあるので Player では出ない。失われたら描画を止め、戻ったら続けるだけ(止めているときは1回描き直す)。埋め込み先に知らせる口は足していない。
+- 編集アプリと共通にした範囲(#123 で「#127 で考えること」に挙がった点): `playback/frame.ts` に、物理の準備(`preparePhysics`: `unitPx`・`centerOf`)、再生していないときに視点を物理へ入れる処理(`feedView`。「揺らす」ツールの量は引数で足す)、物理を進めて揺れを当てる所(`advanceSwing`: 自動揺らしを渡す → `advance` → `applySwing` → `showBase`)を出し、`App` と Player の両方が使う。そのあとの `applyRig` → `render` は1行ずつなので並びだけを揃えた。1フレームを丸ごと1つにすると、`App` の計測(`perf`)・溜めたウェイトの転送・3面図・書き出し中の扱いがまた入り込むので、小さい単位にとどめた。`App` の刻みごとの処理(`MotionRecorder` への記録・記録中の操作)は今までどおり `App.recordStep` に残る。
+- `LoopPlayback` の状態(`playing`・`paused`・`index`・`from`・`cam`)は private にして読むだけのゲッターにした。再生を止めてもシークの印が残り、次の再生の最初の刻みで余分な控えを1つ取っていたのは、`play` と `discard` で印を消すよう直した(控えが1つ減るだけで、書き出しの結果は変わらない)。
+- `decodeForDisplay` / `browserDecodeGray`(`src/ui/imageio.ts`)と `smoothZoom`(`src/ui/smoothZoom.ts`)は、型のほかに何も import せず、読んだだけで何もしないので、移さずに Player から使う。`src/ui/fine.ts` はモジュールを読んだだけで `window` にキーの受け口を付けるので、Player からは使わない(ホイールの縦の量の求め方は Player に同じ式を書いた)。
+- 確認用のページは `player.html`(リポジトリの直下)と `src/player/demo.ts`。Vite の本番のビルドは `index.html` だけを入口にするので入らない(ビルド結果に Player のコードが無いことを確かめた)。Player は埋め込み先と同じく `import()` で読み、読んだだけで `window` などに触らないかを E2E で確かめられるようにした。`?preserve` を付けると、確認用のページが WebGL の `preserveDrawingBuffer` を入れ、E2E が画素を読める(Player は関わらない)。
