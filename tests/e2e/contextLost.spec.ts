@@ -39,6 +39,9 @@ test('失われると知らせ、戻ると前と同じ絵が出て、背景色�
   await page.evaluate(() => (window as any).popstage.setBackgroundTransparent(false));
   await nextFrames(page);
   const stage = page.locator('#stage');
+  // 右上のパネルの開閉ボタンは半透明で3Dビューに重なり、重ね方しだいで色がわずかに変わる。3Dビューの絵だけを比べるので隠す
+  await page.locator('#panelToggleWrap').evaluate(e => { e.style.visibility = 'hidden'; });
+  await nextFrames(page);
   const shot0 = await stage.screenshot(), frame0 = await frame(page);
 
   await lose(page);
