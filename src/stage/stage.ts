@@ -53,6 +53,8 @@ export class Stage {
   private weightSize = { w: 1, h: 1 };
   private imageSize = { w: 1, h: 1 };
   private exportTarget: THREE.WebGLRenderTarget | null = null;
+  /** renderFrame の読み出し用。大きさが同じ間は使い回す */
+  private readBuf: Uint8Array | null = null;
   private ray = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
   private hit = new THREE.Vector3();
@@ -91,10 +93,20 @@ export class Stage {
   /** ウェイトを部分転送・全面転送した回数(部分転送が効いているかの確認用) */
   partialUploads = 0;
   fullUploads = 0;
+  /**
+   * WebGL のコンテキストが失われているか。失われている間は描けず、書き出しもできない。
+   * contextLosses は失われた回数で、書き出しの途中に一度でも失われたかを比べるのに使う
+   */
+  contextLost = false;
+  contextLosses = 0;
+  /** コンテキストが失われた(true)・戻った(false)ときに呼ぶ */
+  onContextChange: ((lost: boolean) => void) | null = null;
+  /** 今の背景色(setBackground)。戻ったときに塗り直す */
+  private background: string | null = null;
 
   constructor(readonly canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(this.pixelRatio());
     // ライティング無しで画像をそのまま出すので、色空間の変換は挟まない
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.renderer.setClearColor(0x000000, 0);
@@ -118,7 +130,29 @@ export class Stage {
     this.scene.add(this.rig);
     this.ghosts.visible = false;
     this.scene.add(this.ghosts);
+    // three.js は自分の受け口で preventDefault し、戻ったときに内部の管理(properties など)を作り直す。
+    // テクスチャ・頂点・シェーダ・書き出し用の描画先は、次に使うときに CPU 側の中身から作り直される
+    // (ウェイトは weightTex.image.data に全レイヤーの写しを持ち、画像は表示用の canvas を指したまま)。
+    // 作り直されないのは消去の色だけなので、ここで塗り直す。受け口は three.js の後に登録されるので、
+    // webglcontextrestored では three.js の作り直しが済んでいる
+    canvas.addEventListener('webglcontextlost', this.onLost);
+    canvas.addEventListener('webglcontextrestored', this.onRestored);
   }
+
+  private onLost = (e: Event): void => {
+    e.preventDefault(); // 既定の動きのままだと、ブラウザがコンテキストを戻さない
+    this.contextLost = true;
+    this.contextLosses++;
+    this.onContextChange?.(true);
+  };
+
+  private onRestored = (): void => {
+    this.contextLost = false;
+    // 部分転送が使えるかは、新しいコンテキストで確かめ直す
+    this.partialChecked = false; this.partialBroken = false;
+    this.setBackground(this.background);
+    this.onContextChange?.(false);
+  };
 
   get maxTextureSize(): number { return this.renderer.capabilities.maxTextureSize; }
   get hasDocument(): boolean { return !!this.mesh; }
@@ -306,8 +340,13 @@ export class Stage {
     const { w, h } = this.weightSize, data = tex.image.data as Uint8Array, base = index * w * h;
     const src = layer.weights.data;
     for (let y = rect.y; y < rect.y + rect.h; y++) data.set(src.subarray(y * w + rect.x, y * w + rect.x + rect.w), base + y * w + rect.x);
-    const props = this.renderer.properties.get(tex) as { __webglTexture?: WebGLTexture; __version?: number };
+    // 失われている間は GL を呼ばない(getError が CONTEXT_LOST を返し、部分転送が使えないと誤って決めてしまう)。
+    // CPU 側の写しは上で直したので、戻ったら全面転送で送られる
+    // (知らせのイベントより先に isContextLost が true になるので、両方を見る)
     const gl = this.renderer.getContext();
+    if (this.contextLost || gl.isContextLost()) { tex.needsUpdate = true; return; }
+    // 戻った後は three.js の properties が作り直されて __webglTexture が無いので、古いテクスチャは指さず全面転送になる
+    const props = this.renderer.properties.get(tex) as { __webglTexture?: WebGLTexture; __version?: number };
     if (this.partialBroken || !props.__webglTexture || props.__version !== tex.version || !(gl instanceof WebGL2RenderingContext)) {
       tex.needsUpdate = true; this.fullUploads++;
       return;
@@ -361,6 +400,7 @@ export class Stage {
   }
 
   setBackground(color: string | null): void {
+    this.background = color;
     // 出力で色空間を変換しないので、指定色も変換せずそのまま使う
     if (color) this.renderer.setClearColor(new THREE.Color().setStyle(color, THREE.LinearSRGBColorSpace), 1);
     else this.renderer.setClearColor(0x000000, 0);
@@ -396,9 +436,15 @@ export class Stage {
     return { right: { x: e[0], y: e[1], z: e[2] }, up: { x: e[4], y: e[5], z: e[6] } };
   }
 
+  /** 描画の倍率。上限は 2 */
+  private pixelRatio(): number { return Math.min(window.devicePixelRatio || 1, 2); }
+
   resize(): void {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (!w || !h) return;
+    // モニターの移動やブラウザの拡大で倍率が変わったら、読み直す
+    const dpr = this.pixelRatio();
+    if (dpr !== this.renderer.getPixelRatio()) this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);
     const m = this.main();
     this.camera.aspect = m.w / Math.max(1, m.h);
@@ -613,6 +659,8 @@ export class Stage {
    * ウェイト重ね表示・グリッド・ブラシカーソル・画像を薄く・ポップ一時OFF は反映しない。
    */
   renderFrame(width: number, height: number, cam: CameraState, background: string | null, out?: Uint8ClampedArray): Uint8ClampedArray {
+    // 失われている間に描くと、何も描かれないまま空の画像を返してしまう
+    if (this.contextLost || this.renderer.getContext().isContextLost()) throw new ContextLostError();
     if (!this.exportTarget || this.exportTarget.width !== width || this.exportTarget.height !== height) {
       this.exportTarget?.dispose();
       this.exportTarget = new THREE.WebGLRenderTarget(width, height, { samples: 4, depthBuffer: true });
@@ -628,21 +676,27 @@ export class Stage {
     this.place(true);
     const clear = new THREE.Color(), clearAlpha = this.renderer.getClearAlpha();
     this.renderer.getClearColor(clear);
+    const viewBg = this.background;
     this.setBackground(background);
     const aspect = this.camera.aspect;
     this.applyCamera(cam, width / height);
     this.renderer.setRenderTarget(this.exportTarget);
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
-    const raw = new Uint8Array(width * height * 4);
+    // 読み出し用のバッファは、大きさが同じ間は使い回す(1フレームごとに作り直さない)
+    const need = width * height * 4;
+    const raw = this.readBuf?.length === need ? this.readBuf : (this.readBuf = new Uint8Array(need));
     this.renderer.readRenderTargetPixels(this.exportTarget, 0, 0, width, height, raw);
     this.renderer.setRenderTarget(null);
     this.renderer.setClearColor(clear, clearAlpha);
+    this.background = viewBg;
     this.camera.aspect = aspect;
     viewOnly.forEach((x, i) => { x.value = saved[i]; });
     if (rigSaved) { this.rig.matrix.copy(rigSaved); this.rig.matrixWorldNeedsUpdate = true; }
     this.ghosts.visible = ghosts;
     this.place(this.uniforms.uFlat.value === 0);
+    // 描いている最中に失われると、読み出しは黙って 0 を返す(知らせのイベントは後から届く)
+    if (this.renderer.getContext().isContextLost()) throw new ContextLostError();
 
     // 下から上へ並んでいるので反転し、乗算済みの色をストレートアルファへ戻す
     const px = out && out.length === raw.length ? out : new Uint8ClampedArray(raw.length);
@@ -659,11 +713,28 @@ export class Stage {
     return px;
   }
 
+  /**
+   * 書き出し用の大きなバッファと描画先を手放す。サムネイル(小さい大きさ)と書き出しで大きさが入れ替わるため、
+   * 書き出しが終わったら持ち続けない(描画先はマルチサンプルで GPU のメモリも大きい。次に要るときに作り直す)
+   */
+  releaseExportBuffers(): void {
+    this.readBuf = null;
+    this.exportTarget?.dispose(); this.exportTarget = null;
+  }
+
   dispose(): void {
+    this.readBuf = null;
+    this.canvas.removeEventListener('webglcontextlost', this.onLost);
+    this.canvas.removeEventListener('webglcontextrestored', this.onRestored);
     this.mapTex?.dispose(); this.weightTex?.dispose(); this.exportTarget?.dispose();
     this.mesh?.geometry.dispose(); this.material.dispose(); this.renderer.dispose();
     this.ghostGeo?.dispose(); for (const m of this.ghostMats) m.dispose();
   }
+}
+
+/** WebGL のコンテキストが失われていて描けない */
+export class ContextLostError extends Error {
+  constructor() { super('3Dビューの描画が止まったため、描けませんでした。描画が戻ってからもう一度お試しください。'); this.name = 'ContextLostError'; }
 }
 
 /** '#rrggbb' を 0〜1 の vec3 にする(色空間の変換はしない。シェーダの中の色と同じ扱い) */

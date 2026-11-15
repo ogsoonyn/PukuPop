@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate';
 import { createDocument, createProject, createLayer, applyPreset, Store, LIMITS } from '../../src/model/project';
-import { captureFavorite, favoriteMatches, nextFavoriteName, samePhysics } from '../../src/model/favorites';
+import { captureFavorite, favoriteChanges, favoriteMatches, nextFavoriteName, samePhysics } from '../../src/model/favorites';
 import { SetFavorites } from '../../src/commands/commands';
 import { History } from '../../src/commands/history';
 import { serializeProject, deserializeProject, TAKE_PATH } from '../../src/storage/popstage';
@@ -189,5 +189,40 @@ describe('お気に入りの保存', () => {
     const { project: q, thumbnail } = await deserializeProject(bytes);
     expect(thumbnail).toEqual(new Uint8Array([1, 2]));
     expect(q.favorites.map(f => f.take)).toEqual(paths.map(() => null));
+  });
+});
+
+describe('お気に入りを当てるときに変えるもの(favoriteChanges)', () => {
+  it('今と同じなら何も変えず、視点だけを当てる', () => {
+    const p = makeProject(), doc = p.documents[0];
+    p.take = makeTake(0.5);
+    const f = captureFavorite(p, doc, { name: 'a', playing: true });
+    const ch = favoriteChanges(f, p, doc);
+    expect(ch).toEqual({ layers: [], missing: 0, autoSwing: null, take: undefined, fov: null, view: f.camera, play: true });
+  });
+
+  it('違うレイヤー・自動揺らし・記録・画角だけを入れ、無いレイヤーは飛ばして数える。後から足したレイヤーには触れない', () => {
+    const p = makeProject(), doc = p.documents[0];
+    const f = captureFavorite(p, doc, { name: 'a', playing: false });
+    // 今の状態を変える
+    doc.layers[1].pop = 99;
+    doc.layers[1].physics = applyPreset(doc.layers[1].physics, 'tame');
+    p.autoSwing = { ...p.autoSwing, period: p.autoSwing.period + 0.5 };
+    p.take = makeTake(0.3);
+    p.camera = { ...p.camera, fov: p.camera.fov + 5 };
+    const removed = doc.layers.splice(0, 1)[0];
+    doc.layers.push(createLayer(doc, '後から'));
+    const ch = favoriteChanges(f, p, doc);
+    expect(ch.missing).toBe(1);
+    expect(ch.layers.map(l => l.id)).toEqual([f.layers[1].id]);
+    expect(ch.layers[0].patch.pop).toBe(f.layers[1].pop);
+    expect(samePhysics(ch.layers[0].patch.physics, f.layers[1].physics)).toBe(true);
+    expect(ch.layers[0].patch.physics).not.toBe(f.layers[1].physics); // お気に入りの中身は共有しない
+    expect(ch.autoSwing).toEqual(f.autoSwing);
+    expect(ch.autoSwing).not.toBe(f.autoSwing);
+    expect(ch.take).toBeNull(); // お気に入りには記録が無いので消す
+    expect(ch.fov).toBe(f.camera.fov);
+    expect(ch.play).toBe(false);
+    expect(removed.id).toBe(f.layers[0].id);
   });
 });

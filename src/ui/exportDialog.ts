@@ -1,13 +1,13 @@
 /** 書き出しダイアログ。 */
 import type { App } from '../app';
-import { availableFormats, canEncodeAt, estimateExportBytes, EXPORT_MEMORY_WARN, FORMAT_INFO, even, type ExportFormat } from '../export/encoders';
+import { availableFormats, canEncodeAt, estimateExportBytes, EXPORT_MEMORY_WARN, FORMAT_INFO, even, holdsAllFrames, type ExportFormat } from '../export/encoders';
 import type { ExportSettings } from '../export/exporter';
 import { ask, saveFile, toast, formatBytes } from './dom';
 import { ui } from './ids';
 import { persistControls } from '../storage/prefs';
 import { takeSeconds } from '../physics/take';
 
-const FORMATS: ExportFormat[] = ['mp4', 'webm', 'webm-alpha', 'png', 'gif'];
+const FORMATS: ExportFormat[] = ['mp4', 'webm', 'webm-alpha', 'png', 'gif', 'apng', 'still'];
 
 export function bindExportDialog(app: App): { open: () => void } {
   const dlg = ui.exportDialog;
@@ -45,9 +45,15 @@ export function bindExportDialog(app: App): { open: () => void } {
     const loopRadio = document.querySelector<HTMLInputElement>('input[name=exMotion][value=loop]')!;
     loopRadio.disabled = L <= 0;
     if (loopRadio.disabled && loopRadio.checked) setRadio('exMotion', 'auto');
-    const motion = radio('exMotion');
+    // 静止画は今の見た目を1枚撮るので、長さ・fps・動きの元・ループは使わない(選んだ値はそのまま残す)
+    const still = f === 'still';
+    if (still) document.querySelectorAll<HTMLInputElement>('input[name=exMotion], input[name=exFps]').forEach(r => { r.disabled = true; });
+    else document.querySelectorAll<HTMLInputElement>('input[name=exFps], input[name=exMotion][value=auto]').forEach(r => { r.disabled = false; });
+    dur.disabled = still;
+    const motion = still ? null : radio('exMotion');
     loop.disabled = motion !== 'auto';
     const notes: string[] = [];
+    if (still) notes.push('今の視点と揺れのまま、1枚の PNG にします。');
     if (motion === 'auto' && loop.checked) notes.push(`長さは周期 ${T.toFixed(1)} 秒の整数倍に丸めます(継ぎ目の無いループになります)。`);
     if (motion === 'replay') notes.push('「つかむ」やカメラの操作を記録どおりに再生します。最長 60 秒。');
     if (motion === 'loop') {
@@ -57,7 +63,8 @@ export function bindExportDialog(app: App): { open: () => void } {
     if (f === 'gif') notes.push('GIF は 256 色・1ビット透過です。サイズを小さく、30fps にすると軽くなります。');
     if (f === 'webm-alpha') notes.push('透過付き WebM は Chrome / Edge で再生できます。動画編集ソフトによっては透過が読めません。');
     if (f === 'png') notes.push('フレームごとの PNG を ZIP にまとめます。動画編集の素材向けです。');
-    if (f === 'png' || f === 'gif') {
+    if (f === 'apng') notes.push('フルカラー・透過のままループします。対応していないアプリでは1枚目だけが出ます。');
+    if (holdsAllFrames(f)) {
       const s = readSettings(), est = estimateExportBytes(f, s.width, s.height, Math.round(s.duration * s.fps));
       notes.push(`全フレームをメモリに溜めてから保存します(目安 ${formatBytes(est)} まで)。`);
     }
@@ -145,7 +152,7 @@ export function bindExportDialog(app: App): { open: () => void } {
     let ok = false;
     try { ok = await confirmStart(s); } finally { start.disabled = false; cancel.disabled = false; }
     if (!ok || !dlg.open) return; // 確認の間に Esc でダイアログが閉じられたら書き出さない
-    dur.value = String(+s.duration.toFixed(2));
+    if (s.format !== 'still') dur.value = String(+s.duration.toFixed(2));
     running = new AbortController();
     setRunning(true);
     const t0 = performance.now();
@@ -177,7 +184,8 @@ export function bindExportDialog(app: App): { open: () => void } {
       if (!initialized) {
         await init();
         // 形式・大きさ・長さ・fps・ループはブラウザに覚えておく(形式の一覧ができてから戻す)
-        persistControls('export', [fmt, W, H, dur, loop, ...document.querySelectorAll<HTMLInputElement>('input[name=exFps]')]);
+        // 形式は最後に戻す。静止画を先に戻すと fps のボタンが使えなくなり、覚えた fps が戻らないため
+        persistControls('export', [W, H, dur, loop, ...document.querySelectorAll<HTMLInputElement>('input[name=exFps]'), fmt]);
       }
       if (!W.value) { const [w, h] = viewSize(); W.value = String(w); H.value = String(h); }
       if (!dur.value) dur.value = String(+(app.project.autoSwing.period * 2).toFixed(2));

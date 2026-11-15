@@ -4,6 +4,8 @@ paths:
   - "src/model/**"
   - "src/physics/take.ts"
   - "src/app.ts"
+  - "src/app/tab.ts"
+  - "src/app/autosave.ts"
   - "src/main.ts"
   - "src/ui/panels.ts"
   - "src/ui/toolOptions.ts"
@@ -40,6 +42,11 @@ paths:
 
 - IndexedDB `popstage` のストア `autosave` に、アプリの中のタブの id をキーにして1件ずつ入れる(`src/storage/autosave.ts`)。タブに分ける前の版はキー `'current'` の1件だけだったので、キーは何でも読めるようにしてある。起動時は全部を読み、タブの上限(`MAX_TABS`)まで新しいものから戻す。
 - 戻したタブは、自動保存のキーをそのままタブの id にする(保存し直しても件数が増えないように)。タブを閉じたら、そのタブの分を消す。
+
+## 保存領域の永続化
+
+- `src/storage/persist.ts` が `navigator.storage.persist()` を頼む。頼むのは最初の自動保存の成功かファイルの保存のあとで、ページを開いている間に1回だけ。起動直後には頼まない。
+- 断られた日時は prefs の `storagePersistDeniedAt`(ミリ秒。通ったら `null`)。30 日は頼み直さない。
 
 ## どこに覚えるか
 

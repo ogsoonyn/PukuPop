@@ -5,6 +5,12 @@ import type { GrayImage } from '../storage/png';
 export const IMAGE_TYPES: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 
 export function isImageFile(f: File): boolean { return f.type in IMAGE_TYPES || /\.(png|jpe?g|webp)$/i.test(f.name); }
+/** クリップボードの画像は名前が無いか `image.png` なので、「貼り付けた画像.png」にする(元の名前があればそのまま) */
+export function pastedImageFile(f: File): File {
+  if (f.name && !/^image\.\w+$/i.test(f.name)) return f;
+  return new File([f], `貼り付けた画像.${IMAGE_TYPES[f.type] ?? 'png'}`, { type: f.type, lastModified: f.lastModified });
+}
+
 export function isProjectFile(f: File): boolean { return /\.(pukupop|popstage)$/i.test(f.name); }
 
 /** 読み込める画像の画素数の上限。デコードすると幅×高さ×4バイトを確保するので、それを抑える */

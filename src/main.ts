@@ -1,7 +1,7 @@
 import './style.css';
 import { App, MAX_TABS } from './app';
 import { initUI, ui } from './ui/ids';
-import { bindStageInput } from './ui/input';
+import { bindStageInput, isTyping } from './ui/input';
 import { bindPanels } from './ui/panels';
 import { bindActions } from './ui/actions';
 import { bindExportDialog } from './ui/exportDialog';
@@ -14,6 +14,7 @@ import { bindMultiView } from './ui/multiView';
 import { bindRecentDialog } from './ui/recentDialog';
 import { bindSettingsDialog } from './ui/settingsDialog';
 import { bindMobileLayout } from './ui/mobile';
+import { bindTouchSliders } from './ui/touchSlider';
 import { bindTakeControls } from './ui/take';
 import { bindPlayBar } from './ui/playBar';
 import { bindHideUi } from './ui/hideUi';
@@ -28,11 +29,14 @@ import { bindMemoryStatus } from './ui/memoryStatus';
 import { FILE_EXTENSION, LEGACY_FILE_EXTENSION } from './storage/popstage';
 import { ask, toast, retryWithClick } from './ui/dom';
 import { autosave } from './storage/autosave';
+import { QUOTA_MESSAGE } from './storage/persist';
 import { prefs, persistControls } from './storage/prefs';
-import { isImageFile, isProjectFile } from './ui/imageio';
+import { bindErrorReport, reportError } from './ui/errorReport';
+import { IMAGE_TYPES, isImageFile, isProjectFile, pastedImageFile } from './ui/imageio';
 
 // 画面の要素をまとめて取る(index.html と ui/ids.ts の一覧が合わなければ、ここで止まる)
 initUI();
+bindErrorReport();
 bindHelp();
 const canvas = ui.view;
 let app: App;
@@ -47,6 +51,7 @@ const e2e = params.has('e2e');
 /** E2E で自動保存の復元を試すときだけ、?e2e&restore で復元の確認を出す */
 const checkRestore = !e2e || params.has('restore');
 (window as unknown as { popstage: App }).popstage = app;
+app.onFrameError = reportError;
 
 /** パフォーマンスのデバッグ表示(?debug か Ctrl+Shift+Alt+P)。使うときだけ読み込む */
 const togglePerf = () => void import('./debug/perfOverlay').then(m => m.togglePerfOverlay(app)).catch(e => console.error(e));
@@ -156,6 +161,8 @@ bindMemoryStatus(app);
 const settingsDialog = bindSettingsDialog();
 // スマホの配置。右パネルなどの部品を移すので、ほかの部品を結び付けたあとに呼ぶ
 bindMobileLayout(app);
+// 指で触ったスライダーは、横に引いたときだけ動かす(縦はスクロール。スマホの配置ではいつも)
+bindTouchSliders(() => document.documentElement.classList.contains('mobile'));
 
 /* ---------- ドラッグ&ドロップ ---------- */
 
@@ -181,6 +188,16 @@ window.addEventListener('drop', e => {
   else if (e.dataTransfer?.files.length) toast('PNG / JPEG / WebP の画像か、.pukupop ファイルをドロップしてください。', 'warning');
 });
 
+// コピーした画像(スクリーンショットなど)を Ctrl+V で新しいタブに開く。ボタンは置かない(クリップボードの読み取りに許可の確認が出るため)
+window.addEventListener('paste', e => {
+  if (isTyping(e)) return;
+  const f = [...(e.clipboardData?.files ?? [])].find(f => f.type in IMAGE_TYPES);
+  if (!f) return;
+  e.preventDefault();
+  if (anyDialogOpen()) { toast('ダイアログを閉じてから、もう一度貼り付けてください。', 'warning'); return; }
+  void app.openFile(pastedImageFile(f));
+});
+
 /* ---------- ステータスバーとタイトル ---------- */
 
 function refreshStatus(): void {
@@ -196,7 +213,7 @@ function refreshStatus(): void {
   if (deg) ui.sRoll.textContent = `↻ ${deg}°`;
   ui.sImage.textContent = d ? `${d.image.width}×${d.image.height}px・ウェイト ${d.layers[0]?.weights.width ?? 0}×${d.layers[0]?.weights.height ?? 0}` : '-';
   if (!app.exporting) ui.sRec.textContent = [app.view.flat && 'ポップOFF', app.paused && '揺れ一時停止中'].filter(Boolean).join('・');
-  ui.sSave.textContent = app.autosaveError ? `自動保存に失敗しました(${app.autosaveError})。こまめに保存してください。` : app.dirty ? (app.lastAutosave ? `未保存の変更あり(${app.lastAutosave.toLocaleTimeString()} に自動保存)` : '未保存の変更あり') : app.lastSaved ? `保存済み ${app.lastSaved.toLocaleTimeString()}` : '';
+  ui.sSave.textContent = app.autosaveError ? (app.autosaveQuota ? `自動保存に失敗しました。${QUOTA_MESSAGE}` : `自動保存に失敗しました(${app.autosaveError})。こまめに保存してください。`) : app.dirty ? (app.lastAutosave ? `未保存の変更あり(${app.lastAutosave.toLocaleTimeString()} に自動保存)` : '未保存の変更あり') : app.lastSaved ? `保存済み ${app.lastSaved.toLocaleTimeString()}` : '';
 }
 function refreshTitle(): void {
   const name = app.tabName(app.activeTab);
@@ -212,6 +229,12 @@ app.on('tabs', refreshTitle);
 
 window.addEventListener('beforeunload', e => { if (app.anyDirty) e.preventDefault(); });
 new ResizeObserver(() => { app.stage.resize(); multiView.layout(); }).observe(canvas);
+// 大きさが変わらずに devicePixelRatio だけ変わる(モニターの移動など)ときも描画の倍率を読み直す。倍率ごとに登録し直す
+const watchPixelRatio = (): void => {
+  const mq = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+  mq.addEventListener('change', () => { app.stage.resize(); multiView.layout(); watchPixelRatio(); }, { once: true });
+};
+watchPixelRatio();
 
 /* ---------- 起動 ---------- */
 

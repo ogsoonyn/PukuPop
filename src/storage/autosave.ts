@@ -27,7 +27,7 @@ async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
       const t = db.transaction(STORE, mode), req = fn(t.objectStore(STORE));
       t.oncomplete = () => resolve(req.result);
       t.onerror = () => reject(t.error);
-      t.onabort = () => reject(t.error);
+      t.onabort = () => reject(t.error ?? new Error('書き込みが中断されました'));
     });
   } finally { db.close(); }
 }
@@ -59,7 +59,7 @@ export const autosave = {
           req.onsuccess = () => { const c = req.result; if (c) { acc.push([c.key, c.value]); c.continue(); } };
           t.oncomplete = () => resolve(acc);
           t.onerror = () => reject(t.error);
-          t.onabort = () => reject(t.error);
+          t.onabort = () => reject(t.error ?? new Error('読み込みが中断されました'));
         });
       } finally { db.close(); }
     } catch { return []; }

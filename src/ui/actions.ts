@@ -47,6 +47,12 @@ export interface ActionDeps {
   togglePerf: () => unknown;
 }
 
+/**
+ * ヘルプのキー一覧にだけ出すキー(コマンドではない)。Ctrl+V は `paste` イベントで処理する。
+ * 表の `keys` に書くとキー操作で横取りして `preventDefault` するため、文字欄のふつうの貼り付けまで効かなくなる
+ */
+const HELP_ONLY_KEYS: { label: string; keys: string[] }[] = [{ label: '貼り付けて開く', keys: ['Ctrl+V'] }];
+
 /** マウス・指を押しているか(ドラッグの途中にキーでタブを替えると、続きの操作が別のタブに効いてしまう) */
 let pointerHeld = false;
 
@@ -257,9 +263,10 @@ const MOBILE_NAV_SKIP: ReadonlySet<CommandName> = new Set<CommandName>(['toggleM
  * 左のツールバーのボタンの一覧(並びのとおり)。設定で出す・隠すを選ぶのに使う。
  * id はボタンの data-nav と同じ(ツールはツールの id、操作はコマンドの名前)
  */
-export const TOOLBAR_ITEMS: readonly { group: string; items: readonly { id: string; label: string; defaultHidden?: boolean }[] }[] = [
-  { group: 'ツール', items: TOOL_GROUPS.flat().map(t => ({ id: t.id as string, label: t.name ?? t.label })) },
-  ...NAV_ACTIONS.map(g => ({ group: g.label, items: g.items.map(it => ({ id: it.cmd as string, label: it.name ?? it.text, defaultHidden: it.defaultHidden })) })),
+export const TOOLBAR_ITEMS: readonly { group: string; desktopOnly?: boolean; items: readonly { id: string; label: string; defaultHidden?: boolean; desktopOnly?: boolean }[] }[] = [
+  // スマホではツールは下のバーにあり、シートの一番上には出さないので、設定にも出さない(desktopOnly)
+  { group: 'ツール', desktopOnly: true, items: TOOL_GROUPS.flat().map(t => ({ id: t.id as string, label: t.name ?? t.label })) },
+  ...NAV_ACTIONS.map(g => ({ group: g.label, items: g.items.map(it => ({ id: it.cmd as string, label: it.name ?? it.text, defaultHidden: it.defaultHidden, desktopOnly: MOBILE_NAV_SKIP.has(it.cmd) })) })),
 ];
 {
   // ツールの id とコマンドの名前は同じ data-nav に入るので、重なると1つのチェックで2つのボタンが隠れる
@@ -393,12 +400,16 @@ export function bindActions(app: App, deps: ActionDeps): void {
   for (const g of NAV_ACTIONS) navItems.push(actionGroup(g));
   ui.toolNav.replaceChildren(...navItems);
 
-  /* ---------- スマホのシートの一番上(左のツールバーの、その場で効く操作を横1列に。ツールは下のバーにある) ---------- */
+  /*
+   * ---------- スマホのシートの一番上(左のツールバーの、その場で効く操作を横1列に。ツールは下のバーにある) ----------
+   * 出す・隠すは左のツールバーと同じ設定に従う(data-nav。映すのは ui/settingsDialog.ts)
+   */
   ui.mNav.replaceChildren(...NAV_ACTIONS.flatMap((g, gi) => {
-    const items = g.items.filter(it => !it.defaultHidden && !MOBILE_NAV_SKIP.has(it.cmd)).map(it => {
+    const items = g.items.filter(it => !MOBILE_NAV_SKIP.has(it.cmd)).map(it => {
       const b = navButton('m-act', it.icon, it.text);
       b.querySelector('.tool-key')!.remove();
       b.dataset.cmd = it.cmd;
+      b.dataset.nav = it.cmd;
       if (it.check) b.dataset.pressed = it.check;
       if (it.name) b.setAttribute('aria-label', it.name);
       if (it.check === 'overlay') b.append(Object.assign(document.createElement('span'), { className: 'nav-badge', textContent: '全', hidden: true }));
@@ -467,6 +478,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
       const row = a.helpRow ?? a.helpLabel ?? a.label;
       rows.set(row, [...(rows.get(row) ?? []), ...a.keys]);
     }
+    for (const h of HELP_ONLY_KEYS) rows.set(h.label, h.keys);
     // キーもマウスの操作と同じ書き方(キーの札)で出す
     ui.helpKeys.replaceChildren(...[...rows].flatMap(([label, keys]) => [
       Object.assign(document.createElement('span'), { textContent: label }),
