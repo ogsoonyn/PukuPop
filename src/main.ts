@@ -29,10 +29,12 @@ import { FILE_EXTENSION, LEGACY_FILE_EXTENSION } from './storage/popstage';
 import { ask, toast, retryWithClick } from './ui/dom';
 import { autosave } from './storage/autosave';
 import { prefs, persistControls } from './storage/prefs';
+import { bindErrorReport, reportError } from './ui/errorReport';
 import { isImageFile, isProjectFile } from './ui/imageio';
 
 // 画面の要素をまとめて取る(index.html と ui/ids.ts の一覧が合わなければ、ここで止まる)
 initUI();
+bindErrorReport();
 bindHelp();
 const canvas = ui.view;
 let app: App;
@@ -47,6 +49,7 @@ const e2e = params.has('e2e');
 /** E2E で自動保存の復元を試すときだけ、?e2e&restore で復元の確認を出す */
 const checkRestore = !e2e || params.has('restore');
 (window as unknown as { popstage: App }).popstage = app;
+app.onFrameError = reportError;
 
 /** パフォーマンスのデバッグ表示(?debug か Ctrl+Shift+Alt+P)。使うときだけ読み込む */
 const togglePerf = () => void import('./debug/perfOverlay').then(m => m.togglePerfOverlay(app)).catch(e => console.error(e));
