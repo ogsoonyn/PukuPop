@@ -1,6 +1,8 @@
 /**
  * アプリ本体。モデル・コマンド・描画・物理・保存・書き出しをつなぐ。
  * 画面の部品(ui/)はここを経由して状態を読み書きする。
+ * 機能ごとの中身は、再生のつなぎ(playback/。再生専用の部品と共有する)と、編集アプリだけの部品(app/)にあり、
+ * App は同じ名前のメソッド・ゲッターからそこへ委ね、イベントは App が出す。
  */
 import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegments, alphaSpreadPx, frontCamera, wrapAngle, LIMITS, PRESETS, applyPreset, type PresetName, type CameraState, type Vec3, type OrthoView, type Project, type Document, type Layer } from './model/project';
 import { projectDataBytes, sumMemory, type MemoryUsage, type TabMemory } from './model/memory';
