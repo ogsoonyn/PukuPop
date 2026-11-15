@@ -1,7 +1,7 @@
 import './style.css';
 import { App, MAX_TABS } from './app';
 import { initUI, ui } from './ui/ids';
-import { bindStageInput } from './ui/input';
+import { bindStageInput, isTyping } from './ui/input';
 import { bindPanels } from './ui/panels';
 import { bindActions } from './ui/actions';
 import { bindExportDialog } from './ui/exportDialog';
@@ -30,10 +30,12 @@ import { FILE_EXTENSION, LEGACY_FILE_EXTENSION } from './storage/popstage';
 import { ask, toast, retryWithClick } from './ui/dom';
 import { autosave } from './storage/autosave';
 import { prefs, persistControls } from './storage/prefs';
-import { isImageFile, isProjectFile } from './ui/imageio';
+import { bindErrorReport, reportError } from './ui/errorReport';
+import { IMAGE_TYPES, isImageFile, isProjectFile, pastedImageFile } from './ui/imageio';
 
 // 画面の要素をまとめて取る(index.html と ui/ids.ts の一覧が合わなければ、ここで止まる)
 initUI();
+bindErrorReport();
 bindHelp();
 const canvas = ui.view;
 let app: App;
@@ -48,6 +50,7 @@ const e2e = params.has('e2e');
 /** E2E で自動保存の復元を試すときだけ、?e2e&restore で復元の確認を出す */
 const checkRestore = !e2e || params.has('restore');
 (window as unknown as { popstage: App }).popstage = app;
+app.onFrameError = reportError;
 
 /** パフォーマンスのデバッグ表示(?debug か Ctrl+Shift+Alt+P)。使うときだけ読み込む */
 const togglePerf = () => void import('./debug/perfOverlay').then(m => m.togglePerfOverlay(app)).catch(e => console.error(e));
@@ -184,6 +187,16 @@ window.addEventListener('drop', e => {
   else if (e.dataTransfer?.files.length) toast('PNG / JPEG / WebP の画像か、.pukupop ファイルをドロップしてください。', 'warning');
 });
 
+// コピーした画像(スクリーンショットなど)を Ctrl+V で新しいタブに開く。ボタンは置かない(クリップボードの読み取りに許可の確認が出るため)
+window.addEventListener('paste', e => {
+  if (isTyping(e)) return;
+  const f = [...(e.clipboardData?.files ?? [])].find(f => f.type in IMAGE_TYPES);
+  if (!f) return;
+  e.preventDefault();
+  if (anyDialogOpen()) { toast('ダイアログを閉じてから、もう一度貼り付けてください。', 'warning'); return; }
+  void app.openFile(pastedImageFile(f));
+});
+
 /* ---------- ステータスバーとタイトル ---------- */
 
 function refreshStatus(): void {
@@ -215,6 +228,12 @@ app.on('tabs', refreshTitle);
 
 window.addEventListener('beforeunload', e => { if (app.anyDirty) e.preventDefault(); });
 new ResizeObserver(() => { app.stage.resize(); multiView.layout(); }).observe(canvas);
+// 大きさが変わらずに devicePixelRatio だけ変わる(モニターの移動など)ときも描画の倍率を読み直す。倍率ごとに登録し直す
+const watchPixelRatio = (): void => {
+  const mq = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+  mq.addEventListener('change', () => { app.stage.resize(); multiView.layout(); watchPixelRatio(); }, { once: true });
+};
+watchPixelRatio();
 
 /* ---------- 起動 ---------- */
 

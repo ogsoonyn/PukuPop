@@ -63,3 +63,108 @@ test('書き出し: 直前の操作を再生', async ({ page }) => {
   });
   expect(r).toBe(45);
 });
+
+test('書き出し: 読み出しバッファを使い回し・手放しても、描いた中身は変わらない', async ({ page }) => {
+  await boot(page);
+  const r = await page.evaluate(() => {
+    const a = (window as any).popstage, s = a.stage;
+    const draw = (w: number, h: number) => Array.from(s.renderFrame(w, h, a.project.camera, '#336699') as Uint8ClampedArray);
+    const first = draw(64, 48);
+    const again = draw(64, 48); // 同じ大きさ: バッファを使い回す
+    draw(32, 24); // 大きさが入れ替わる
+    const swapped = draw(64, 48);
+    s.releaseExportBuffers();
+    const released = draw(64, 48); // 手放したあと: 作り直す
+    const same = (x: number[], y: number[]) => x.length === y.length && x.every((v, i) => v === y[i]);
+    return { len: first.length, nonBlank: first.some((v, i) => i % 4 !== 3 && v !== first[0]), again: same(first, again), swapped: same(first, swapped), released: same(first, released) };
+  });
+  expect(r.len).toBe(64 * 48 * 4);
+  expect(r.nonBlank).toBe(true);
+  expect(r.again && r.swapped && r.released).toBe(true);
+});
+
+test('書き出し: APNG は全フレームを1つの PNG に入れ、無限ループにする', async ({ page }) => {
+  await boot(page);
+  const r = await page.evaluate(async () => {
+    const a = (window as any).popstage;
+    const res = await a.exportMedia({ format: 'apng', width: 48, height: 32, fps: 30, duration: 0.5, background: null, motion: 'auto' }, () => {}, new AbortController().signal);
+    const b = new Uint8Array(await res.blob.arrayBuffer()), dv = new DataView(b.buffer);
+    const types: string[] = [];
+    let actl: number[] = [];
+    for (let p = 8; p < b.length; p += 12 + dv.getUint32(p)) {
+      const type = String.fromCharCode(...b.subarray(p + 4, p + 8));
+      types.push(type);
+      if (type === 'acTL') actl = [dv.getUint32(p + 8), dv.getUint32(p + 12)];
+    }
+    return { frames: res.frames, name: res.filename, type: res.blob.type, sig: [...b.subarray(0, 8)], actl, fctl: types.filter(t => t === 'fcTL').length, first: types.slice(0, 4) };
+  });
+  expect(r.frames).toBe(15);
+  expect(r.name).toMatch(/\.png$/);
+  expect(r.type).toBe('image/png');
+  expect(r.sig).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  expect(r.first).toEqual(['IHDR', 'acTL', 'fcTL', 'IDAT']);
+  expect(r.actl).toEqual([15, 0]);
+  expect(r.fctl).toBe(15);
+});
+
+test('書き出し: 静止画 PNG は今の視点で1枚だけ撮り、画面の揺れの状態を変えない', async ({ page }) => {
+  await boot(page);
+  const r = await page.evaluate(async () => {
+    const a = (window as any).popstage;
+    const time = a.world.time;
+    const res = await a.exportMedia({ format: 'still', width: 64, height: 40, fps: 60, duration: 3, background: null, motion: 'auto' }, () => {}, new AbortController().signal);
+    const b = new Uint8Array(await res.blob.arrayBuffer()), dv = new DataView(b.buffer);
+    const types: string[] = [];
+    for (let p = 8; p < b.length; p += 12 + dv.getUint32(p)) types.push(String.fromCharCode(...b.subarray(p + 4, p + 8)));
+    return { frames: res.frames, name: res.filename, sig: [...b.subarray(0, 8)], size: [dv.getUint32(16), dv.getUint32(20)], colorType: b[25], types, timeKept: a.world.time === time, exporting: a.exporting };
+  });
+  expect(r.frames).toBe(1);
+  expect(r.name).toMatch(/\.png$/);
+  expect(r.sig).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  expect(r.size).toEqual([64, 40]);
+  expect(r.colorType).toBe(6); // RGBA
+  expect(r.types).toEqual(['IHDR', 'IDAT', 'IEND']);
+  expect(r.timeKept).toBe(true);
+  expect(r.exporting).toBe(false);
+});
+
+test('書き出し: 静止画 PNG では長さ・fps・動きの元・ループが使えず、覚えた形式と fps は戻る', async ({ page }) => {
+  // 新しい形式(静止画)を覚えていても、ほかの覚えた値(fps)が戻ること
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('seeded')) {
+      sessionStorage.setItem('seeded', '1');
+      localStorage.setItem('popstage.prefs.v1', JSON.stringify({ export: { exFormat: 'still', 'radio:exFps': '30' } }));
+    }
+  });
+  await boot(page);
+  await page.locator('#view').focus();
+  await page.keyboard.press('Control+e');
+  await expect(page.locator('#exportDialog')).toBeVisible();
+  await expect(page.locator('#exFormat')).toHaveValue('still');
+  await expect(page.locator('input[name=exFps][value="30"]')).toBeChecked();
+  await expect(page.locator('#exDur')).toBeDisabled();
+  await expect(page.locator('#exLoop')).toBeDisabled();
+  await expect(page.locator('input[name=exFps][value="60"]')).toBeDisabled();
+  await expect(page.locator('input[name=exMotion][value=auto]')).toBeDisabled();
+  await expect(page.locator('input[name=exBg][value=alpha]')).toBeEnabled();
+  await expect(page.locator('#exW')).toBeEnabled();
+  await page.locator('#exFormat').selectOption('apng');
+  await expect(page.locator('#exDur')).toBeEnabled();
+  await expect(page.locator('input[name=exMotion][value=auto]')).toBeEnabled();
+  await expect(page.locator('#exNote')).toContainText('対応していないアプリでは1枚目だけが出ます');
+  await expect(page.locator('#exNote')).toContainText('メモリ');
+});
+
+test('書き出し: 覚えた形式が知らない値なら、既定の形式で開く', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('seeded')) {
+      sessionStorage.setItem('seeded', '1');
+      localStorage.setItem('popstage.prefs.v1', JSON.stringify({ export: { exFormat: 'avif-anim' } }));
+    }
+  });
+  await boot(page);
+  await page.locator('#view').focus();
+  await page.keyboard.press('Control+e');
+  await expect(page.locator('#exportDialog')).toBeVisible();
+  await expect(page.locator('#exFormat')).toHaveValue(/^(mp4|webm|png)$/);
+});

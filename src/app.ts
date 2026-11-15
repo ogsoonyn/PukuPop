@@ -288,6 +288,7 @@ export class App extends Emitter<AppEvents> {
   constructor(canvas: HTMLCanvasElement) {
     super();
     this.stage = new Stage(canvas);
+    this.stage.onContextChange = lost => this.onContextChange(lost);
     this.wireStore();
     this.history.on('change', () => this.trimHiddenHistory());
   }
@@ -1426,6 +1427,23 @@ export class App extends Emitter<AppEvents> {
     this.stage.setBaseOffset({ x: g.x * k, y: g.y * k, z: g.z * k });
   };
 
+  /**
+   * 静止画の書き出し用。画面の物理(今見えている揺れ)を Stage へ戻し、撮る視点を返す。
+   * 画像全体の動き(ピストン)は、画面と同じく showBase でならした値にする。
+   * ループ再生中は、記録の視点(playView)で撮る。画面は画像のほうを rig で動かして映しているが、renderFrame は rig を外して
+   * 画像を元の置き場所に置くので、今の視点(project.camera)で撮ると画像が動いていない絵になる。見る視点を再生の基準の
+   * 視点のまま動かしていなければ、記録の視点で撮った絵は画面と同じになる(縦横比が画面と同じとき。動かしていれば、ループ再生の書き出しと同じ撮影カメラの絵)
+   */
+  currentShot = (): CameraState => {
+    const doc = this.doc;
+    if (doc) {
+      this.applySwing(this.world, doc);
+      this.stage.setBaseOffset(this.base.shown);
+    }
+    const c = this.playView ?? this.project.camera;
+    return { ...c, target: { ...c.target } };
+  };
+
   /** 物理に渡すレイヤーの重心(正規化座標)。回転で揺れる大きさを決める */
   centerOf = (l: Layer): { x: number; y: number } => {
     const doc = this.doc;
@@ -1712,18 +1730,24 @@ export class App extends Emitter<AppEvents> {
   private frames = 0;
   private fpsTime = 0;
 
+  /** 描画ループの中で出た例外の知らせ先。ループは止めずに続ける(main.ts が画面への知らせを結ぶ) */
+  onFrameError: (e: unknown) => void = e => console.error(e);
+
   start(): void {
     this.loops++;
     const loop = (now: number) => {
-      this.perf?.frame(now);
-      const raw = this.prev ? (now - this.prev) / 1000 : 0, dt = Math.min(raw, 0.1);
-      // 物理は 0.1 秒で打ち切るので、その間の平行移動を 1 刻みの動きとして扱うと強く弾みすぎる。測り直す
-      if (raw > 0.1) this.world.cutView();
-      this.prev = now;
-      this.frame(dt);
-      this.frames++; this.fpsTime += dt;
-      if (this.fpsTime >= 0.5) { this.fps = Math.round(this.frames / this.fpsTime); this.frames = 0; this.fpsTime = 0; this.emit('fps', this.fps); }
+      // 次のフレームを先に予約し、frame で例外が出てもループが止まらないようにする
       requestAnimationFrame(loop);
+      try {
+        this.perf?.frame(now);
+        const raw = this.prev ? (now - this.prev) / 1000 : 0, dt = Math.min(raw, 0.1);
+        // 物理は 0.1 秒で打ち切るので、その間の平行移動を 1 刻みの動きとして扱うと強く弾みすぎる。測り直す
+        if (raw > 0.1) this.world.cutView();
+        this.prev = now;
+        this.frame(dt);
+        this.frames++; this.fpsTime += dt;
+        if (this.fpsTime >= 0.5) { this.fps = Math.round(this.frames / this.fpsTime); this.frames = 0; this.fpsTime = 0; this.emit('fps', this.fps); }
+      } catch (e) { this.onFrameError(e); }
     };
     requestAnimationFrame(loop);
   }
@@ -1769,9 +1793,21 @@ export class App extends Emitter<AppEvents> {
     this.pendingUploads.clear();
   }
 
+  /**
+   * WebGL のコンテキストが失われた・戻ったとき(スマホで裏に回した後、GPU のリセット、メモリ不足など)。
+   * 失われている間は frame が描画(と物理)を止め、書き出しは失敗で終わる。全部のタブで共通の画面の状態なので Tab には置かない。
+   * 戻ったときに送り直すものは無い: 画像・ウェイト・メッシュ・書き出し用の描画先は three.js が次の描画で CPU 側の中身から作り直し、
+   * 背景色と部分転送の確認は Stage が戻す。溜めていたウェイトの変更(pendingUploads)は、次の flushWeights で全面転送になる
+   */
+  private onContextChange(lost: boolean): void {
+    if (lost) toast('3Dビューの描画が止まりました。戻らないときは保存してから読み込み直してください。', 'warning', 8000);
+    else toast('3Dビューの描画が戻りました。', 'success');
+    this.emit('status', undefined);
+  }
+
   frame(dt: number): void {
     const doc = this.doc;
-    if (this.exporting || !doc || !this.stage.hasDocument) return;
+    if (this.exporting || this.stage.contextLost || !doc || !this.stage.hasDocument) return;
     const p = this.perf;
     let t = p ? performance.now() : 0;
     this.world.autoSwing = this.project.autoSwing;
@@ -1798,8 +1834,9 @@ export class App extends Emitter<AppEvents> {
     this.flushWeights();
     this.emit('status', undefined);
     try {
-      return await runExport({ stage: this.stage, store: this.store, recorder: this.recorder, applySwing: this.applySwing, centerOf: this.centerOf }, s, onProgress, signal);
+      return await runExport({ stage: this.stage, store: this.store, recorder: this.recorder, applySwing: this.applySwing, centerOf: this.centerOf, currentShot: this.currentShot }, s, onProgress, signal);
     } finally {
+      this.stage.releaseExportBuffers();
       this.exporting = false;
       this.emit('status', undefined);
     }
