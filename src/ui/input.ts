@@ -16,13 +16,12 @@ import type { PaintMode } from '../paint/stroke';
 import { fineFactor, wheelFineFactor, wheelDelta, isPinchWheel, FINE, isFineLocked } from './fine';
 import { smoothZoom } from './smoothZoom';
 import { toast } from './dom';
-import { wrapAngle as wrapRad } from '../model/project';
+import { wrapAngle as wrapRad, VIEW_LIMITS, clampViewZoom as clampZoom, orbitCamera } from '../model/project';
 import { hitFrame, frameCursor, setRotSide, type FrameHit } from './inflateFrame';
 import { moveArea as shiftArea, resizeArea, roundArea, turnBetween, flippedAt, wrapAngle, type Area } from '../paint/areaEdit';
 
-/** 主ビューの拡大率の範囲(ホイール・ピンチ共通) */
-const ZOOM_MIN = 0.05, ZOOM_MAX = 10;
-const clampZoom = (z: number) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+/** 主ビューの拡大率の範囲(ホイール・ピンチ共通。Player と共通なので model/project.ts の VIEW_LIMITS に置く) */
+const ZOOM_MIN = VIEW_LIMITS.zoom.min, ZOOM_MAX = VIEW_LIMITS.zoom.max;
 /** 2本指のひねりで傾け始める角度(15°)と、0° に吸い付く範囲(3°) */
 const TWIST_START = Math.PI / 12, ROLL_SNAP = Math.PI / 60;
 /** Alt+ドラッグで傾けるとき、画面の中央からこれより近い所(px)は使わない */
@@ -234,10 +233,8 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
       drag.lx = e.clientX; drag.ly = e.clientY;
       const cam = app.project.camera;
       if (drag.mode === 'orbit') {
-        // 傾けているときも画面の向きどおりに回るよう、ドラッグの向きを傾きの分だけ戻してから向きに入れる
-        const c = Math.cos(cam.roll), s = Math.sin(cam.roll), ox = dx * c + dy * s, oy = dy * c - dx * s;
-        cam.yaw -= ox * 0.008;
-        cam.pitch = Math.max(-1.45, Math.min(1.45, cam.pitch + oy * 0.008));
+        // 傾けているときも画面の向きどおりに回る(model/project.ts。Player と共通)
+        orbitCamera(cam, dx, dy);
       } else if (drag.mode === 'roll') {
         // 主ビューの中央(注視点)から見た向きの変わり分だけ傾ける。中央のすぐ近くは向きが暴れるので使わない
         const r = canvas.getBoundingClientRect(), m = app.stage.mainView(), cx = r.left + m.x + m.w / 2, cy = r.top + m.y + m.h / 2;

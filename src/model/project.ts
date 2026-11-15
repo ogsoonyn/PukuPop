@@ -220,6 +220,22 @@ export function wrapAngle(a: number): number {
   return r >= Math.PI ? r - TAU : r;
 }
 
+/** 主ビューの視点の操作の範囲(拡大率と、上下に回す角度の上限)。編集アプリ(ui/input.ts)と Player(src/player)で共通 */
+export const VIEW_LIMITS = { zoom: { min: 0.05, max: 10 }, pitch: 1.45 } as const;
+
+/** 主ビューの拡大率を範囲に収める */
+export function clampViewZoom(z: number): number { return Math.max(VIEW_LIMITS.zoom.min, Math.min(VIEW_LIMITS.zoom.max, z)); }
+
+/**
+ * ドラッグした量(画面の px)だけ視点を回す。傾けているときも画面の向きどおりに回るよう、
+ * ドラッグの向きを傾きの分だけ戻してから向きに入れる。編集アプリ(ui/input.ts)と Player(src/player)で共通
+ */
+export function orbitCamera(cam: CameraState, dx: number, dy: number): void {
+  const c = Math.cos(cam.roll), s = Math.sin(cam.roll), ox = dx * c + dy * s, oy = dy * c - dx * s;
+  cam.yaw -= ox * 0.008;
+  cam.pitch = Math.max(-VIEW_LIMITS.pitch, Math.min(VIEW_LIMITS.pitch, cam.pitch + oy * 0.008));
+}
+
 export interface AutoSwing {
   enabled: boolean;
   period: number;   // 秒

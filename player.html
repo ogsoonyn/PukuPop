@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PukuPop Player の確認用</title>
+<!--
+  Player(src/player)の確認用のページ。開発用のサーバー(Vite)でだけ開く。本番のビルドの入口は index.html だけなので、ここは入らない。
+  開くとサンプルを読み込んで再生する。?e2e を付けると自動では読み込まず、E2E(tests/e2e/player.spec.ts)が window.playerDemo を使う。
+  スタイルはこの <style> だけ(アプリの CSS は読まない。Player が CSS を足さないことを確かめるため)。
+-->
+<style>
+  body { margin: 0; font: 14px/1.5 sans-serif; color: #222; background: #fafafa; }
+  main { padding: 16px; max-width: 720px; }
+  h1 { font-size: 16px; margin: 0 0 8px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+  button, select { font: inherit; padding: 4px 10px; }
+  button[aria-pressed="true"] { font-weight: bold; }
+  #box canvas { display: block; width: min(100%, 720px); aspect-ratio: 4 / 3; background: #ddd; }
+  #box.drop canvas { outline: 3px dashed #36c; }
+  #state { color: #555; font-size: 13px; }
+  #error { color: #b00; font-size: 13px; white-space: pre-wrap; }
+  #error:empty { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>PukuPop Player の確認用</h1>
+  <div class="bar" id="controls">
+    <button id="play" type="button">停止</button>
+    <button id="rebuild" type="button">作り直し</button>
+    <label>操作 <select id="interaction"><option value="view">view</option><option value="none">none</option></select></label>
+    <label>ファイル <input id="file" type="file" accept=".pukupop,.popstage"></label>
+  </div>
+  <div class="bar" id="favorites"></div>
+  <div id="box"><canvas id="c"></canvas></div>
+  <p id="state"></p>
+  <p id="error"></p>
+  <p>ドラッグで回す。Ctrl+ホイール・ピンチでズーム。.pukupop をドロップしても開ける。</p>
+</main>
+<script type="module" src="/src/player/demo.ts"></script>
+</body>
+</html>
