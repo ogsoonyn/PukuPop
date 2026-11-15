@@ -8,7 +8,7 @@ import { History, emptyHistory } from './commands/history';
 import type { Rect } from './model/weightmap';
 import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation } from './commands/commands';
 import type { Command } from './commands/history';
-import { captureFavorite, copyPhysics, sameLayer, nextFavoriteName, applyView, FAVORITE_NAME_MAX } from './model/favorites';
+import { captureFavorite, favoriteChanges, nextFavoriteName, applyView, FAVORITE_NAME_MAX } from './model/favorites';
 import { Stage, type ViewOptions } from './stage/stage';
 import { StageSwing, type BaseState } from './playback/stageSwing';
 import { LoopPlayback } from './playback/loopPlayback';
@@ -1151,24 +1151,19 @@ export class App extends Emitter<AppEvents> {
     const doc = this.doc, f = this.project.favorites.find(x => x.id === id);
     if (!doc || !f || !this.canEditFavorites) return;
     this.stopTake();
-    const label = `お気に入り「${f.name}」`, cam = this.project.camera, cmds: Command[] = [];
-    let missing = 0;
-    for (const fl of f.layers) {
-      const l = doc.layers.find(x => x.id === fl.id);
-      if (!l) { missing++; continue; }
-      if (!sameLayer(fl, l)) cmds.push(PatchLayer.from(this.store, l.id, { pop: fl.pop, blend: fl.blend, physics: copyPhysics(fl.physics) }, label));
-    }
-    const a = f.autoSwing, b = this.project.autoSwing;
-    if (a.enabled !== b.enabled || a.period !== b.period || a.strength !== b.strength) cmds.push(PatchProject.from(this.store, { autoSwing: { ...a } }, label));
-    if (f.take !== this.project.take) cmds.push(new SetTake(label, this.project.take, f.take));
-    if (f.camera.fov !== cam.fov) cmds.push(new SetFov(label, cam.fov, f.camera.fov));
+    // 何をどう変えるかは model/favorites.ts で決め、ここではアンドゥのコマンドにして1手で積む
+    const ch = favoriteChanges(f, this.project, doc), label = `お気に入り「${f.name}」`, cmds: Command[] = [];
+    for (const { id: layerId, patch } of ch.layers) cmds.push(PatchLayer.from(this.store, layerId, patch, label));
+    if (ch.autoSwing) cmds.push(PatchProject.from(this.store, { autoSwing: ch.autoSwing }, label));
+    if (ch.take !== undefined) cmds.push(new SetTake(label, this.project.take, ch.take));
+    if (ch.fov !== null) cmds.push(new SetFov(label, this.project.camera.fov, ch.fov));
     if (cmds.length) this.history.execute(new Batch(label, cmds));
     // 画角を変えると camera は新しいオブジェクトに差し替わるので、実行したあとの camera に当てる
-    applyView(this.project.camera, f.camera);
+    applyView(this.project.camera, ch.view);
     this.world.cutView(); // 視点が飛ぶだけなので揺らさない
     this.emit('status', undefined);
-    if (f.playing && this.project.take) this.playTake();
-    if (missing) toast(`「${f.name}」にあったレイヤーのうち ${missing} 枚は、もう無いので飛ばしました。`, 'info', 5000);
+    if (ch.play && this.project.take) this.playTake();
+    if (ch.missing) toast(`「${f.name}」にあったレイヤーのうち ${ch.missing} 枚は、もう無いので飛ばしました。`, 'info', 5000);
   }
 
   /* ---------- 物理と描画のループ ---------- */
