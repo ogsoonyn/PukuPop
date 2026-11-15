@@ -722,13 +722,21 @@ export class Stage {
     this.exportTarget?.dispose(); this.exportTarget = null;
   }
 
+  /**
+   * テクスチャ・ジオメトリ・レンダラを解放し、WebGL のコンテキストまで手放す(ブラウザのコンテキスト数の上限に当たらないように)。
+   * 編集アプリは呼ばない(Stage を作り直さない)。Player(src/player)が作り直すたびに呼ぶ。
+   * コンテキストを手放すと webglcontextlost が届くので、自分と three.js の受け口を先に外してから手放す(失われた扱いにしない)
+   */
   dispose(): void {
     this.readBuf = null;
+    this.onContextChange = null;
     this.canvas.removeEventListener('webglcontextlost', this.onLost);
     this.canvas.removeEventListener('webglcontextrestored', this.onRestored);
     this.mapTex?.dispose(); this.weightTex?.dispose(); this.exportTarget?.dispose();
-    this.mesh?.geometry.dispose(); this.material.dispose(); this.renderer.dispose();
+    this.mesh?.geometry.dispose(); this.material.dispose();
     this.ghostGeo?.dispose(); for (const m of this.ghostMats) m.dispose();
+    this.renderer.dispose(); // three.js の受け口もここで外れる
+    this.renderer.forceContextLoss();
   }
 }
 

@@ -110,3 +110,23 @@ export function favoriteChanges(f: Favorite, project: Project, doc: Document): F
     play: f.playing,
   };
 }
+
+/**
+ * favoriteChanges の結果を、アンドゥを通さずプロジェクトへ直接当てる(Player 用。編集アプリはアンドゥのコマンドにして当てる)。
+ * 当たり方は編集アプリと同じ: レイヤーの設定はコピーして入れ、画角は camera を差し替えて変え、視点はそのあとの camera に当てる。
+ * 再生を始めるか(play)・Stage へ当てるかは呼ぶ側が決める。設定を変えたレイヤーの id を返す(Stage へ当て直す分)
+ */
+export function applyFavoriteChanges(project: Project, doc: Document, ch: FavoriteChanges): string[] {
+  const changed: string[] = [];
+  for (const { id, patch } of ch.layers) {
+    const l = doc.layers.find(x => x.id === id);
+    if (!l) continue;
+    l.pop = patch.pop; l.blend = patch.blend; l.physics = copyPhysics(patch.physics);
+    changed.push(id);
+  }
+  if (ch.autoSwing) project.autoSwing = { ...ch.autoSwing };
+  if (ch.take !== undefined) project.take = ch.take;
+  if (ch.fov !== null) project.camera = { ...project.camera, fov: ch.fov };
+  applyView(project.camera, ch.view);
+  return changed;
+}

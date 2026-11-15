@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate';
 import { createDocument, createProject, createLayer, applyPreset, Store, LIMITS } from '../../src/model/project';
-import { captureFavorite, favoriteChanges, favoriteMatches, nextFavoriteName, samePhysics } from '../../src/model/favorites';
-import { SetFavorites } from '../../src/commands/commands';
+import { captureFavorite, favoriteChanges, favoriteMatches, nextFavoriteName, samePhysics, applyFavoriteChanges, applyView } from '../../src/model/favorites';
+import { SetFavorites, PatchLayer, PatchProject, SetTake, SetFov, Batch } from '../../src/commands/commands';
+import type { Command } from '../../src/commands/history';
 import { History } from '../../src/commands/history';
 import { serializeProject, deserializeProject, TAKE_PATH } from '../../src/storage/popstage';
 import { takeFromKeys, type Take } from '../../src/physics/take';
@@ -224,5 +225,60 @@ describe('お気に入りを当てるときに変えるもの(favoriteChanges)',
     expect(ch.fov).toBe(f.camera.fov);
     expect(ch.play).toBe(false);
     expect(removed.id).toBe(f.layers[0].id);
+  });
+});
+
+describe('お気に入りをアンドゥを通さずに当てる(applyFavoriteChanges。Player 用)', () => {
+  /** 編集アプリ(App.applyFavorite)と同じ並びで、アンドゥのコマンドにして当てる */
+  const viaCommands = (store: Store, id: string) => {
+    const p = store.project, doc = p.documents[0], f = p.favorites.find(x => x.id === id)!;
+    const ch = favoriteChanges(f, p, doc), cmds: Command[] = [];
+    for (const { id: layerId, patch } of ch.layers) cmds.push(PatchLayer.from(store, layerId, patch));
+    if (ch.autoSwing) cmds.push(PatchProject.from(store, { autoSwing: ch.autoSwing }));
+    if (ch.take !== undefined) cmds.push(new SetTake('x', p.take, ch.take));
+    if (ch.fov !== null) cmds.push(new SetFov('x', p.camera.fov, ch.fov));
+    new Batch('x', cmds).apply(store);
+    applyView(store.project.camera, ch.view);
+  };
+  const state = (p: ReturnType<typeof makeProject>) => ({
+    layers: p.documents[0].layers.map(l => ({ id: l.id, pop: l.pop, blend: l.blend, physics: l.physics })),
+    autoSwing: p.autoSwing, take: p.take, camera: p.camera,
+  });
+
+  it('編集アプリがアンドゥのコマンドで当てたのと同じ状態になり、設定を変えたレイヤーの id を返す', async () => {
+    const p = makeProject(), doc = p.documents[0], t = makeTake(1);
+    doc.layers[0].physics = applyPreset(doc.layers[0].physics, 'tame');
+    doc.layers[1].pop = 400; doc.layers[1].blend = 'max';
+    p.autoSwing = { enabled: true, period: 3, strength: 0.9 };
+    p.take = t;
+    p.camera = { fov: 30, yaw: 0.5, pitch: 0.2, roll: 0.1, zoom: 1.5, target: { x: 5, y: 6, z: 7 } };
+    const f = captureFavorite(p, doc, { name: 'a', playing: true });
+    p.favorites = [f];
+    // 保存して読み直した2つに、それぞれ違う当て方をする(同じ所から始める)
+    const bytes = serializeProject(p);
+    const a = (await deserializeProject(bytes)).project, b = (await deserializeProject(bytes)).project;
+    for (const q of [a, b]) {
+      const d = q.documents[0];
+      d.layers[0].physics = applyPreset(d.layers[0].physics, 'puru');
+      d.layers[1].pop = 10;
+      q.autoSwing = { enabled: false, period: 1, strength: 0.2 };
+      q.take = null;
+      q.camera = { fov: 50, yaw: -1, pitch: 0, roll: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } };
+    }
+    viaCommands(new Store(a), f.id);
+    const changed = applyFavoriteChanges(b, b.documents[0], favoriteChanges(b.favorites[0], b, b.documents[0]));
+    expect(state(b)).toEqual(state(a));
+    expect(changed).toEqual(b.documents[0].layers.map(l => l.id));
+    expect(b.camera.fov).toBe(30);
+    expect(b.take).not.toBeNull();
+  });
+
+  it('当てたあとにお気に入りの中身を変えても、レイヤーの設定は共有しない', () => {
+    const p = makeProject(), doc = p.documents[0];
+    const f = captureFavorite(p, doc, { name: 'a', playing: false });
+    doc.layers[0].physics = applyPreset(doc.layers[0].physics, 'tame');
+    applyFavoriteChanges(p, doc, favoriteChanges(f, p, doc));
+    expect(doc.layers[0].physics).not.toBe(f.layers[0].physics);
+    expect(samePhysics(doc.layers[0].physics, f.layers[0].physics)).toBe(true);
   });
 });
