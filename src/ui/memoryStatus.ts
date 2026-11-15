@@ -4,18 +4,27 @@
  */
 import type { App } from '../app';
 import { formatBytes, type MemoryUsage } from '../model/memory';
+import { storageInfo, type StorageInfo } from '../storage/persist';
 import { ui } from './ids';
 
 export function bindMemoryStatus(app: App): void {
   const root = ui.sMem.parentElement!;
   let lastText = '';
+  // ブラウザの保存領域は非同期で調べる。開いたとき(と、開いている間は 5 秒おき)に調べ直す
+  let storage: StorageInfo | null = null, storageAt = 0;
+  const refreshStorage = () => {
+    const now = performance.now();
+    if (now - storageAt < 5000) return;
+    storageAt = now;
+    void storageInfo().then(s => { storage = s; });
+  };
 
   const refresh = () => {
     if (!ui.sMem.offsetParent) return; // スマホ・UIを隠すでステータスバーが出ていない
     const m = app.memoryUsage();
     const text = `メモリ 約 ${formatBytes(m.total)}`;
     if (text !== lastText) { ui.sMem.textContent = text; lastText = text; }
-    if (root.matches(':focus-within')) renderDetail(m, app.history.options.maxBytes);
+    if (root.matches(':focus-within')) { refreshStorage(); renderDetail(m, app.history.options.maxBytes, storage); }
   };
   app.on('fps', refresh);
   app.on('tabs', refresh);
@@ -28,7 +37,7 @@ export function bindMemoryStatus(app: App): void {
   });
 }
 
-function renderDetail(m: MemoryUsage, historyLimit: number): void {
+function renderDetail(m: MemoryUsage, historyLimit: number, storage: StorageInfo | null): void {
   const box = ui.sMemDetail;
   const rows: [string, string][] = [
     ['画像・ウェイト', formatBytes(m.data)],
@@ -58,6 +67,12 @@ function renderDetail(m: MemoryUsage, historyLimit: number): void {
       m.tabs.map(t => [`${t.active ? '● ' : ''}${t.name || '(名前なし)'}`, formatBytes(t.data), formatBytes(t.history), formatBytes(t.render)])));
   }
   if (m.heap) parts.push(title('JS のヒープ(ブラウザの計測)'), table([], [['使用中', `${formatBytes(m.heap.used)} / 上限 ${formatBytes(m.heap.limit)}`]]));
+  if (storage) {
+    parts.push(title('ブラウザの保存領域'), table([], [
+      ['残している量', `${formatBytes(storage.usage)} / 使える量 ${formatBytes(storage.quota)}`],
+      ['消されないよう頼んだ', storage.persisted === null ? '分かりません' : storage.persisted ? '通っています' : 'まだ通っていません'],
+    ]));
+  }
   parts.push(note);
   box.replaceChildren(...parts);
 }

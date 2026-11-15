@@ -1,7 +1,7 @@
 /** E2E: 保存・自動保存・ファイルを開く・最近開いたファイル */
 import { test, expect, type Page } from '@playwright/test';
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
-import { watchGlErrors, boot, weightSum, dragOnStage, autosaveOp } from './helpers';
+import { watchGlErrors, boot, weightSum, dragOnStage, autosaveOp, nextFrames } from './helpers';
 
 watchGlErrors();
 
@@ -113,6 +113,9 @@ test('自動保存は塗った内容を反映し、失敗したらステータ�
   });
   await page.evaluate(() => (window as any).popstage.store.patchLayer((window as any).popstage.activeLayerId, { pop: 33 }));
   await expect(page.locator('#sSave')).toContainText('自動保存に失敗しました', { timeout: 10000 });
+  // 容量不足は、ブラウザの文言ではなく分かる言葉で出る
+  await expect(page.locator('#sSave')).toContainText('ブラウザの保存領域が足りません。ファイルに保存してください。');
+  await expect(page.locator('#sSave')).not.toContainText('容量が足りません');
   // ファイルへ保存できたら、失敗の案内は消える
   await page.evaluate(async () => {
     const a = (window as any).popstage;
@@ -402,4 +405,55 @@ test('最近開いたファイル: ファイルの場所を覚えて開き直し
   await page.locator('#askYes').click();
   await expect(cards.locator('.recent-name')).toHaveText(['work.popstage']);
   expect(await page.evaluate(() => (window as any).popstage.fileName)).toBe('work.popstage');
+});
+
+test('保存領域の永続化は、最初の自動保存のあとに1回だけ頼む(起動直後・通っているときは頼まない)', async ({ page }) => {
+  // ページの中で persist / persisted を差し替える(起動前に入れ、呼ばれた回数を数える)
+  await page.addInitScript(() => {
+    const w = window as any;
+    w.__persistCalls = 0;
+    w.__persisted = false;
+    Object.defineProperty(navigator, 'storage', {
+      configurable: true,
+      value: { persist: async () => { w.__persistCalls++; return false; }, persisted: async () => w.__persisted, estimate: async () => ({ usage: 1e6, quota: 1e9 }) },
+    });
+  });
+  await boot(page);
+  const calls = () => page.evaluate(() => (window as any).__persistCalls as number);
+  // 起動直後は頼まない
+  await nextFrames(page);
+  expect(await calls()).toBe(0);
+  // 塗って自動保存が通ると、1回だけ頼む
+  await page.evaluate(() => (window as any).popstage.setTool('brush'));
+  await dragOnStage(page, [0.45, 0.5], [0.55, 0.5]);
+  await expect.poll(async () => (await autosaveOp(page, 'list') as string[]).length, { timeout: 10000 }).toBe(1);
+  await expect.poll(calls, { timeout: 10000 }).toBe(1);
+  // 断られた日時を覚える
+  await expect.poll(() => page.evaluate(() => typeof JSON.parse(localStorage.getItem('popstage.prefs.v1') ?? '{}').storagePersistDeniedAt), { timeout: 5000 }).toBe('number');
+  // さらに保存しても、頼み直さない
+  await dragOnStage(page, [0.3, 0.3], [0.4, 0.4]);
+  await page.evaluate(async () => {
+    const a = (window as any).popstage;
+    a.fileHandle = { name: 'x.popstage', createWritable: async () => ({ write: async () => {}, close: async () => {} }) };
+    await a.save();
+  });
+  await nextFrames(page);
+  expect(await calls()).toBe(1);
+});
+
+test('保存領域がすでに永続化されていれば、頼まない', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as any;
+    w.__persistCalls = 0;
+    Object.defineProperty(navigator, 'storage', {
+      configurable: true,
+      value: { persist: async () => { w.__persistCalls++; return true; }, persisted: async () => true, estimate: async () => ({ usage: 1e6, quota: 1e9 }) },
+    });
+  });
+  await boot(page);
+  await page.evaluate(() => (window as any).popstage.setTool('brush'));
+  await dragOnStage(page, [0.45, 0.5], [0.55, 0.5]);
+  await expect.poll(async () => (await autosaveOp(page, 'list') as string[]).length, { timeout: 10000 }).toBe(1);
+  await nextFrames(page);
+  expect(await page.evaluate(() => (window as any).__persistCalls)).toBe(0);
 });

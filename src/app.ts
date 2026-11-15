@@ -17,6 +17,7 @@ import { Stroke, type PaintMode } from './paint/stroke';
 import { inflateShape, type InflateProfile, type InflateBlend } from './paint/inflate';
 import { serializeProject, serializeProjectBlob, deserializeProject, FILE_EXTENSION, type PngCacheEntry } from './storage/popstage';
 import { autosave } from './storage/autosave';
+import { autosaveFailureReason, isQuotaExceeded, QUOTA_MESSAGE, requestPersistOnce } from './storage/persist';
 import { recent, type RecentKind } from './storage/recent';
 import { prefs } from './storage/prefs';
 import { runExport, type ExportSettings } from './export/exporter';
@@ -935,6 +936,7 @@ export class App extends Emitter<AppEvents> {
       this.emit('tabs', undefined);
       toast(h ? `「${h.name}」に保存しました。` : `「${tab.fileName}」をダウンロードしました。`, 'success');
       void this.remember('project', tab.fileName ?? this.suggestedName(tab), bytes.byteLength, h, () => bytes, thumb);
+      void requestPersistOnce();
       return true;
     } catch (e) {
       toast(`保存できませんでした: ${e instanceof Error ? e.message : e}`, 'error', 6000);
@@ -954,9 +956,9 @@ export class App extends Emitter<AppEvents> {
       if (unsettled()) { this.scheduleAutosave(tab); return; }
       const fail = (e: unknown) => {
         console.warn('autosave failed', e);
-        tab.autosaveError = e instanceof Error ? e.message : String(e);
+        tab.autosaveError = autosaveFailureReason(e);
         // 裏のタブの失敗はステータスバーに出ないので、その場で知らせる
-        if (tab !== this.tab) toast(`「${this.tabName(tab)}」の自動保存に失敗しました(${tab.autosaveError})。そのタブを保存してください。`, 'error', 8000);
+        if (tab !== this.tab) toast(isQuotaExceeded(e) ? `「${this.tabName(tab)}」の自動保存に失敗しました。${QUOTA_MESSAGE}` : `「${this.tabName(tab)}」の自動保存に失敗しました(${tab.autosaveError})。そのタブを保存してください。`, 'error', 8000);
         this.emit('status', undefined);
       };
       // 直列化は重いので、操作の合間(アイドル時間)に行う
@@ -970,6 +972,7 @@ export class App extends Emitter<AppEvents> {
           const run = autosave.save(tab.id, { savedAt: Date.now(), name: this.suggestedName(tab), bytes, order: tab.order })
             .then(() => {
               tab.lastAutosave = new Date(); tab.autosaveError = null; this.emit('status', undefined);
+              void requestPersistOnce();
               // 書き込んでいる間にタブを閉じたら、書いた分を消す
               if (!this.tabs.includes(tab)) return autosave.clear(tab.id);
             }, fail);
