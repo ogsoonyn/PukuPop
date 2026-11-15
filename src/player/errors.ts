@@ -9,7 +9,7 @@ import { NewerFormatError } from '../storage/popstage';
  * - 'aborted': options.signal で取り消された
  * - 'invalid-file': 読めない・壊れているファイル(ZIP でない、project.json が無い・不正、画像やウェイトが壊れている、上限を超えるなど)
  * - 'unsupported-version': このプレーヤーより新しい版の形式で保存されている
- * - 'canvas-unusable': キャンバスが使えない(dispose() したキャンバス・ほかのライブラリが WebGL を手放したキャンバス、ほかの Player が使っている)
+ * - 'canvas-unusable': キャンバスが使えない(dispose() したキャンバス・ほかのライブラリが WebGL を手放したキャンバス、2D などほかの用途で使われている、ほかの Player が使っている)
  * - 'webgl-unavailable': WebGL2 を使えない(ブラウザ・端末が対応していない、作れない)
  */
 export type PlayerErrorCode = 'aborted' | 'invalid-file' | 'unsupported-version' | 'canvas-unusable' | 'webgl-unavailable';

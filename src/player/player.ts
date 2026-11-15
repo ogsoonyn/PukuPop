@@ -116,6 +116,7 @@ const VIEW: ViewOptions = { overlay: false, overlayAll: false, grid: false, fade
 
 const IN_USE = 'このキャンバスはほかの Player が使っています。先に dispose() するか、新しい canvas を渡してください。';
 const LOST = 'このキャンバスはもう使えません。新しい canvas を渡してください。';
+const OTHER_USE = 'このキャンバスはほかの用途(2D の描画など)で使われています。新しい canvas を渡してください。';
 
 /**
  * .pukupop のバイト列を読み、canvas に描く Player を作る。失敗したときは code 付きの PlayerError で失敗する
@@ -180,17 +181,33 @@ function createStage(canvas: HTMLCanvasElement): Stage {
     stage = new Stage(canvas);
     if (canvas.width !== attrs[0] || canvas.height !== attrs[1]) { canvas.width = attrs[0]; canvas.height = attrs[1]; }
   } catch (e) {
-    // three.js が投げた。すでにあるコンテキストが失われているなら使えないキャンバス、そうでなければ WebGL2 を作れない
-    // (ここでの getContext は、作られていれば今のコンテキストを返すだけで、新しくは作らない。作れない環境では null)
-    let lost = false;
-    try { lost = !!canvas.getContext('webgl2')?.isContextLost(); } catch { /* 2D などほかの種類で使われている */ }
-    throw lost ? new PlayerError('canvas-unusable', LOST, { cause: e }) : new PlayerError('webgl-unavailable', 'WebGL2 を使えないため、表示できません。', { cause: e });
+    throw unusableOrUnavailable(canvas, e);
   }
   if (stage.renderer.getContext().isContextLost()) {
     stage.dispose();
     throw new PlayerError('canvas-unusable', LOST);
   }
   return stage;
+}
+
+/**
+ * three.js が投げたときに、このキャンバスが使えないのか、この環境で WebGL2 を作れないのかを見分ける。
+ * - すでに WebGL2 のコンテキストがあり、失われている: 使えないキャンバス(ほかのライブラリが手放した)
+ * - getContext('webgl2') が null: 2D・WebGL1 などほかの種類で使われているか、WebGL2 を作れない環境。
+ *   文書につないでいない使い捨ての <canvas> で WebGL2 を作れるか確かめ、作れればこのキャンバスがほかの用途で使われている
+ *   (使い捨ての canvas は文書に足さないので、キャンバスの外には触らない。作ったコンテキストはすぐ手放す)
+ * ここでの getContext は、すでにコンテキストがあればそれを返すだけで、新しくは作らない(three.js が作れなかったキャンバスなので)
+ */
+function unusableOrUnavailable(canvas: HTMLCanvasElement, cause: unknown): PlayerError {
+  const unavailable = new PlayerError('webgl-unavailable', 'WebGL2 を使えないため、表示できません。', { cause });
+  let gl: WebGL2RenderingContext | null = null;
+  try { gl = canvas.getContext('webgl2'); } catch { return unavailable; }
+  if (gl) return gl.isContextLost() ? new PlayerError('canvas-unusable', LOST, { cause }) : unavailable;
+  let probe: WebGL2RenderingContext | null = null;
+  try { probe = canvas.ownerDocument.createElement('canvas').getContext('webgl2'); } catch { /* 作れない */ }
+  if (!probe) return unavailable;
+  probe.getExtension('WEBGL_lose_context')?.loseContext();
+  return new PlayerError('canvas-unusable', OTHER_USE, { cause });
 }
 
 /** 表示用の画像を、この環境のテクスチャの上限に収める(上限は WebGL を作るまで分からないので、デコードは DISPLAY_MAX で済ませておく) */

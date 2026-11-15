@@ -561,9 +561,9 @@ test('React の StrictMode の手順(作る → すぐ取り消す → 同じキ
   expect(await read<boolean>(page, 'player.playing')).toBe(true);
 });
 
-test('失敗は code 付き: 壊れたファイル・新しい版・画像が壊れたファイル・取り消し・WebGL2 が無い。読み込みの失敗ではキャンバスは使えるまま', async ({ page }) => {
+test('失敗は code 付き: 壊れたファイル・新しい版・画像が壊れたファイル・取り消し・WebGL2 が無い・2D で使われたキャンバス。読み込みの失敗ではキャンバスは使えるまま', async ({ page }) => {
   await open(page);
-  const outcomes = await page.evaluate(async () => {
+  const result = await page.evaluate(async () => {
     const d = (window as any).playerDemo, m = await d.load(), c = d.canvas(), good = await d.sample({});
     const reason = (p: Promise<{ dispose(): void }>) => p.then(x => { x.dispose(); return 'ok'; }, (e: any) => (e instanceof m.PlayerError ? [e.code, e.message] : ['?', String(e)]));
     const ac = new AbortController(), during = m.createPlayer(c, good, { signal: ac.signal });
@@ -571,17 +571,35 @@ test('失敗は code 付き: 壊れたファイル・新しい版・画像が壊
     ac.abort();
     const before = new AbortController();
     before.abort();
-    const noGl = document.createElement('canvas');
-    noGl.getContext = (() => null) as any; // WebGL2 を作れない環境の代わり
-    return [
+    // WebGL2 を作れない環境の代わり。プロトタイプで差し替えるので、Player が確かめに作る使い捨ての canvas でも null になる
+    // (読み込み・デコードが済んで Stage を作る所でだけ差し替え、すぐ戻す)
+    const noGl = async () => {
+      const proto = HTMLCanvasElement.prototype as any, get = proto.getContext, probes: string[] = [];
+      proto.getContext = function (this: HTMLCanvasElement, type: string, ...a: unknown[]) {
+        if (type === 'webgl2') { probes.push(this.isConnected ? 'canvas' : 'probe'); return null; }
+        return get.call(this, type, ...a);
+      };
+      const fresh = document.createElement('canvas');
+      fresh.style.cssText = 'width:160px;height:120px';
+      document.body.append(fresh);
+      try { return [await reason(m.createPlayer(fresh, good)), probes] as const; } finally { proto.getContext = get; fresh.remove(); }
+    };
+    // 2D の描画で使われているキャンバス(getContext('webgl2') は例外を投げずに null を返す)
+    const used2d = document.createElement('canvas');
+    used2d.style.cssText = 'width:160px;height:120px';
+    document.body.append(used2d);
+    used2d.getContext('2d');
+    const r = [
       await reason(m.createPlayer(c, new Uint8Array([1, 2, 3]))),
       await reason(m.createPlayer(c, d.withFormatVersion(good, 99).buffer)),
       await reason(m.createPlayer(c, d.withBrokenImage(good))),
       await reason(during),
       await reason(m.createPlayer(c, good, { signal: before.signal })),
-      await reason(m.createPlayer(noGl, good)),
     ] as Outcome[];
+    const [unavailable, probes] = await noGl();
+    return { r, unavailable, probes, used2d: await reason(m.createPlayer(used2d, good)) };
   });
+  const { r: outcomes } = result;
   expect(outcomes[0]).toEqual(['invalid-file', 'プロジェクトファイルを展開できませんでした(壊れているか、形式が違います)']);
   expect(outcomes[1][0]).toBe('unsupported-version');
   expect(outcomes[1][1]).toContain('このファイルは新しい版(99)で保存されています。');
@@ -589,7 +607,11 @@ test('失敗は code 付き: 壊れたファイル・新しい版・画像が壊
   expect(outcomes[2][1]).toContain('画像を読み込めませんでした');
   expect(outcomes[3]).toEqual(['aborted', '読み込みを取り消しました']);
   expect(outcomes[4]).toEqual(['aborted', '読み込みを取り消しました']);
-  expect(outcomes[5]).toEqual(['webgl-unavailable', 'WebGL2 を使えないため、表示できません。']);
+  expect(result.unavailable).toEqual(['webgl-unavailable', 'WebGL2 を使えないため、表示できません。']);
+  // three.js が渡したキャンバスで試したあと、使い捨ての canvas(文書につないでいない)でも確かめている
+  expect(result.probes.at(-1)).toBe('probe');
+  expect(result.probes).toContain('canvas');
+  expect(result.used2d).toEqual(['canvas-unusable', 'このキャンバスはほかの用途(2D の描画など)で使われています。新しい canvas を渡してください。']);
   // 失敗・取り消しのあとも、同じキャンバスで作れる(WebGL を作る前に失敗しているので)
   await create(page, {});
   await expect.poll(async () => drawn(await snap(page))).toBe(true);
