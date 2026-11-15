@@ -1426,6 +1426,23 @@ export class App extends Emitter<AppEvents> {
     this.stage.setBaseOffset({ x: g.x * k, y: g.y * k, z: g.z * k });
   };
 
+  /**
+   * 静止画の書き出し用。画面の物理(今見えている揺れ)を Stage へ戻し、撮る視点を返す。
+   * 画像全体の動き(ピストン)は、画面と同じく showBase でならした値にする。
+   * ループ再生中は、記録の視点(playView)で撮る。画面は画像のほうを rig で動かして映しているが、renderFrame は rig を外して
+   * 画像を元の置き場所に置くので、今の視点(project.camera)で撮ると画像が動いていない絵になる。見る視点を再生の基準の
+   * 視点のまま動かしていなければ、記録の視点で撮った絵は画面と同じになる(縦横比が画面と同じとき。動かしていれば、ループ再生の書き出しと同じ撮影カメラの絵)
+   */
+  currentShot = (): CameraState => {
+    const doc = this.doc;
+    if (doc) {
+      this.applySwing(this.world, doc);
+      this.stage.setBaseOffset(this.base.shown);
+    }
+    const c = this.playView ?? this.project.camera;
+    return { ...c, target: { ...c.target } };
+  };
+
   /** 物理に渡すレイヤーの重心(正規化座標)。回転で揺れる大きさを決める */
   centerOf = (l: Layer): { x: number; y: number } => {
     const doc = this.doc;
@@ -1804,7 +1821,7 @@ export class App extends Emitter<AppEvents> {
     this.flushWeights();
     this.emit('status', undefined);
     try {
-      return await runExport({ stage: this.stage, store: this.store, recorder: this.recorder, applySwing: this.applySwing, centerOf: this.centerOf }, s, onProgress, signal);
+      return await runExport({ stage: this.stage, store: this.store, recorder: this.recorder, applySwing: this.applySwing, centerOf: this.centerOf, currentShot: this.currentShot }, s, onProgress, signal);
     } finally {
       this.stage.releaseExportBuffers();
       this.exporting = false;

@@ -29,6 +29,11 @@ export interface ExportContext {
   applySwing: (world: PhysicsWorld, doc: Document) => void;
   /** レイヤーの重心(正規化座標。App と同じ値) */
   centerOf: (layer: Layer) => { x: number; y: number };
+  /**
+   * 静止画(still)用。画面の物理(今見えている揺れ)を Stage へ戻し、撮る視点を返す(App の currentShot)。
+   * 書き出し専用の物理は慣らさず、今の姿をそのまま撮る
+   */
+  currentShot?: () => CameraState;
 }
 
 export interface ExportResult { blob: Blob; filename: string; frames: number }
@@ -50,6 +55,8 @@ export async function runExport(
   const info = FORMAT_INFO[s.format];
   const background = info.alpha ? s.background : (s.background ?? '#ffffff');
   const project = ctx.store.project;
+
+  if (s.format === 'still') return exportStill(ctx, width, height, background, doc.name);
 
   // 書き出し専用の物理。画面側の状態には触れない
   const world = new PhysicsWorld();
@@ -103,10 +110,20 @@ export async function runExport(
       if (f % 4 === 3) await new Promise(r => setTimeout(r, 0));
     }
     const blob = await encoder.finish();
-    const base = (doc.name || 'pukupop').replace(/\.[^.]+$/, '');
-    return { blob, filename: `${base}.${info.ext}`, frames: total };
+    return { blob, filename: fileName(doc.name, info.ext), frames: total };
   } catch (e) {
     await encoder.cancel();
     throw e;
   }
+}
+
+const fileName = (name: string, ext: string) => `${(name || 'pukupop').replace(/\.[^.]+$/, '')}.${ext}`;
+
+/** 今の視点・今画面に出ている揺れの状態を1枚の PNG にする。長さ・fps・動きの元は使わない */
+async function exportStill(ctx: ExportContext, width: number, height: number, background: string | null, name: string): Promise<ExportResult> {
+  if (!ctx.currentShot) throw new Error('静止画を書き出せません');
+  const camera = ctx.currentShot();
+  const encoder = createEncoder('still', { width, height, fps: 1, transparent: background === null });
+  await encoder.addFrame(ctx.stage.renderFrame(width, height, camera, background), 0);
+  return { blob: await encoder.finish(), filename: fileName(name, FORMAT_INFO.still.ext), frames: 1 };
 }
