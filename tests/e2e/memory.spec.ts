@@ -4,6 +4,9 @@ import { boot, watchGlErrors, dragOnStage } from './helpers';
 watchGlErrors();
 
 test('ステータスバーにメモリの見積もりを出し、押すと内訳を出す', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'storage', { configurable: true, value: { persist: async () => false, persisted: async () => false, estimate: async () => ({ usage: 5e6, quota: 2e9 }) } });
+  });
   await boot(page);
   const mem = page.locator('#sMem');
   await expect(mem).toHaveText(/^メモリ 約 [\d.]+(KB|MB|GB)$/);
@@ -25,6 +28,8 @@ test('ステータスバーにメモリの見積もりを出し、押すと内�
   await expect(detail).toContainText('合計 約');
   await expect(detail).toContainText('アンドゥ');
   await expect(detail).toContainText('JS のヒープ');
+  await expect(detail).toContainText('ブラウザの保存領域');
+  await expect(detail).toContainText('空きが減っても消さない');
   // Esc で閉じる
   await page.keyboard.press('Escape');
   await expect(detail).toBeHidden();
