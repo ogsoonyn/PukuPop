@@ -494,6 +494,11 @@ test.describe('PC の配置', () => {
     // 横に引くと、引いた分だけ動く
     await swipe(cdp, [[b.x + b.width * 0.2, y]], [[b.x + b.width * 0.4, y]], 10);
     expect(await pop()).toBeGreaterThan(v0);
+    // 指を離した直後でも、キーボードで動かした分は効く
+    const vk = await pop();
+    await range.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(pop).not.toBe(vk);
     const v1 = await pop();
     // マウスを動かすとブラウザのスライダーに戻り、押した所へ値が移る
     await page.mouse.move(b.x + b.width * 0.5, y - 40);

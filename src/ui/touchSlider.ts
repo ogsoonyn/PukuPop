@@ -15,13 +15,17 @@ const DECIDE = 8;
 const SLOP = 4;
 const CLASS = 'touch-sliders';
 
-/** 指の位置にあるスライダー(はみ出しの幅を含む。重なるときは縦の中心がいちばん近いもの)。上に別の部品(ダイアログなど)が重なっていれば拾わない */
+/**
+ * 指の位置にあるスライダー(はみ出しの幅を含む。重なるときは縦の中心がいちばん近いもの)。
+ * 上に別のダイアログ・パネルが重なっていれば拾わない(触った所とスライダーが、同じダイアログの中か、どちらもダイアログの外のときだけ拾う)
+ */
 function sliderAt(x: number, y: number): HTMLInputElement | null {
   const hit = document.elementFromPoint(x, y);
   if (!hit) return null;
+  const layer = hit.closest('dialog');
   let best: HTMLInputElement | null = null, bestD = Infinity;
   for (const el of document.querySelectorAll<HTMLInputElement>('input[type=range]')) {
-    if (el.disabled || !el.parentElement?.contains(hit)) continue;
+    if (el.disabled || el.closest('dialog') !== layer) continue;
     const r = el.getBoundingClientRect();
     if (!r.width || x < r.left || x > r.right || y < r.top - SLOP || y > r.bottom + SLOP) continue;
     const d = Math.abs(y - (r.top + r.bottom) / 2);
@@ -51,26 +55,30 @@ export function bindTouchSliders(mobile: () => boolean): void {
   addEventListener('resize', () => requestAnimationFrame(sync));
   const active = () => root.classList.contains(CLASS);
 
-  let g: { id: number; el: HTMLInputElement; x: number; y: number; v: number; w: number; range: number; on: boolean; sent: boolean; cur: number } | null = null;
+  let g: { id: number; el: HTMLInputElement; x: number; y: number; v: number; w: number; range: number; on: boolean; sent: boolean; cur: number; native: boolean } | null = null;
   /**
    * マウスの後で初めて指で触ったときは、切り替えが間に合わず、ブラウザのスライダーが指を受けてしまう。
-   * そのときは、ブラウザが送る input・change を止め、値をこちらで決めた値に戻す(この指を離すまでと、離した直後の change)
+   * そのときは(native)、ブラウザが送る input・change を止め、値をこちらで決めた値に戻す(この指を離すまでと、離した直後の change)。
+   * ふだんの指(ブラウザのスライダーが受けていない)では何もしない(キーボードで動かした分を止めないように)
    */
   let swallow: { el: HTMLInputElement; value: number; until: number; id: number } | null = null;
   for (const t of ['input', 'change'] as const) addEventListener(t, e => {
-    if (!e.isTrusted || !touch) return; // マウス・ペンで動かした分は止めない
-    const el = g?.el ?? (swallow && performance.now() < swallow.until ? swallow.el : null);
+    if (!e.isTrusted) return;
+    const held = g?.native ? g : null;
+    const el = held?.el ?? (swallow && performance.now() < swallow.until ? swallow.el : null);
     if (!el || e.target !== el) return;
     e.stopImmediatePropagation();
-    el.value = String(g ? g.cur : swallow!.value);
+    el.value = String(held ? held.cur : swallow!.value);
   }, true);
   addEventListener('pointerdown', e => {
     if (!active() || g || !e.isPrimary || e.button !== 0) return;
     const t = e.target as Element | null;
-    const el = t instanceof HTMLInputElement && t.type === 'range' && !t.disabled ? t : sliderAt(e.clientX, e.clientY);
+    // スライダーそのものに当たったときは、ブラウザのスライダーが指を受けている(マウスの後の最初の指)
+    const native = e.pointerType === 'touch' && t instanceof HTMLInputElement && t.type === 'range' && !t.disabled;
+    const el = native ? t : sliderAt(e.clientX, e.clientY);
     if (!el) return;
     const min = el.min === '' ? 0 : +el.min, max = el.max === '' ? 100 : +el.max;
-    g = { id: e.pointerId, el, x: e.clientX, y: e.clientY, v: +el.value, w: Math.max(1, el.getBoundingClientRect().width), range: max - min, on: false, sent: false, cur: +el.value };
+    g = { id: e.pointerId, el, x: e.clientX, y: e.clientY, v: +el.value, w: Math.max(1, el.getBoundingClientRect().width), range: max - min, on: false, sent: false, cur: +el.value, native };
   });
   addEventListener('pointermove', e => {
     if (!g || e.pointerId !== g.id) return;
@@ -79,8 +87,8 @@ export function bindTouchSliders(mobile: () => boolean): void {
       if (Math.hypot(dx, dy) < DECIDE) return;
       // 縦ならスクロールに任せる(ブラウザがスクロールを始めると pointercancel が来る)
       if (Math.abs(dy) >= Math.abs(dx)) {
-        // ブラウザのスライダーが指を受けているときのため、離すまで値を戻し続ける
-        swallow = { el: g.el, value: g.cur, until: Infinity, id: g.id };
+        // ブラウザのスライダーが指を受けているときは、離すまで値を戻し続ける
+        if (g.native) swallow = { el: g.el, value: g.cur, until: Infinity, id: g.id };
         g = null;
         return;
       }
@@ -105,10 +113,12 @@ export function bindTouchSliders(mobile: () => boolean): void {
       swallow.until = performance.now() + 500;
     }
     if (!g || e.pointerId !== g.id) return;
-    const { el, sent, cur } = g;
+    const { el, sent, cur, native } = g;
     g = null;
-    if (el.value !== String(cur)) el.value = String(cur);
-    swallow = { el, value: cur, until: performance.now() + 500, id: e.pointerId };
+    if (native) {
+      if (el.value !== String(cur)) el.value = String(cur);
+      swallow = { el, value: cur, until: performance.now() + 500, id: e.pointerId };
+    }
     // input を送ったら、元の値に戻して離したときも change を送る(受け手は input の始まりから change までを1手にまとめるため)
     if (sent) el.dispatchEvent(new Event('change', { bubbles: true }));
   };
