@@ -37,9 +37,11 @@ test('コピーした画像を貼り付けると開く。変更済みなら新�
 test('文字を打つ欄への貼り付けでは開かず、貼り付けも止めない', async ({ page }) => {
   await boot(page);
   await page.evaluate(() => { const i = document.createElement('input'); i.id = 'pasteField'; i.type = 'text'; document.body.append(i); });
-  const name = await activeName(page);
+  const name = await activeName(page), tabs = await tabCount(page);
   expect(await paste(page, '#pasteField')).toBe(false);
-  // 比較のため、欄の外では開くことを続けて確かめる(欄で開く処理が走っていれば、先に名前が変わっている)
+  // 貼り付けた後も、タブの数と表のタブの名前は変わらない(欄で開く処理が走っていれば、どちらかが変わる)
+  await expect.poll(async () => [await tabCount(page), await activeName(page)]).toEqual([tabs, name]);
+  // 比較のため、欄の外では開くことを続けて確かめる(開く処理が動くなら、名前が変わる)
   expect(await paste(page, 'body')).toBe(true);
   await expect.poll(() => activeName(page)).toBe('貼り付けた画像.png');
   expect(name).not.toBe('貼り付けた画像.png');

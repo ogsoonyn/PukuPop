@@ -133,6 +133,9 @@ async function exportStill(ctx: ExportContext, width: number, height: number, ba
   if (!ctx.currentShot) throw new Error('静止画を書き出せません');
   const camera = ctx.currentShot();
   const encoder = createEncoder('still', { width, height, fps: 1, transparent: background === null });
-  await encoder.addFrame(ctx.stage.renderFrame(width, height, camera, background), 0);
+  let rgba: Uint8ClampedArray;
+  try { rgba = ctx.stage.renderFrame(width, height, camera, background); }
+  catch (e) { if ((e as Error).name === 'ContextLostError') throw new Error(CONTEXT_LOST_MESSAGE); throw e; }
+  await encoder.addFrame(rgba, 0);
   return { blob: await encoder.finish(), filename: fileName(name, FORMAT_INFO.still.ext), frames: 1 };
 }

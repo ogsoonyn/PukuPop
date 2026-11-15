@@ -86,13 +86,16 @@ export class ApngWriter {
     this.count++;
   }
 
-  /** 組み立てた APNG。1枚も無ければ例外 */
-  finish(): Uint8Array {
+  /** 組み立てた APNG を、つなぐ前の部品の並びで返す(Blob にそのまま渡せる。全体をもう1回写さない)。1枚も無ければ例外 */
+  finishParts(): Uint8Array[] {
     if (!this.count) throw new Error('no frames');
     const actl = new Uint8Array(8), dv = new DataView(actl.buffer);
     dv.setUint32(0, this.count); dv.setUint32(4, 0); // num_frames、num_plays(0 で無限)
-    return concat([SIG, ihdr(this.width, this.height), pngChunk('acTL', actl), ...this.parts, pngChunk('IEND', new Uint8Array(0))]);
+    return [SIG, ihdr(this.width, this.height), pngChunk('acTL', actl), ...this.parts, pngChunk('IEND', new Uint8Array(0))];
   }
+
+  /** 組み立てた APNG を1つにつなぐ(確かめ用。書き出しは finishParts を使う)。1枚も無ければ例外 */
+  finish(): Uint8Array { return concat(this.finishParts()); }
 
   /** fcTL(全面・表示時間 1/fps 秒・前のフレームはそのまま・置き換え) */
   private fctl(): Uint8Array {

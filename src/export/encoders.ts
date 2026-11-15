@@ -218,7 +218,7 @@ class ApngFrameEncoder implements FrameEncoder {
   }
 
   async finish(): Promise<Blob> {
-    return new Blob([this.apng.finish() as BlobPart], { type: 'image/png' });
+    return new Blob(this.apng.finishParts() as BlobPart[], { type: 'image/png' });
   }
 
   async cancel(): Promise<void> { /* 何もしない */ }
