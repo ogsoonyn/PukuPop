@@ -273,42 +273,49 @@ class PlayerImpl {
     this.swing = new StageSwing(stage, { doc, centers: new Map() });
     // 状態が変わった知らせを聞く部品は無い(Player は LoopPlayback を外に見せない)
     this.loop = new LoopPlayback(this.world, stage, () => project, { stateChanged: () => {}, viewChanged: () => {} });
-    // 編集アプリの applyDocument と同じ並び。背景はキャンバスの親要素に付けず、消去の色だけにする
-    stage.setImage(image, doc.image.width, doc.image.height);
-    stage.rebuildMesh(doc.meshDensity);
-    stage.setTransform(doc);
-    stage.setLayers(doc.layers);
-    stage.setView(VIEW, []);
-    stage.setBackground(project.background);
-    preparePhysics(this.world, doc, this.swing.centerOf);
-    this.measure();
-    // 失われている間は描かない(frame が飛ばす)。戻ったら、止めているときも1回描き直す
-    stage.onContextChange = lost => { if (!lost) this.requestRender(); };
-    if (options.interaction !== 'none') this.unbind = bindViewInput(canvas, () => project.camera, () => this.requestRender());
-    // 大きさはキャンバスの要素だけを見て追う(大きさ 0 で作っても、大きさが付いた時点で正しい縦横比で描く)。
-    // 通知の中では大きさを当てず、次のフレームに回す(scheduleFit)。CSS の大きさは書かない
-    if (options.autoResize !== false && typeof ResizeObserver === 'function') {
-      this.observer = new ResizeObserver(() => this.scheduleFit());
-      this.observer.observe(canvas);
-    }
-    this.loopWanted = !!project.take;
-    this.makeInfo();
-    // 最初の1フレームはすぐ描く(止めて始めるときも、絵が出ているように)
-    if (this.loopWanted) this.loop.play();
-    this.guarded(() => this.frame(0));
-    if (options.autoplay !== false) this.play();
+    // 途中で投げたら、それまでに付けた受け口・ResizeObserver・キャンバスのスタイル・予約したフレームを外してから投げ直す
+    // (描画の解放と印を外すのは createPlayer の側)
+    try {
+      // 編集アプリの applyDocument と同じ並び。背景はキャンバスの親要素に付けず、消去の色だけにする
+      stage.setImage(image, doc.image.width, doc.image.height);
+      stage.rebuildMesh(doc.meshDensity);
+      stage.setTransform(doc);
+      stage.setLayers(doc.layers);
+      stage.setView(VIEW, []);
+      stage.setBackground(project.background);
+      preparePhysics(this.world, doc, this.swing.centerOf);
+      this.measure();
+      // 失われている間は描かない(frame が飛ばす)。戻ったら、止めているときも1回描き直す
+      stage.onContextChange = lost => { if (!lost) this.requestRender(); };
+      if (options.interaction !== 'none') this.unbind = bindViewInput(canvas, () => project.camera, () => this.requestRender());
+      // 大きさはキャンバスの要素だけを見て追う(大きさ 0 で作っても、大きさが付いた時点で正しい縦横比で描く)。
+      // 通知の中では大きさを当てず、次のフレームに回す(scheduleFit)。CSS の大きさは書かない
+      if (options.autoResize !== false && typeof ResizeObserver === 'function') {
+        this.observer = new ResizeObserver(() => this.scheduleFit());
+        this.observer.observe(canvas);
+      }
+      this.loopWanted = !!project.take;
+      this.makeInfo();
+      // 最初の1フレームはすぐ描く(止めて始めるときも、絵が出ているように)
+      if (this.loopWanted) this.loop.play();
+      this.guarded(() => this.frame(0));
+      if (options.autoplay !== false) this.play();
 
-    const self = this;
-    this.api = Object.freeze({
-      get info() { return self.infoNow; },
-      get playing() { return self.running; },
-      play: () => this.play(),
-      pause: () => this.pause(),
-      setFavorite: (id: string) => this.setFavorite(id),
-      resize: () => this.fit(),
-      dispose: () => this.dispose(),
-    });
-    internals.set(this.api, this);
+      const self = this;
+      this.api = Object.freeze({
+        get info() { return self.infoNow; },
+        get playing() { return self.running; },
+        play: () => this.play(),
+        pause: () => this.pause(),
+        setFavorite: (id: string) => this.setFavorite(id),
+        resize: () => this.fit(),
+        dispose: () => this.dispose(),
+      });
+      internals.set(this.api, this);
+    } catch (e) {
+      this.detach();
+      throw e;
+    }
   }
 
   private makeInfo(): void {
@@ -407,6 +414,14 @@ class PlayerImpl {
 
   dispose(): void {
     if (this.disposed) return;
+    this.detach();
+    this.stage.dispose();
+    // コンテキストを手放したので、このキャンバスは印を外しても使えない(次の createPlayer は 'canvas-unusable' で断る)
+    this.release();
+  }
+
+  /** 描画を止め、予約したフレームを取り消し、ResizeObserver とキャンバスの受け口・スタイルを外す(dispose と、作る途中の失敗で) */
+  private detach(): void {
     this.disposed = true;
     this.running = false;
     cancelAnimationFrame(this.raf); cancelAnimationFrame(this.redraw); cancelAnimationFrame(this.fitRaf);
@@ -414,9 +429,6 @@ class PlayerImpl {
     this.observer?.disconnect();
     this.unbind?.();
     this.loop.discard();
-    this.stage.dispose();
-    // コンテキストを手放したので、このキャンバスは印を外しても使えない(次の createPlayer は 'canvas-unusable' で断る)
-    this.release();
   }
 
   /** 止めているときに、物理を進めず1回だけ描き直す(視点を動かした・大きさが変わった・お気に入りを当てたなど)。動いている間は次のフレームで描かれる */

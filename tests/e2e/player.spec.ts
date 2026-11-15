@@ -617,6 +617,31 @@ test('失敗は code 付き: 壊れたファイル・新しい版・画像が壊
   await expect.poll(async () => drawn(await snap(page))).toBe(true);
 });
 
+test('作る途中(受け口と ResizeObserver を付けたあと)で失敗しても、受け口・スタイル・ResizeObserver を残さない', async ({ page }) => {
+  await open(page);
+  const r = await page.evaluate(async () => {
+    const d = (window as any).playerDemo, m = await d.load(), bytes = await d.sample({ autoSwing: true });
+    const c = document.createElement('canvas');
+    c.style.cssText = 'width:160px;height:120px;touch-action:pan-y;cursor:crosshair';
+    document.body.append(c);
+    // キャンバスの受け口を付けたあとの observe で投げさせる(作る途中の失敗の代わり)。付いた受け口と外した受け口を数える
+    const proto = ResizeObserver.prototype, observe = proto.observe, disconnect = proto.disconnect;
+    const add = EventTarget.prototype.addEventListener, live = new Set<string>();
+    let disconnected = 0;
+    proto.observe = function () { throw new Error('observe に失敗'); };
+    proto.disconnect = function (this: ResizeObserver) { disconnected++; return disconnect.call(this); };
+    EventTarget.prototype.addEventListener = function (this: EventTarget, type: string, f: any, o?: any) {
+      if (this === c && o?.signal) { live.add(type); o.signal.addEventListener('abort', () => live.delete(type)); }
+      return (add as any).call(this, type, f, o);
+    };
+    try {
+      const e = await m.createPlayer(c, bytes).then(() => null, (x: any) => [x.code, x.message]);
+      return { e, live: [...live], disconnected, style: [c.style.touchAction, c.style.cursor] };
+    } finally { proto.observe = observe; proto.disconnect = disconnect; EventTarget.prototype.addEventListener = add; }
+  });
+  expect(r).toEqual({ e: ['invalid-file', 'observe に失敗'], live: [], disconnected: 1, style: ['pan-y', 'crosshair'] });
+});
+
 test('コンテキストが失われている間に dispose() しても、例外も警告も出さずに片付く', async ({ page }) => {
   const logs: string[] = [];
   page.on('console', m => { if (m.type() === 'warning' || m.type() === 'error') logs.push(m.text()); });
