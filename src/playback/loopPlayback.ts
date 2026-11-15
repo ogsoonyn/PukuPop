@@ -32,19 +32,25 @@ export function sameView(a: CameraState, b: CameraState): boolean {
 const angles = (a: CameraState) => ({ yaw: a.yaw, pitch: a.pitch, roll: a.roll, zoom: a.zoom });
 
 export class LoopPlayback {
+  // 状態は外から書き換えられないよう private にし、読むだけのゲッターを出す(変えるのは play / stop / seek などのメソッドだけ)
+  private _playing = false;
+  private _paused = false;
+  private _index = 0;
+  private _from: CameraState | null = null;
+  private _cam: CameraState | null = null;
   /** ループ再生中か */
-  playing = false;
+  get playing(): boolean { return this._playing; }
   /** ループ再生を一時停止しているか(シークバーの ⏸。揺れの一時停止とは別で、物理は進む) */
-  paused = false;
+  get paused(): boolean { return this._paused; }
   /** ループ再生で次に入れる記録の位置 */
-  index = 0;
+  get index(): number { return this._index; }
   /**
    * ループ再生では視点の代わりに画像を動かし、視点は自由に動かせるようにする。
    * from は再生を始めたときの視点(記録の初めの視点)で、画像はここから見て記録どおりに映るように動く。
    * cam は今の刻みの記録の視点。見る視点が from のままなら、画面は記録の視点で見たのと同じになる
    */
-  from: CameraState | null = null;
-  cam: CameraState | null = null;
+  get from(): CameraState | null { return this._from; }
+  get cam(): CameraState | null { return this._cam; }
   /** シークで揺れを消した直後か(次の刻みで操作の記録に控えを取る) */
   private seeked = false;
 
@@ -62,16 +68,17 @@ export class LoopPlayback {
   play(take = this.source().take): void {
     const c = this.source().camera;
     if (!take?.samples.length) return;
-    this.index = 0;
-    this.paused = false;
+    this._index = 0;
+    this._paused = false;
+    this.seeked = false; // 前の再生でシークした印を持ち越さない
     // 視点を記録の初めへ動かし、そこを画像を動かす基準にする(始めは画像が元の置き場所にある)
     const s0 = take.samples[0].camera;
     c.yaw = s0.yaw; c.pitch = s0.pitch; c.roll = s0.roll; c.zoom = s0.zoom; c.target = { ...s0.target };
-    this.from = { ...c, target: { ...c.target } };
-    this.cam = { ...this.from, target: { ...c.target } };
+    this._from = { ...c, target: { ...c.target } };
+    this._cam = { ...this._from, target: { ...c.target } };
     this.world.cutView(); // 今の視点から記録の初めへ飛ぶ分では揺らさない
     this.world.grab = null; this.world.grabGains.clear();
-    if (!this.playing) { this.playing = true; this.hooks.stateChanged(); }
+    if (!this._playing) { this._playing = true; this.hooks.stateChanged(); }
     this.hooks.viewChanged();
   }
 
@@ -80,32 +87,32 @@ export class LoopPlayback {
    * 再生中に視点を動かしていなければ、視点を止めた所の記録の視点にする(画面はそのまま)。動かしていれば、その視点のまま
    */
   stop(): void {
-    if (!this.playing) return;
-    const c = this.source().camera, from = this.from, at = this.cam;
+    if (!this._playing) return;
+    const c = this.source().camera, from = this._from, at = this._cam;
     if (from && at && sameView(c, from)) { c.yaw = at.yaw; c.pitch = at.pitch; c.roll = at.roll; c.zoom = at.zoom; c.target = { ...at.target }; }
-    this.from = this.cam = null;
-    this.paused = false;
+    this._from = this._cam = null;
+    this._paused = false;
     this.world.viewRig = null;
     this.stage.setRig(null);
     // 画面を触って止めたときは、すぐ後の当たり判定(pick)が今の視点で行われるようにする
     this.stage.applyCamera(c);
     this.world.grab = null; this.world.grabGains.clear();
     this.world.cutView(); // 物理に伝える注視点が記録の値から今の視点へ戻る分では揺らさない
-    this.playing = false;
+    this._playing = false;
     this.hooks.stateChanged();
     this.hooks.viewChanged();
   }
 
   /** 再生の状態を黙って捨てる(別の作業に切り替えるとき。知らせは呼ぶ側がまとめて出す) */
   discard(): void {
-    this.index = 0; this.paused = false; this.playing = false;
-    this.from = this.cam = null; this.world.viewRig = null; this.stage.setRig(null);
+    this._index = 0; this._paused = false; this._playing = false; this.seeked = false;
+    this._from = this._cam = null; this.world.viewRig = null; this.stage.setRig(null);
   }
 
   /** ループ再生を一時停止する・続ける(再生中だけ) */
   setPaused(on: boolean): void {
-    if (!this.playing || this.paused === on) return;
-    this.paused = on;
+    if (!this._playing || this._paused === on) return;
+    this._paused = on;
     this.hooks.stateChanged();
   }
 
@@ -115,9 +122,9 @@ export class LoopPlayback {
    */
   seek(seconds: number): void {
     const n = this.source().take?.samples.length ?? 0;
-    if (!this.playing || !n || !Number.isFinite(seconds)) return;
+    if (!this._playing || !n || !Number.isFinite(seconds)) return;
     const i = Math.round(seconds / PHYSICS_DT);
-    this.index = ((i % n) + n) % n;
+    this._index = ((i % n) + n) % n;
     this.world.reset();
     this.seeked = true;
     // 位置はバーが描画のたびに追うので、ここでは知らせない(ドラッグの間、ほかの部品を描き直さない)
@@ -126,16 +133,16 @@ export class LoopPlayback {
   /** ループ再生中の位置(秒) */
   get position(): number {
     const n = this.source().take?.samples.length ?? 0;
-    return this.playing && n ? (this.index % n) * PHYSICS_DT : 0;
+    return this._playing && n ? (this._index % n) * PHYSICS_DT : 0;
   }
 
   /** ループ再生中の、画像から見た今の視点(記録の視点)。再生していなければ null */
-  get view(): CameraState | null { return this.playing ? this.cam : null; }
+  get view(): CameraState | null { return this._playing ? this._cam : null; }
 
   /** ループ再生中に、見る視点を再生の基準の視点(撮影カメラ。記録の初めの視点)へ戻す。再生は続ける */
   resetView(): void {
-    const from = this.from;
-    if (!this.playing || !from) return;
+    const from = this._from;
+    if (!this._playing || !from) return;
     const c = this.source().camera;
     c.yaw = from.yaw; c.pitch = from.pitch; c.roll = from.roll; c.zoom = from.zoom; c.target = { ...from.target };
     this.world.cutView(); // 視点が飛ぶだけなので揺らさない
@@ -148,17 +155,17 @@ export class LoopPlayback {
    */
   step(): boolean {
     const w = this.world, { camera: c, take } = this.source();
-    if (!this.playing || !take?.samples.length) return false;
+    if (!this._playing || !take?.samples.length) return false;
     // ループ再生: 記録どおりにつかみを物理へ入れ、視点の代わりに画像を動かす(画角は今のまま)。
     // 揺れは、動く画像を今の視点(見る人が動かしてよい)から見た動きで決める
-    const i = this.index % take.samples.length, smp = take.samples[i], from = this.from!;
+    const i = this._index % take.samples.length, smp = take.samples[i], from = this._from!;
     applySample(w, smp);
     w.viewRig = { from: { target: { ...from.target }, view: angles(from) }, to: { target: { ...(smp.viewTarget ?? smp.camera.target) }, view: angles(smp.camera) } };
     w.viewTarget = { ...c.target };
     w.viewAngles = angles(c);
-    const cam = this.cam = { ...smp.camera, fov: c.fov, target: { ...smp.camera.target } };
+    const cam = this._cam = { ...smp.camera, fov: c.fov, target: { ...smp.camera.target } };
     // 一時停止中(シークバーで止めた・ドラッグしている間)は同じ所にとどまる。揺れはそのまま落ち着いていく
-    if (!this.paused) this.index = i + 1;
+    if (!this._paused) this._index = i + 1;
     // 「直前の操作を再生」の書き出しには、記録の視点で残す(見る視点を動かした分は入らない)
     // 見る視点を動かしていれば、控えの「1刻み前の視点」は見る視点のものなので、測り直す印にして残す(書き出しの初めで弾まないように)
     // シークで跳んだ刻みは、揺れを消して視点を測り直したことも残す(書き出しで跳んだ分が揺れにならないように)
@@ -178,7 +185,7 @@ export class LoopPlayback {
    */
   applyRig(): void {
     const fov = this.source().camera.fov;
-    if (this.playing && this.from && this.cam) this.stage.setRig({ ...this.from, fov }, { ...this.cam, fov });
+    if (this._playing && this._from && this._cam) this.stage.setRig({ ...this._from, fov }, { ...this._cam, fov });
     else this.stage.setRig(null);
   }
 }
