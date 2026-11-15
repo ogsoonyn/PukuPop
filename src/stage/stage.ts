@@ -439,11 +439,16 @@ export class Stage {
   /** 描画の倍率。上限は 2 */
   private pixelRatio(): number { return Math.min(window.devicePixelRatio || 1, 2); }
 
-  resize(): void {
+  /**
+   * キャンバスの CSS の大きさに描画バッファを合わせる(CSS は書かない)。
+   * pixelRatio を渡すと、画面の倍率の代わりにその倍率で描く(Player が、大きさを属性で決めているキャンバスで 1 を渡す)。
+   * 省いたときは画面の倍率(上限 2。編集アプリはいつも省く)
+   */
+  resize(pixelRatio?: number): void {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (!w || !h) return;
     // モニターの移動やブラウザの拡大で倍率が変わったら、読み直す
-    const dpr = this.pixelRatio();
+    const dpr = pixelRatio ?? this.pixelRatio();
     if (dpr !== this.renderer.getPixelRatio()) this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);
     const m = this.main();

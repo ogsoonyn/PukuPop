@@ -363,6 +363,65 @@ test('大きさは自動で追い、止めているときも描き直す。CSS �
   expect((await sizeOf(page)).style).toEqual(['300px', '']);
 });
 
+/** 確認用のページの #box の外(#box の canvas に付く CSS が効かない所)にキャンバスを作り、Player を作る */
+const createOutside = (page: Page, id: string, css: string, wrap = false) => page.evaluate(async ([id, css, wrap]) => {
+  const w = window as any, d = w.playerDemo, m = await d.load();
+  const c = document.createElement('canvas');
+  c.id = id;
+  if (css) c.style.cssText = css;
+  if (wrap) {
+    const div = document.createElement('div');
+    div.id = id + '-wrap';
+    div.append(c);
+    document.getElementById('box')!.after(div);
+  } else document.getElementById('box')!.after(c);
+  w.player = await m.createPlayer(c, await d.sample({ autoSwing: true }));
+  w.inner = d.inspect(w.player);
+}, [id, css, wrap] as const);
+
+for (const [scale, css, label] of [[2, '', 'CSS を何も書かない'], [0.9, 'max-width:100%', 'max-width だけの']] as const) {
+  test.describe(`画面の倍率が ${scale}`, () => {
+    test.use({ deviceScaleFactor: scale });
+
+    test(`${label}キャンバス(大きさが属性で決まる)でも、大きさが変わり続けない(高精細では描かない)`, async ({ page }) => {
+      await open(page);
+      await createOutside(page, 'attr', css);
+      expect(await read<number>(page, 'devicePixelRatio')).toBeCloseTo(scale, 5);
+      // 何回か通知とフレームが回っても、CSS の大きさは属性の既定(300×150)のまま、描画バッファも同じ大きさで止まる
+      for (let i = 0; i < 4; i++) {
+        await frames(page, 4);
+        expect(await sizeOf(page, 'attr')).toMatchObject({ css: [300, 150], buf: [300, 150], style: ['', ''] });
+      }
+      // 測り直しても変わらない
+      await page.evaluate(() => (window as any).player.resize());
+      await frames(page, 4);
+      expect((await sizeOf(page, 'attr')).buf).toEqual([300, 150]);
+      await expect.poll(async () => drawn(await snap(page, 'attr'))).toBe(true);
+    });
+  });
+}
+
+test.describe('画面の倍率が 2(CSS で大きさを決めたキャンバス)', () => {
+  test.use({ deviceScaleFactor: 2 });
+
+  test('幅と aspect-ratio を CSS で決めたキャンバスは、倍率を掛けた高精細で描く', async ({ page }) => {
+    await open(page);
+    await create(page, { autoSwing: true });
+    await expect.poll(async () => { const s = await sizeOf(page); return [s.dpr, bufferFits(s), s.buf[0] > s.css[0]]; }).toEqual([2, true, true]);
+  });
+
+  test('幅だけ CSS で決めたキャンバスも、倍率を掛けて描き、大きさは変わり続けない', async ({ page }) => {
+    await open(page);
+    await createOutside(page, 'wonly', 'width:100%;display:block', true);
+    await page.locator('#wonly-wrap').evaluate(d => { (d as HTMLElement).style.width = '400px'; });
+    await expect.poll(async () => { const s = await sizeOf(page, 'wonly'); return [s.css[0], s.buf[0]]; }).toEqual([400, 800]);
+    const s = await sizeOf(page, 'wonly');
+    expect(Math.abs(s.css[1] - 200)).toBeLessThanOrEqual(1);
+    await frames(page, 8);
+    expect(await sizeOf(page, 'wonly')).toEqual(s);
+  });
+});
+
 test('autoResize: false なら追わず、resize() で測り直す', async ({ page }) => {
   await open(page);
   await create(page, { autoSwing: false }, { autoResize: false });

@@ -46,8 +46,8 @@ export interface PlayerOptions {
   interaction?: PlayerInteraction;
   /**
    * キャンバスの大きさの変化を自動で追うか(既定 true)。キャンバスの要素だけを ResizeObserver で見て、描画の大きさ・縦横比を合わせる。
-   * キャンバスの CSS の大きさは決して書かない(大きさは埋め込み先が CSS で決める。width・height の両方を CSS で決めず
-   * 属性に任せると、画面の倍率が 1 でないときに大きくなり続けるので、少なくとも幅は CSS で決める)。
+   * キャンバスの CSS の大きさは決して書かない。キャンバスの大きさは埋め込み先が CSS で決める(例: width: 100%; aspect-ratio: 4 / 3)。
+   * CSS で決めていない(width・height の属性に任せた)キャンバスでも大きさは変わらずに動くが、画面の倍率を掛けた高精細では描かない。
    * false のときは、大きさが変わったら resize() を呼ぶ。大きさ 0(display: none など)のまま作った場合は、resize() を呼ぶまで正しく描けない
    */
   autoResize?: boolean;
@@ -120,6 +120,7 @@ const LOST = 'このキャンバスはもう使えません。新しい canvas �
 /**
  * .pukupop のバイト列を読み、canvas に描く Player を作る。失敗したときは code 付きの PlayerError で失敗する
  * (作りかけの描画を解放し、キャンバスを使っている最中の印も外してから)。
+ * キャンバスの大きさは CSS で決める(例: width: 100%; aspect-ratio: 4 / 3)。CSS で決めていないキャンバスでも動くが、高精細では描かない。
  *
  * await は読み込み(deserializeProject)と画像のデコードだけで、どちらも WebGL を作る前に済ませる。
  * WebGL を作ってから返すまでは await を挟まないので、取り消し・読み込みの失敗ではキャンバスは使えるまま残る
@@ -172,8 +173,12 @@ export async function createPlayer(canvas: HTMLCanvasElement, bytes: Uint8Array 
  */
 function createStage(canvas: HTMLCanvasElement): Stage {
   let stage: Stage;
+  // three.js は作るときに描画バッファ(属性)を倍率倍にする。大きさを属性に任せたキャンバスでは見た目の大きさまで変わり、
+  // 最初に測る大きさ(PlayerImpl の measure)がずれるので、作ったら元の属性に戻す
+  const attrs = [canvas.width, canvas.height];
   try {
     stage = new Stage(canvas);
+    if (canvas.width !== attrs[0] || canvas.height !== attrs[1]) { canvas.width = attrs[0]; canvas.height = attrs[1]; }
   } catch (e) {
     // three.js が投げた。すでにあるコンテキストが失われているなら使えないキャンバス、そうでなければ WebGL2 を作れない
     // (ここでの getContext は、作られていれば今のコンテキストを返すだけで、新しくは作らない。作れない環境では null)
@@ -233,6 +238,8 @@ class PlayerImpl {
   private infoNow!: PlayerInfo;
   /** 最後に描画へ当てた大きさ(CSS px)と倍率。変わっていなければ描き直さない */
   private size = { w: -1, h: -1, dpr: -1 };
+  /** キャンバスの大きさが CSS でなく属性で決まっていると判断したか(measure)。true なら倍率を掛けずに描く */
+  private attributeSized = false;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -339,12 +346,28 @@ class PlayerImpl {
     if (this.measure()) this.requestRender();
   }
 
-  /** 今の大きさと倍率を描画へ当てる。変わったら true(大きさ 0 の間は当てない) */
+  /**
+   * 今の大きさと倍率を描画へ当てる。変わったら true(大きさ 0 の間は当てない)。
+   * 描画バッファ(canvas.width / height)だけを変え、CSS は書かない。ただし、キャンバスの CSS の大きさを埋め込み先が CSS で
+   * 決めていない(属性に任せている)と、描画バッファを倍率倍にするとキャンバスの見た目の大きさも変わり、通知のたびに
+   * 大きくなり続ける(倍率 2)・縮み続ける(倍率 0.9)。そこで、当てたあとに CSS の大きさを読み直し、自分の書き換えで 1px を
+   * 超えて変わったら「大きさは属性で決まっている」と判断して、測った CSS の大きさをそのまま描画バッファにする(倍率を掛けない。
+   * 高精細ではなくなるが、大きさは元のまま止まる)。一度そう判断したら、以後も倍率を掛けない。
+   * 幅だけ CSS で決めて高さを属性に任せたキャンバスは、縦横比が保たれ、丸めの 1px 以内しか変わらないので、倍率を掛けたまま描く
+   */
   private measure(): boolean {
-    const w = this.canvas.clientWidth, h = this.canvas.clientHeight, dpr = window.devicePixelRatio || 1, s = this.size;
+    const c = this.canvas, w = c.clientWidth, h = c.clientHeight, dpr = window.devicePixelRatio || 1, s = this.size;
     if (w === s.w && h === s.h && dpr === s.dpr) return false;
     this.size = { w, h, dpr };
-    this.stage.resize(); // renderer.setSize(w, h, false): 描画バッファの大きさだけを変え、CSS は書かない
+    if (!w || !h) return true; // 大きさ 0 の間は当てない(Stage.resize も何もしない)
+    if (this.attributeSized) { this.stage.resize(1); return true; }
+    this.stage.resize(); // renderer.setSize(w, h, false): 描画バッファを CSS の大きさ × 倍率にする
+    if (Math.abs(c.clientWidth - w) > 1 || Math.abs(c.clientHeight - h) > 1) {
+      this.attributeSized = true;
+      // 属性を測った CSS の大きさに戻せば、見た目の大きさも元に戻る。three.js の側の大きさ・倍率も合わせる
+      c.width = w; c.height = h;
+      this.stage.resize(1);
+    }
     return true;
   }
 
