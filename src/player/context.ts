@@ -33,7 +33,9 @@ export function loseExtension(gl: WebGLRenderingContext | WebGL2RenderingContext
 export function willRelease(canvas: HTMLCanvasElement, ext: WEBGL_lose_context | null): void {
   if (!ext) return;
   const lost = new Promise<void>(resolve => {
-    canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); resolve(); }, { once: true });
+    // 戻してよいかはこの受け口を呼び終えたあとに決まるので、解決は次のタスクまで遅らせる
+    // (すぐ解決すると、戻す処理がその前に走って「戻せない」になる)
+    canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); setTimeout(resolve, 0); }, { once: true });
   });
   released.set(canvas, { ext, lost });
 }
