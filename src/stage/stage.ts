@@ -53,6 +53,8 @@ export class Stage {
   private weightSize = { w: 1, h: 1 };
   private imageSize = { w: 1, h: 1 };
   private exportTarget: THREE.WebGLRenderTarget | null = null;
+  /** renderFrame の読み出し用。大きさが同じ間は使い回す */
+  private readBuf: Uint8Array | null = null;
   private ray = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
   private hit = new THREE.Vector3();
@@ -640,7 +642,9 @@ export class Stage {
     this.renderer.setRenderTarget(this.exportTarget);
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
-    const raw = new Uint8Array(width * height * 4);
+    // 読み出し用のバッファは、大きさが同じ間は使い回す(1フレームごとに作り直さない)
+    const need = width * height * 4;
+    const raw = this.readBuf?.length === need ? this.readBuf : (this.readBuf = new Uint8Array(need));
     this.renderer.readRenderTargetPixels(this.exportTarget, 0, 0, width, height, raw);
     this.renderer.setRenderTarget(null);
     this.renderer.setClearColor(clear, clearAlpha);
@@ -665,7 +669,17 @@ export class Stage {
     return px;
   }
 
+  /**
+   * 書き出し用の大きなバッファと描画先を手放す。サムネイル(小さい大きさ)と書き出しで大きさが入れ替わるため、
+   * 書き出しが終わったら持ち続けない(描画先はマルチサンプルで GPU のメモリも大きい。次に要るときに作り直す)
+   */
+  releaseExportBuffers(): void {
+    this.readBuf = null;
+    this.exportTarget?.dispose(); this.exportTarget = null;
+  }
+
   dispose(): void {
+    this.readBuf = null;
     this.mapTex?.dispose(); this.weightTex?.dispose(); this.exportTarget?.dispose();
     this.mesh?.geometry.dispose(); this.material.dispose(); this.renderer.dispose();
     this.ghostGeo?.dispose(); for (const m of this.ghostMats) m.dispose();

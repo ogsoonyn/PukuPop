@@ -1806,6 +1806,7 @@ export class App extends Emitter<AppEvents> {
     try {
       return await runExport({ stage: this.stage, store: this.store, recorder: this.recorder, applySwing: this.applySwing, centerOf: this.centerOf }, s, onProgress, signal);
     } finally {
+      this.stage.releaseExportBuffers();
       this.exporting = false;
       this.emit('status', undefined);
     }
