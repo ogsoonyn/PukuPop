@@ -735,8 +735,10 @@ export class Stage {
     this.mapTex?.dispose(); this.weightTex?.dispose(); this.exportTarget?.dispose();
     this.mesh?.geometry.dispose(); this.material.dispose();
     this.ghostGeo?.dispose(); for (const m of this.ghostMats) m.dispose();
+    const lost = this.renderer.getContext().isContextLost();
     this.renderer.dispose(); // three.js の受け口もここで外れる
-    this.renderer.forceContextLoss();
+    // すでに失われていれば手放すものが無い(失われたコンテキストでは拡張が取れず、three.js が警告を出すので呼ばない)
+    if (!lost) this.renderer.forceContextLoss();
   }
 }
 

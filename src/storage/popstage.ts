@@ -77,10 +77,21 @@ const MIGRATIONS: Record<number, (j: Record<string, unknown>) => Record<string, 
   // 例: 1: j => ({ ...j, formatVersion: 2, ... }),
 };
 
+/**
+ * 新しい版(このアプリの FORMAT_VERSION より大きい formatVersion)で保存されたファイル。
+ * メッセージは編集アプリがそのまま出す文言。埋め込み用の Player(src/player)は、文言ではなくこのクラスで見分ける
+ */
+export class NewerFormatError extends Error {
+  constructor(readonly version: number) {
+    super(`このファイルは新しい版(${version})で保存されています。アプリを更新してください。`);
+    this.name = 'NewerFormatError';
+  }
+}
+
 export function migrate(json: Record<string, unknown>): ProjectJson {
   let v = Number(json.formatVersion);
   if (!Number.isInteger(v) || v < 1) throw new Error('project.json の formatVersion が不正です');
-  if (v > FORMAT_VERSION) throw new Error(`このファイルは新しい版(${v})で保存されています。アプリを更新してください。`);
+  if (v > FORMAT_VERSION) throw new NewerFormatError(v);
   while (v < FORMAT_VERSION) {
     const m = MIGRATIONS[v];
     if (!m) throw new Error(`formatVersion ${v} からの変換がありません`);
