@@ -12,7 +12,6 @@ import { ui } from './ids';
 import { icon } from './icons';
 import { toolDef } from './tools';
 import { setFineLock } from './fine';
-import { bindTouchSliders } from './touchSlider';
 
 /** スマホの配置にする条件。横向きのスマホ(高さが低く、指で触る)も含める */
 export const MOBILE_QUERY = '(max-width: 767px), (max-height: 500px) and (pointer: coarse)';
@@ -225,9 +224,6 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
     if (phase === 'begin') { before = state; selectTab('tool'); if (state === 'closed') setSheet('half'); }
     if (phase === 'end' && before) { setSheet(before); before = null; }
   });
-
-  // スクロールのつもりの縦の動きでスライダーを動かさない(横に引いたときだけ動かす)
-  bindTouchSliders(panes, () => mq.matches);
 
   const apply = () => { if (mq.matches) enter(); else if (root.classList.contains('mobile')) leave(); };
   mq.addEventListener('change', apply);

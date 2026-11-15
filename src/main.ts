@@ -14,6 +14,7 @@ import { bindMultiView } from './ui/multiView';
 import { bindRecentDialog } from './ui/recentDialog';
 import { bindSettingsDialog } from './ui/settingsDialog';
 import { bindMobileLayout } from './ui/mobile';
+import { bindTouchSliders } from './ui/touchSlider';
 import { bindTakeControls } from './ui/take';
 import { bindPlayBar } from './ui/playBar';
 import { bindHideUi } from './ui/hideUi';
@@ -156,6 +157,8 @@ bindMemoryStatus(app);
 const settingsDialog = bindSettingsDialog();
 // スマホの配置。右パネルなどの部品を移すので、ほかの部品を結び付けたあとに呼ぶ
 bindMobileLayout(app);
+// 指で触ったスライダーは、横に引いたときだけ動かす(縦はスクロール。スマホの配置ではいつも)
+bindTouchSliders(() => document.documentElement.classList.contains('mobile'));
 
 /* ---------- ドラッグ&ドロップ ---------- */
 

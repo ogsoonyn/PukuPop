@@ -474,3 +474,31 @@ test('キーフレームはシートの中で指でつまみをドラッグし�
   // つまみを動かしてもシートは流れない
   expect(await scroll()).toBe(before);
 });
+
+test.describe('PC の配置', () => {
+  test.use({ viewport: { width: 1400, height: 900 }, isMobile: false, hasTouch: true, deviceScaleFactor: 1 });
+
+  test('指で触ったスライダーは横に引いたときだけ動き、マウスではブラウザのスライダーのまま', async ({ page }) => {
+    await boot(page);
+    await expect(page.locator('html')).not.toHaveClass(/mobile/);
+    const cdp = await page.context().newCDPSession(page);
+    await page.locator('#pTabs [data-ptab=layer]').click();
+    const range = page.locator('#pPop');
+    const pop = () => page.evaluate(() => (window as any).popstage.activeLayer.pop);
+    const v0 = await pop();
+    const b = (await range.boundingBox())!, y = b.y + b.height / 2;
+    // 触って縦に動かして離しても、値は変わらない
+    await swipe(cdp, [[b.x + b.width * 0.9, y]], [[b.x + b.width * 0.9, y + 80]], 10);
+    expect(await pop()).toBe(v0);
+    await expect(page.locator('html')).toHaveClass(/touch-sliders/);
+    // 横に引くと、引いた分だけ動く
+    await swipe(cdp, [[b.x + b.width * 0.2, y]], [[b.x + b.width * 0.4, y]], 10);
+    expect(await pop()).toBeGreaterThan(v0);
+    const v1 = await pop();
+    // マウスを動かすとブラウザのスライダーに戻り、押した所へ値が移る
+    await page.mouse.move(b.x + b.width * 0.5, y - 40);
+    await expect(page.locator('html')).not.toHaveClass(/touch-sliders/);
+    await page.mouse.click(b.x + b.width * 0.95, y);
+    expect(await pop()).not.toBe(v1);
+  });
+});
