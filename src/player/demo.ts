@@ -2,6 +2,10 @@
  * Player の確認用のページ(player.html)。開発用のサーバーでだけ開き、本番のビルドには入らない。
  * サンプルのプロジェクトをその場で作って直列化し(編集アプリと同じ serializeProject)、Player に渡す。
  * Player は埋め込み先と同じく、使うときに import() で読む(読み込んだだけで window などに触らないかを確かめられるように)。
+ *
+ * 開くとサンプルを読み込んで再生し、ボタンで再生・停止、お気に入り、作り直し、操作の切り替え、手持ちのファイルの読み込みを試せる。
+ * 作り直しは dispose() のあと新しい <canvas> に差し替える(キャンバスは使い回さない、の手本)。
+ * ?e2e を付けると自動では読み込まず、ドロップの受け口も付けない(E2E は window.playerDemo で自分で作る)。
  * ?preserve を付けると、WebGL の描画を読み出せるよう preserveDrawingBuffer を入れる(E2E で画素を比べるため。Player は関わらない)。
  */
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
@@ -10,8 +14,11 @@ import { createSampleDocument } from '../ui/sample';
 import { serializeProject } from '../storage/popstage';
 import { takeFromKeys } from '../physics/take';
 import { captureFavorite } from '../model/favorites';
+import type { Player, PlayerInteraction } from './index';
 
-if (new URLSearchParams(location.search).has('preserve')) {
+const params = new URLSearchParams(location.search);
+
+if (params.has('preserve')) {
   const get = HTMLCanvasElement.prototype.getContext as (this: HTMLCanvasElement, type: string, attrs?: object) => RenderingContext | null;
   (HTMLCanvasElement.prototype as unknown as { getContext: typeof get }).getContext = function (type, attrs) {
     return get.call(this, type, type === 'webgl2' || type === 'webgl' ? { ...attrs, preserveDrawingBuffer: true } : attrs);
@@ -70,11 +77,104 @@ function withBrokenImage(bytes: Uint8Array): Uint8Array {
   return zipSync(files);
 }
 
+type PlayerModule = typeof import('./index');
+let inspectFn: ((p: Player) => unknown) | null = null;
+
+/** Player の入口を読む。中身を覗く口(player.ts の inspect。入口からは出さない)も一緒に読んでおく */
+async function load(): Promise<PlayerModule> {
+  const [m, internal] = await Promise.all([import('./index'), import('./player')]);
+  inspectFn = internal.inspect;
+  return m;
+}
+
 const demo = {
-  load: () => import('./index'),
+  load,
   sample,
   withFormatVersion,
   withBrokenImage,
   canvas: () => document.getElementById('c') as HTMLCanvasElement,
+  /** Player の中身(描画・物理・プロジェクト・ループ再生)。E2E が確かめるためだけに使う。load() のあとで呼ぶ */
+  inspect: (p: Player) => inspectFn?.(p),
 };
 (window as unknown as { playerDemo: typeof demo }).playerDemo = demo;
+
+if (params.has('e2e')) {
+  // ただのホイールでページがスクロールできるかを確かめるための余白
+  const pad = document.createElement('div');
+  pad.style.height = '3000px';
+  document.body.append(pad);
+} else void interactive();
+
+/** 人が開いて触る確認用の画面 */
+async function interactive(): Promise<void> {
+  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const playBtn = $<HTMLButtonElement>('play'), favBox = $('favorites'), state = $('state'), error = $('error');
+  const interactionSel = $<HTMLSelectElement>('interaction'), file = $<HTMLInputElement>('file'), box = $('box');
+  const m = await load();
+  let bytes: Uint8Array = await sample({ autoSwing: true, take: true, favorites: true });
+  let player: Player | null = null;
+  let loading: AbortController | null = null;
+  let favorite: string | null = null;
+
+  const show = () => {
+    playBtn.disabled = !player;
+    playBtn.textContent = player?.playing ? '停止' : '再生';
+    favBox.replaceChildren(...(player?.info.favorites ?? []).map(f => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = f.name;
+      b.setAttribute('aria-pressed', String(f.id === favorite));
+      b.onclick = () => { if (player?.setFavorite(f.id)) { favorite = f.id; show(); } };
+      return b;
+    }));
+    const i = player?.info;
+    state.textContent = i
+      ? `${i.width}×${i.height} / 記録 ${i.takeSeconds.toFixed(1)} 秒 / お気に入り ${i.favorites.length} / playing: ${player!.playing}`
+      : '読み込み中…';
+  };
+
+  /** 今の Player を捨て、新しい <canvas> に作り直す(dispose したキャンバスは使えないので、差し替える) */
+  const rebuild = async () => {
+    loading?.abort();
+    player?.dispose();
+    player = null; favorite = null;
+    const canvas = document.createElement('canvas');
+    canvas.id = 'c';
+    box.replaceChildren(canvas);
+    const ac = loading = new AbortController();
+    error.textContent = '';
+    show();
+    try {
+      player = await m.createPlayer(canvas, bytes, { interaction: interactionSel.value as PlayerInteraction, signal: ac.signal });
+    } catch (e) {
+      if (e instanceof m.PlayerError && e.code === 'aborted') return; // 次の作り直しに追い越された
+      error.textContent = e instanceof m.PlayerError ? `${e.code}: ${e.message}` : String(e);
+    } finally {
+      if (loading === ac) loading = null;
+    }
+    show();
+  };
+
+  const open = async (f: File) => {
+    bytes = new Uint8Array(await f.arrayBuffer());
+    await rebuild();
+  };
+
+  playBtn.onclick = () => {
+    if (!player) return;
+    if (player.playing) player.pause(); else player.play();
+    show();
+  };
+  $<HTMLButtonElement>('rebuild').onclick = () => void rebuild();
+  interactionSel.onchange = () => void rebuild();
+  file.onchange = () => { const f = file.files?.[0]; if (f) void open(f); };
+  // ドロップの受け口はこのページのもの(Player 本体の「キャンバスの外に触らない」約束とは別)
+  document.addEventListener('dragover', e => { e.preventDefault(); box.classList.add('drop'); });
+  document.addEventListener('dragleave', () => box.classList.remove('drop'));
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    box.classList.remove('drop');
+    const f = e.dataTransfer?.files[0];
+    if (f) void open(f);
+  });
+  await rebuild();
+}
