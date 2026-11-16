@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 README は使う人向けに書き、開発者向けの詳細(テスト、公開の仕組み、構成など)は書かない。開発者向けの詳細は、ここと `.claude/rules/` に書く。機能の一覧は README の「主な機能」を見る。
 
+`docs/` は、使う人向けの README とも、エージェント向けの `.claude/` とも別の、`.pukupop` を自分のプログラムで読む開発者向けの文書を置く(今は保存形式の `docs/format.md` だけ)。保存形式(`src/storage/popstage.ts`・`project.json` に入る型・記録の形・上限)を変えたら、`docs/format.md` も直す(版・上限・パスの名前は `tests/unit/formatDoc.test.ts` が実装と突き合わせる)。
+
 ## 開発の手がかり
 
 ビルドの手順は README の「ビルド」にある。テストは次のとおり。

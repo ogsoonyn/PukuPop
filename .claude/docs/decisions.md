@@ -392,3 +392,10 @@
   - リリースのワークフローは、確かめのジョブ(`contents: read`)とリリースのジョブ(`contents: write`)に分けた。ジョブの間でファイルを渡すには `actions/upload-artifact` などの action が要るので増やさず、リリースのジョブは同じコミットから作り直し、確かめのジョブと `.tgz` の sha256 が一致することを確かめてから添付する(Vite のビルドと `npm pack` は同じ中身なら同じバイト列になることを手元で確かめた)。npm の依存のスクリプトが書き込みの権限に触れないよう、checkout は `persist-credentials: false`。リリースは `gh release create --verify-tag` で作り、`--clobber` の `upload` は使わない。同じタグのリリースがあれば、先に `gh release view` で見つけて失敗する。版にプレリリース(`-rc.1` など)が付いていればプレリリースとして作る。手動の実行(`workflow_dispatch`)は入れていない(PR の時点の確かめは `ci.yml` が同じスクリプトで行う)。処理は `scripts/player-*.mjs` にまとめ、手元で同じものを流せるようにした(ワークフローそのものはタグを打たないと動かない)。
   - ビルドした1本がブラウザで動くことは、確認用のページに `?dist` を足して `/dist-player/pukupop-player.js` を `import()` で読み、`tests/e2e/playerDist.spec.ts` が見る。ビルドは spec の `beforeAll` で毎回流す(1〜2 秒。古いビルドで確かめないように)。
   - リポジトリの直下の README(編集アプリを使う人向け)には、「ほかの Web アプリに埋め込む」の節に1行とリンクだけを足した。
+
+## 2026-11-16 保存形式の文書を置く(Issue #127)
+
+- 埋め込み先のサーバー(JS 以外)が `.pukupop` から一覧用の画像を作りたいので、形式を `docs/format.md` に書いた。読む人は `.pukupop` を自分のプログラムで読む・検査する開発者で、編集アプリを使う人(README)とも、エージェント(`.claude/`)とも違うので、新しく `docs/` を作った。`packages/player/README.md` からは、`.tgz` に入って読まれるので GitHub の URL でリンクする。
+- 書く範囲: 実装(`src/storage/popstage.ts`)を読んで分かることだけ。`project.json` は項目の数が多くないので、全項目を表にし、読むときの既定・範囲(丸め方)まで書いた。記録(`motion/*.json`)は列の並びと、捨てられる条件までにした。物理の値がどう効くかや、揺らし方の細かい設定(`MOTION_PARAMS`)の一覧は書かず、実装のファイルを指す。
+- 元画像の寸法は `project.json` の `image.width`・`height` を正とした(ブラウザがデコードした寸法で、EXIF の回転を持つ JPEG ではヘッダの寸法と縦横が入れ替わることがあるため)。サムネイル(`thumbnail.png`)は変えず、無いこともあると書いた。
+- 実装の値を写した所(`FORMAT_VERSION`、`UNZIP_LIMITS`・`FAVORITE_TAKE_LIMIT`、ZIP の中のパスの名前)は、`tests/unit/formatDoc.test.ts` が文書と突き合わせる。項目の表は突き合わせない(やりすぎになるので、形式を変えたら手で直す決まりにした。`.claude/rules/storage.md`)。
