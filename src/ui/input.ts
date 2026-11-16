@@ -16,7 +16,7 @@ import type { PaintMode } from '../paint/stroke';
 import { fineFactor, wheelFineFactor, wheelDelta, isPinchWheel, FINE, isFineLocked } from './fine';
 import { smoothZoom } from './smoothZoom';
 import { toast } from './dom';
-import { wrapAngle as wrapRad, VIEW_LIMITS, clampViewZoom as clampZoom, orbitCamera } from '../model/project';
+import { wrapAngle as wrapRad, VIEW_LIMITS, clampViewZoom as clampZoom, orbitCamera, panBy } from '../model/project';
 import { hitFrame, frameCursor, setRotSide, type FrameHit } from './inflateFrame';
 import { moveArea as shiftArea, resizeArea, roundArea, turnBetween, flippedAt, wrapAngle, type Area } from '../paint/areaEdit';
 
@@ -43,18 +43,25 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
   /** 最後のポインタの位置(画像が動いたときに当て直す)と、前のフレームで画像がずれていたか */
   let last: { x: number; y: number } | null = null, shifted = false;
 
-  const isPaintTool = () => app.tool === 'brush' || app.tool === 'erase' || app.tool === 'smooth';
+  /**
+   * UIを隠している間は見るだけにする(Player の interaction: 'view' と同じ操作)。ツールは使わず、マウス・ペンの左ドラッグは平行移動、
+   * 指の1本は回す(2本指は今までどおり平行移動とピンチ)。右ドラッグ・中ドラッグ・ホイール・Space は今までどおり。
+   * 膨らませる・ぼかすの途中(パネルを出したまま隠せる)は、範囲を描けるよう今までどおりツールを使う
+   */
+  const viewOnly = () => app.uiHidden && !app.previewing;
+  const toolFor = (touch: boolean) => (viewOnly() ? (touch ? 'view' : 'pan') : app.tool);
+  const isPaintTool = (t = toolFor(false)) => t === 'brush' || t === 'erase' || t === 'smooth';
   const paintMode = (): PaintMode => (app.tool === 'brush' && alt ? 'erase' : (app.tool as PaintMode));
   const pressureOf = (e: PointerEvent) => (e.pointerType === 'pen' ? Math.max(0.05, e.pressure || 0) : 1);
 
   const updateCursor = () => {
-    const showBrush = isPaintTool() && !space && (drag.mode === null || drag.mode === 'paint');
+    const tool = toolFor(false), showBrush = isPaintTool(tool) && !space && (drag.mode === null || drag.mode === 'paint');
     app.stage.setBrush(showBrush ? hover : null, app.brush.size / 2);
     canvas.style.cursor = space || drag.mode === 'pan' ? 'move'
       : drag.mode === 'orbit' || drag.mode === 'roll' ? 'grabbing'
-      : app.tool === 'grab' || app.tool === 'shake' ? (drag.mode === 'grab' || drag.mode === 'shake' ? 'grabbing' : 'grab')
+      : tool === 'grab' || tool === 'shake' ? (drag.mode === 'grab' || drag.mode === 'shake' ? 'grabbing' : 'grab')
       // ブラシの円は画像の上にしか描けないので、画像の外では十字のカーソルを出して見失わないようにする
-      : app.tool === 'view' || app.tool === 'pan' ? 'move' : showBrush && hover?.inside ? 'none' : frameHover() ?? 'crosshair';
+      : tool === 'view' || tool === 'pan' ? 'move' : showBrush && hover?.inside ? 'none' : frameHover() ?? 'crosshair';
   };
   /** 膨らませるのプレビュー中に、ポインタの下の枠のハンドルに合わせたカーソル(枠の外なら null) */
   function frameHover(): string | null {
@@ -64,6 +71,7 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     return hit ? frameCursor(app, hit, false) : null;
   }
   app.on('tool', updateCursor);
+  app.on('view', updateCursor); // UIを隠す・戻すで、ツールを使うか(viewOnly)が変わる
 
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -138,11 +146,9 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     e.stopImmediatePropagation();
     const c = touchCenter(), d = touchSpread(), f = isFineLocked() ? FINE : 1;
     const dx = (c.x - gesture.x) * f, dy = (c.y - gesture.y) * f;
-    const cam = app.project.camera, k = app.stage.pixelToWorld(cam), { right, up } = app.stage.screenAxes();
+    const cam = app.project.camera;
     // 平行移動は中ドラッグと同じ(画像が画面上を動くので、その勢いで揺れる)
-    cam.target.x += -dx * k * right.x + dy * k * up.x;
-    cam.target.y += -dx * k * right.y + dy * k * up.y;
-    cam.target.z += -dx * k * right.z + dy * k * up.z;
+    panBy(cam.target, dx, dy, app.stage.pixelToWorld(cam), app.stage.screenAxes());
     // 指を広げると近づく(zoom は小さいほど大きく見える)
     cam.zoom = clampZoom(cam.zoom * Math.pow(gesture.d / d, f));
     // ひねると傾く(画面の y は下向きなので、時計回りにひねると角度が増え、画像も時計回りに傾く)
@@ -185,10 +191,11 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
   canvas.addEventListener('pointerdown', e => {
     // 指では、画像の外をなぞると回転する(右ドラッグの代わり)。ループ再生中は動いている画像で決める
     // 膨らませるの枠のハンドル(大きさ・回す)は、画像の外にはみ出していても掴めるようにする(枠の中を触るのは、画像の外なら今までどおり回転)
-    const outside = e.pointerType === 'touch' && app.tool !== 'pan' && !app.stage.pick(e.clientX, e.clientY)?.inside
-      && !(app.tool === 'inflate' && app.previewingInflate && (hitFrame(app, e.clientX, e.clientY, true)?.kind ?? 'move') !== 'move');
-    const orbit = e.button === 2 || (e.button === 0 && (app.tool === 'view' || outside) && !space);
-    const pan = !orbit && (e.button === 1 || (e.button === 0 && (space || app.tool === 'pan')));
+    const tool = toolFor(e.pointerType === 'touch');
+    const outside = e.pointerType === 'touch' && tool !== 'pan' && !app.stage.pick(e.clientX, e.clientY)?.inside
+      && !(tool === 'inflate' && app.previewingInflate && (hitFrame(app, e.clientX, e.clientY, true)?.kind ?? 'move') !== 'move');
+    const orbit = e.button === 2 || (e.button === 0 && (tool === 'view' || outside) && !space);
+    const pan = !orbit && (e.button === 1 || (e.button === 0 && (space || tool === 'pan')));
     // ループ再生中に画面を触ったら、再生をやめて手の操作を優先する。視点の操作(回転・平行移動)は再生したまま動かせる
     if (!orbit && !pan) app.stopTake();
     if (drag.mode || !app.doc) return;
@@ -200,17 +207,19 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     if (orbit) drag.mode = e.altKey && e.pointerType !== 'touch' ? 'roll' : 'orbit';
     else if (pan) { drag.mode = 'pan'; e.preventDefault(); }
     // 振る向きは主ビューの画面の向きで決まるので、主ビューの中から始めたときだけ振る
-    else if (e.button === 0 && app.tool === 'shake') { if (app.stage.inMainView(e.clientX, e.clientY)) drag.mode = 'shake'; }
-    else if (e.button === 0 && app.tool === 'grab') startGrab(e);
-    else if (e.button === 0 && app.tool === 'inflate') startArea(e);
-    else if (e.button === 0 && isPaintTool()) {
+    else if (e.button === 0 && tool === 'shake') { if (app.stage.inMainView(e.clientX, e.clientY)) drag.mode = 'shake'; }
+    else if (e.button === 0 && tool === 'grab') startGrab(e);
+    else if (e.button === 0 && tool === 'inflate') startArea(e);
+    else if (e.button === 0 && isPaintTool(tool)) {
       const p = app.stage.pick(e.clientX, e.clientY);
       if (p && app.beginStroke(paintMode(), p.x, p.y, pressureOf(e))) { drag.mode = 'paint'; app.holdImage(true); }
     }
     // 画像の外のダブルタップで視点を戻すのに使う(「移動」では画像の外も平行移動だが、ダブルタップは同じく効かせる)
-    if (tap && e.pointerType === 'touch') tap.orbit = drag.mode === 'orbit' || (app.tool === 'pan' && !app.stage.pick(e.clientX, e.clientY)?.inside);
+    if (tap && e.pointerType === 'touch') tap.orbit = drag.mode === 'orbit' || (tool === 'pan' && !app.stage.pick(e.clientX, e.clientY)?.inside);
     updateCursor();
   });
+  // UIを隠している間は、ダブルクリックで視点を戻す(指のダブルタップ・Home と同じ。Player のダブルクリックに合わせる)
+  canvas.addEventListener('dblclick', e => { if (viewOnly() && e.button === 0) app.resetView(); });
 
   // 画像全体が動いている間(ピストン)は、ポインタが止まっていても、その下の画像の位置でブラシの円を描き直す
   app.on('frame', () => {
@@ -243,11 +252,7 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
         }
       } else if (drag.mode === 'pan' || drag.mode === 'shake') {
         // 「揺らす」はカメラを画像に付けたまま振る。画面上の位置は変えず、物理にだけ平行移動と同じ動きを伝える
-        const k = app.stage.pixelToWorld(cam), { right, up } = app.stage.screenAxes();
-        const t = drag.mode === 'pan' ? cam.target : app.shake;
-        t.x += -dx * k * right.x + dy * k * up.x;
-        t.y += -dx * k * right.y + dy * k * up.y;
-        t.z += -dx * k * right.z + dy * k * up.z;
+        panBy(drag.mode === 'pan' ? cam.target : app.shake, dx, dy, app.stage.pixelToWorld(cam), app.stage.screenAxes());
       } else if (drag.mode === 'grab') {
         drag.gx += dx; drag.gy += dy;
         moveGrab();

@@ -3,8 +3,12 @@
  *
  * - 隠すのは、メニューバー・ツールの設定の行・左のツールバー・右パネル・ステータスバー・3面図と、
  *   スマホの上のバー・シート・下のバー(style.css の html.ui-hidden)。状態は App.uiHidden で、覚えない(開き直すと戻る)。
- * - 戻すのは、もう一度 Tab・Esc・右上の「UIを戻す」。PC では、マウスを動かすと「UIを戻す」とシークバーを少しの間だけ出す。
- *   スマホにはキーもマウスも無いので、どちらも出したままにする(戻すボタンは薄く)。
+ * - 戻すのは、もう一度 Tab・Esc・右上の「UIを戻す」。PC では、マウスを動かすと右上のバーとシークバーを少しの間だけ出す。
+ *   スマホにはキーもマウスも無いので、どちらも出したままにする(右上のバーは薄く)。
+ * - 右上のバー(#viewBar)には、見ながら切り替えたいもの(アニメーションの再生・停止、自動で揺らす、お気に入り)を「UIを戻す」と並べる。
+ *   再生と自動で揺らすはコマンドのボタン(ui/actions.ts)。お気に入りはここで選ぶ欄を作り、選ぶと App.applyFavorite で当てる
+ *   (選んだ状態は残さない。当てたあとで揺れを変えられるので、どれを当てているかは決まらないため)。
+ * - 隠している間の 3Dビューの操作は、見るだけ(ツールを使わない。マウスの左ドラッグで平行移動・右で回す。ui/input.ts)。
  * - 膨らませる・ぼかすのパネルは、使っている途中なら出したまま(画面全体に浮かべているので隠す対象に入らない)。
  * - 設定の「ブラウザも全画面にする」(setHideFull)がオンなら、隠すときにブラウザの全画面にもする。
  *   全画面はブラウザの Esc でもやめられ、そのときは UI も戻す。
@@ -78,14 +82,43 @@ export function bindHideUi(app: App): void {
   app.on('inflate', p => { if (p === 'begin' && app.uiHidden && mobile()) app.setUiHidden(false); });
   app.on('blur', p => { if (p === 'begin' && app.uiHidden && mobile()) app.setUiHidden(false); });
 
-  /* ---------- マウスを動かすと、戻すボタンとシークバーを少しの間だけ出す ---------- */
+  /* ---------- お気に入りを選ぶ欄 ---------- */
+  const fav = ui.viewFav, favHead = fav.options[0];
+  let favKey = '';
+  function refreshFav(): void {
+    const list = app.project.favorites, key = JSON.stringify(list.map(f => [f.id, f.name]));
+    if (key !== favKey) {
+      favKey = key;
+      fav.replaceChildren(favHead, ...list.map(f => new Option(f.name, f.id)));
+    }
+    fav.hidden = !list.length;
+    fav.disabled = !app.canEditFavorites;
+  }
+  fav.addEventListener('change', () => {
+    const id = fav.value;
+    fav.value = '';
+    // 選び終えたらフォーカスを外す(続けて Tab で戻せるように。バーも少し経てば消える)
+    fav.blur();
+    if (id) app.applyFavorite(id);
+  });
+  app.store.on('replace', refreshFav);
+  app.store.on('project', ({ keys }) => { if (keys.includes('favorites')) refreshFav(); });
+  for (const ev of ['take', 'status', 'inflate', 'blur', 'view'] as const) app.on(ev, refreshFav);
+  refreshFav();
+
+  /* ---------- マウスを動かすと、右上のバーとシークバーを少しの間だけ出す ---------- */
   let timer = 0;
-  /** ポインタが戻すボタンかシークバーの上にあるか(上にある間は消さない) */
+  /** ポインタが右上のバーかシークバーの上にあるか(上にある間は消さない) */
   let over = false;
   function peek(): void {
     root.classList.add('ui-peek');
     clearTimeout(timer);
-    if (!over) timer = window.setTimeout(() => root.classList.remove('ui-peek'), PEEK_MS);
+    if (!over) timer = window.setTimeout(hidePeek, PEEK_MS);
+  }
+  function hidePeek(): void {
+    // お気に入りの一覧を開いている間(ポインタはブラウザの一覧の上にあり、ページには来ない)は消さない
+    if (document.activeElement === fav) { timer = window.setTimeout(hidePeek, PEEK_MS); return; }
+    root.classList.remove('ui-peek');
   }
   function endPeek(): void {
     clearTimeout(timer);
@@ -96,7 +129,7 @@ export function bindHideUi(app: App): void {
     // 塗る・つかむなどでドラッグしている間は出さない(絵を見ながら動かしているので)
     if (!app.uiHidden || e.buttons !== 0 || e.pointerType === 'touch') return;
     const t = e.target as Element | null;
-    over = !!t?.closest?.('#uiRestore, #playBar');
+    over = !!t?.closest?.('#viewBar, #playBar');
     peek();
   }, { passive: true });
   document.documentElement.addEventListener('pointerleave', () => { over = false; if (app.uiHidden) peek(); });

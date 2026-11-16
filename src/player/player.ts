@@ -19,7 +19,7 @@ import { takeSeconds } from '../physics/take';
 import { deserializeProject } from '../storage/popstage';
 import { decodeForDisplay, browserDecodeGray } from '../ui/imageio';
 import { applyFavoriteChanges, favoriteChanges } from '../model/favorites';
-import type { Document, Project } from '../model/project';
+import type { CameraState, Document, Project } from '../model/project';
 import { StageSwing } from '../playback/stageSwing';
 import { LoopPlayback } from '../playback/loopPlayback';
 import { advanceSwing, feedView, preparePhysics } from '../playback/frame';
@@ -30,7 +30,11 @@ import { PlayerError, abortedError, loadError } from './errors';
 export { PlayerError } from './errors';
 export type { PlayerErrorCode } from './errors';
 
-/** キャンバスの上で受ける操作。'none' は何も受けない(受け口を付けない)。'view' はドラッグで回し、Ctrl(⌘)+ホイールとピンチでズームする */
+/**
+ * キャンバスの上で受ける操作。'none' は何も受けない(受け口を付けない)。
+ * 'view' は、マウスの左ドラッグで平行移動・右ドラッグで回す、1本指で回す・2本指で平行移動とピンチのズーム、
+ * Ctrl(⌘)+ホイールでズーム、ダブルクリック・ダブルタップで視点を戻す
+ */
 export type PlayerInteraction = 'none' | 'view';
 
 export interface PlayerOptions {
@@ -90,6 +94,18 @@ export interface Player {
   play(): void;
   /** その姿のまま止める(動画の一時停止と同じ)。止めている間は物理も描画も進めない(視点の操作と大きさの変化では1回描き直す) */
   pause(): void;
+  /** 記録(info.takeSeconds が 0 より大きいときにある動き)をループ再生しているか。記録が無ければいつも false */
+  readonly takePlaying: boolean;
+  /**
+   * 記録のループ再生を始める・止める。始めると記録の初めから再生する。止めると、その時点の視点のまま、
+   * 自動で揺らす・視点を動かした勢いの揺れだけになる。play()・pause() とは別(pause() している間に始めても、play() するまで動かない)。
+   * 記録が無ければ何もせず false を返す
+   */
+  setTakePlaying(on: boolean): boolean;
+  /** 自動で揺らすが入っているか(初めはファイルの設定) */
+  readonly autoSwing: boolean;
+  /** 自動で揺らすを入れる・切る(ファイルには書き戻さない)。setFavorite を呼ぶと、そのお気に入りの設定に変わる */
+  setAutoSwing(on: boolean): void;
   /**
    * お気に入りの揺れ・動きに切り替える(レイヤーのポップ量・重ね方・揺れ、自動揺らし、記録、画角、視点)。
    * 再生していたときに残したお気に入りなら、記録をループ再生する。動いているか止めているかは変えない。
@@ -257,8 +273,10 @@ class PlayerImpl {
   private prev = 0;
   private running = false;
   private disposed = false;
-  /** 記録をループ再生するか(記録があれば作ったときは true。お気に入りを当てると、その印に合わせる) */
+  /** 記録をループ再生するか(記録があれば作ったときは true。お気に入りを当てると、その印に合わせる。setTakePlaying でも変わる) */
   private loopWanted: boolean;
+  /** ダブルクリック・ダブルタップで戻す視点(記録を再生していないとき)。作ったときと setFavorite のときの視点 */
+  private home!: CameraState;
   /** 描画ループの中の例外は、最初の1回だけ console に出す(毎フレーム溢れないように) */
   private reported = false;
   /** 今の info(凍結。作ったときと setFavorite のときだけ作り直す) */
@@ -295,7 +313,14 @@ class PlayerImpl {
       this.measure();
       // 失われている間は描かない(frame が飛ばす)。戻ったら、止めているときも1回描き直す
       stage.onContextChange = lost => { if (!lost) this.requestRender(); };
-      if (options.interaction !== 'none') this.unbind = bindViewInput(canvas, () => project.camera, () => this.requestRender());
+      if (options.interaction !== 'none') {
+        this.unbind = bindViewInput(canvas, {
+          camera: () => project.camera,
+          panAxes: cam => ({ k: stage.pixelToWorld(cam), ...stage.screenAxes() }),
+          changed: () => this.requestRender(),
+          reset: () => this.resetView(),
+        });
+      }
       // 大きさはキャンバスの要素だけを見て追う(大きさ 0 で作っても、大きさが付いた時点で正しい縦横比で描く)。
       // 通知の中では大きさを当てず、次のフレームに回す(scheduleFit)。CSS の大きさは書かない
       if (options.autoResize !== false && typeof ResizeObserver === 'function') {
@@ -306,6 +331,7 @@ class PlayerImpl {
       this.makeInfo();
       // 最初の1フレームはすぐ描く(止めて始めるときも、絵が出ているように)
       if (this.loopWanted) this.loop.play();
+      this.keepHome();
       this.guarded(() => this.frame(0));
       if (options.autoplay !== false) this.play();
 
@@ -315,6 +341,10 @@ class PlayerImpl {
         get playing() { return self.running; },
         play: () => this.play(),
         pause: () => this.pause(),
+        get takePlaying() { return self.loop.playing; },
+        setTakePlaying: (on: boolean) => this.setTakePlaying(on),
+        get autoSwing() { return self.project.autoSwing.enabled; },
+        setAutoSwing: (on: boolean) => this.setAutoSwing(on),
         setFavorite: (id: string) => this.setFavorite(id),
         resize: () => this.fit(),
         dispose: () => this.dispose(),
@@ -369,9 +399,48 @@ class PlayerImpl {
     this.world.cutView();
     this.loopWanted = ch.play && !!project.take;
     if (this.loopWanted) this.loop.play();
+    this.keepHome();
     this.makeInfo();
     this.requestRender();
     return true;
+  }
+
+  setTakePlaying(on: boolean): boolean {
+    if (this.disposed || !this.project.take) return false;
+    this.loopWanted = on;
+    if (on && !this.loop.playing) this.loop.play();
+    else if (!on) this.loop.stop();
+    this.requestRender();
+    return true;
+  }
+
+  setAutoSwing(on: boolean): void {
+    if (this.disposed || this.project.autoSwing.enabled === on) return;
+    // 編集アプリの「自動で揺らす」と同じく、設定を入れ替えるだけ(切ると揺れは落ち着いていく)
+    this.project.autoSwing = { ...this.project.autoSwing, enabled: on };
+    this.requestRender();
+  }
+
+  /** 今の視点を、ダブルクリック・ダブルタップで戻す視点として覚える */
+  private keepHome(): void {
+    const c = this.project.camera;
+    this.home = { ...c, target: { ...c.target } };
+  }
+
+  /**
+   * ダブルクリック・ダブルタップで視点を戻す。記録の再生中は再生の基準の視点(記録の初めの視点)へ戻し、再生は続ける。
+   * そうでなければ、作ったとき(お気に入りを当てたならそのとき)の視点へ戻す。視点が飛ぶだけなので揺らさない。
+   * 画角は戻さない(お気に入りで変わったものはそのまま)
+   */
+  private resetView(): void {
+    if (this.disposed) return;
+    if (this.loop.playing) this.loop.resetView();
+    else {
+      const c = this.project.camera, h = this.home;
+      c.yaw = h.yaw; c.pitch = h.pitch; c.roll = h.roll; c.zoom = h.zoom; c.target = { ...h.target };
+      this.world.cutView();
+    }
+    this.requestRender();
   }
 
   /**

@@ -14,7 +14,7 @@ npm には公開していません。GitHub のリリースに添付した `.tgz
 ```json
 {
   "dependencies": {
-    "pukupop-player": "https://github.com/ogsoonyn/PukuPop/releases/download/player-v0.1.0/pukupop-player-0.1.0.tgz"
+    "pukupop-player": "https://github.com/ogsoonyn/PukuPop/releases/download/player-v0.2.0/pukupop-player-0.2.0.tgz"
   }
 }
 ```
@@ -22,7 +22,7 @@ npm には公開していません。GitHub のリリースに添付した `.tgz
 または、次のように入れます。
 
 ```sh
-npm install https://github.com/ogsoonyn/PukuPop/releases/download/player-v0.1.0/pukupop-player-0.1.0.tgz
+npm install https://github.com/ogsoonyn/PukuPop/releases/download/player-v0.2.0/pukupop-player-0.2.0.tgz
 ```
 
 `package-lock.json` に中身のハッシュ(integrity)が記録されるので、あとは `npm ci` で同じものが入ります。
@@ -70,6 +70,12 @@ document.querySelector('#toggle')?.addEventListener('click', () => {
   if (player.playing) player.pause();
   else player.play();
 });
+
+// 記録(アニメーション)の再生・停止と、自動で揺らすの切り替え。記録が無いファイルではアニメーションのボタンを出さない
+const anim = document.querySelector<HTMLButtonElement>('#anim');
+if (anim) anim.hidden = !player?.info.takeSeconds;
+anim?.addEventListener('click', () => player?.setTakePlaying(!player.takePlaying));
+document.querySelector('#swing')?.addEventListener('click', () => player?.setAutoSwing(!player.autoSwing));
 
 // お気に入り(揺れと動きの組み合わせ)に切り替える
 const first = player?.info.favorites[0];
@@ -149,9 +155,20 @@ StrictMode で effect が2回走っても動きます(1回目は片付けの `ab
 | オプション | 既定 | 内容 |
 | --- | --- | --- |
 | `autoplay` | `true` | 作ったらすぐ再生するか。記録があればループ再生し、無ければファイルの「自動で揺らす」の設定に従う(切ってあるファイルは止まった絵のまま)。`false` なら最初の1フレームを描いて止まった状態で始まり、`play()` で動き出す |
-| `interaction` | `'view'` | キャンバスの上で受ける操作。`'view'` はドラッグで回し、Ctrl(⌘)+ホイールとピンチでズームする(ただのホイールはページのスクロールに任せる)。`'none'` は何も受けない |
+| `interaction` | `'view'` | キャンバスの上で受ける操作。`'view'` は下の表のとおり(ただのホイールはページのスクロールに任せる)。`'none'` は何も受けない |
 | `autoResize` | `true` | キャンバスの大きさの変化を自動で追うか。`false` なら、大きさが変わったら `resize()` を呼ぶ |
 | `signal` | なし | 読み込みの取り消し(`AbortSignal`)。読み込み・デコードの間に abort されると `aborted` で失敗する |
+
+`interaction: 'view'` の操作:
+
+| 操作 | マウス | 指 |
+| --- | --- | --- |
+| 平行移動 | 左ドラッグ | 2本指でなぞる |
+| 回す | 右ドラッグ | 1本指でなぞる |
+| ズーム | Ctrl(⌘)+ホイール、タッチパッドのピンチ | ピンチ |
+| 視点を戻す | ダブルクリック | ダブルタップ |
+
+視点を戻すと、記録をループ再生しているときは記録の初めの視点に、そうでなければ作ったとき(`setFavorite` を呼んだならそのとき)の視点に戻ります。
 
 ### `Player`
 
@@ -161,6 +178,10 @@ StrictMode で effect が2回走っても動きます(1回目は片付けの `ab
 | `playing` | 動かす状態か(`pause()` していないか)。絵が実際に動いているかではない(下の「知っておくこと」) |
 | `play()` | 動かす。止めていたなら、止めた姿の続きから動く |
 | `pause()` | その姿のまま止める(動画の一時停止と同じ)。止めている間は物理も描画も進めない |
+| `takePlaying` | 記録(ループ再生する動き)を再生しているか。記録が無ければいつも `false` |
+| `setTakePlaying(on)` | 記録のループ再生を始める(初めから)・止める。止めても自動で揺らすの揺れは続く。`play()`・`pause()` とは別。記録が無ければ何もせず `false` を返す |
+| `autoSwing` | 自動で揺らすが入っているか(初めはファイルの設定) |
+| `setAutoSwing(on)` | 自動で揺らすを入れる・切る(ファイルには書き戻さない)。`setFavorite` を呼ぶと、そのお気に入りの設定に変わる |
 | `setFavorite(id)` | お気に入りの揺れ・動きに切り替える。知らない id なら何もせず `false` を返す。動いているか止めているかは変えない |
 | `resize()` | キャンバスの大きさと画面の倍率を測り直す。CSS の大きさは書かない |
 | `dispose()` | 描画を止め、受け口を外し、WebGL のコンテキストまで手放す。2回目以降と、そのあとのメソッドの呼び出しは何もしない |

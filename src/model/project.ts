@@ -236,6 +236,18 @@ export function orbitCamera(cam: CameraState, dx: number, dy: number): void {
   cam.pitch = Math.max(-VIEW_LIMITS.pitch, Math.min(VIEW_LIMITS.pitch, cam.pitch + oy * 0.008));
 }
 
+/**
+ * ドラッグした量(画面の px)だけ、画像が指・ポインタについてくるように注視点(t)を動かす。
+ * k は画面の 1px がワールドで何単位か、right・up は画面の右・上の向き(どちらも Stage の pixelToWorld・screenAxes)。
+ * 編集アプリ(ui/input.ts の平行移動・揺らす)と Player(src/player)で共通
+ */
+export function panBy(t: Vec3, dx: number, dy: number, k: number, axes: { right: Vec3; up: Vec3 }): void {
+  const { right, up } = axes;
+  t.x += -dx * k * right.x + dy * k * up.x;
+  t.y += -dx * k * right.y + dy * k * up.y;
+  t.z += -dx * k * right.z + dy * k * up.z;
+}
+
 export interface AutoSwing {
   enabled: boolean;
   period: number;   // 秒

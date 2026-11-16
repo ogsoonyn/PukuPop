@@ -3,7 +3,7 @@
  * サンプルのプロジェクトをその場で作って直列化し(編集アプリと同じ serializeProject)、Player に渡す。
  * Player は埋め込み先と同じく、使うときに import() で読む(読み込んだだけで window などに触らないかを確かめられるように)。
  *
- * 開くとサンプルを読み込んで再生し、ボタンで再生・停止、お気に入り、作り直し、操作の切り替え、手持ちのファイルの読み込みを試せる。
+ * 開くとサンプルを読み込んで再生し、ボタンで再生・停止、記録の再生・停止、自動揺れ、お気に入り、作り直し、操作の切り替え、手持ちのファイルの読み込みを試せる。
  * 作り直しは dispose() のあと新しい <canvas> に差し替える(キャンバスは使い回さない、の手本)。
  * ?e2e を付けると自動では読み込まず、ドロップの受け口も付けない(E2E は window.playerDemo で自分で作る)。
  * ?preserve を付けると、WebGL の描画を読み出せるよう preserveDrawingBuffer を入れる(E2E で画素を比べるため。Player は関わらない)。
@@ -114,7 +114,7 @@ if (params.has('e2e')) {
 /** 人が開いて触る確認用の画面 */
 async function interactive(): Promise<void> {
   const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-  const playBtn = $<HTMLButtonElement>('play'), favBox = $('favorites'), state = $('state'), error = $('error');
+  const playBtn = $<HTMLButtonElement>('play'), takeBtn = $<HTMLButtonElement>('take'), swingBtn = $<HTMLButtonElement>('swing'), favBox = $('favorites'), state = $('state'), error = $('error');
   const interactionSel = $<HTMLSelectElement>('interaction'), file = $<HTMLInputElement>('file'), box = $('box');
   const m = await load();
   let bytes: Uint8Array = await sample({ autoSwing: true, take: true, favorites: true });
@@ -125,6 +125,10 @@ async function interactive(): Promise<void> {
   const show = () => {
     playBtn.disabled = !player;
     playBtn.textContent = player?.playing ? '停止' : '再生';
+    takeBtn.disabled = !player?.info.takeSeconds;
+    takeBtn.setAttribute('aria-pressed', String(!!player?.takePlaying));
+    swingBtn.disabled = !player;
+    swingBtn.setAttribute('aria-pressed', String(!!player?.autoSwing));
     favBox.replaceChildren(...(player?.info.favorites ?? []).map(f => {
       const b = document.createElement('button');
       b.type = 'button'; b.textContent = f.name;
@@ -134,7 +138,7 @@ async function interactive(): Promise<void> {
     }));
     const i = player?.info;
     state.textContent = i
-      ? `${i.width}×${i.height} / 記録 ${i.takeSeconds.toFixed(1)} 秒 / お気に入り ${i.favorites.length} / playing: ${player!.playing}`
+      ? `${i.width}×${i.height} / 記録 ${i.takeSeconds.toFixed(1)} 秒 / お気に入り ${i.favorites.length} / playing: ${player!.playing} / takePlaying: ${player!.takePlaying} / autoSwing: ${player!.autoSwing}`
       : '読み込み中…';
   };
 
@@ -170,6 +174,8 @@ async function interactive(): Promise<void> {
     if (player.playing) player.pause(); else player.play();
     show();
   };
+  takeBtn.onclick = () => { player?.setTakePlaying(!player.takePlaying); show(); };
+  swingBtn.onclick = () => { player?.setAutoSwing(!player.autoSwing); show(); };
   $<HTMLButtonElement>('rebuild').onclick = () => void rebuild();
   interactionSel.onchange = () => void rebuild();
   file.onchange = () => { const f = file.files?.[0]; if (f) void open(f); };
