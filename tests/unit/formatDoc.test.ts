@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { unzipSync } from 'fflate';
 import { serializeProject, FORMAT_VERSION, UNZIP_LIMITS, FAVORITE_TAKE_LIMIT, TAKE_PATH } from '../../src/storage/popstage';
 import { createDocument, createProject } from '../../src/model/project';
@@ -11,7 +12,7 @@ import { captureFavorite } from '../../src/model/favorites';
 import { takeFromKeys } from '../../src/physics/take';
 import { encodeGrayPng } from '../../src/storage/png';
 
-const doc = readFileSync(new URL('../../docs/format.md', import.meta.url), 'utf8');
+const doc = readFileSync(fileURLToPath(new URL('../../docs/format.md', import.meta.url)), 'utf8');
 
 describe('docs/format.md', () => {
   it('形式の版が実装の FORMAT_VERSION と同じ', () => {
