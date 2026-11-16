@@ -108,7 +108,7 @@ export interface Player {
   resize(): void;
   /**
    * 描画を止め、受け口を外し、WebGL のコンテキストまで手放す。2回目以降と、そのあとのメソッドの呼び出しは何もしない。
-   * 手放したキャンバスは使い回せない(次の createPlayer には新しい <canvas> を渡す。React なら <canvas key={id} /> など)
+   * 手放したキャンバスは使い回せない(次の createPlayer には新しい <canvas> を渡す。React なら effect の依存と同じ値を key にして <canvas key={url} /> など)
    */
   dispose(): void;
 }

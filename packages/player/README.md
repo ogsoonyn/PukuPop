@@ -86,14 +86,17 @@ document.querySelector('#close')?.addEventListener('click', close);
 
 ### React
 
-素材ごとに新しい `<canvas>` を使います(`key` に素材の id を入れる)。`useEffect` の中で `AbortController` を作って `signal` を渡し、片付けで `abort()` と `dispose()` を呼びます。Player は `import()` で遅らせて読むと、最初の読み込みを軽くできます。
+読み込む URL ごとに新しい `<canvas>` を使います(`key` と `useEffect` の依存の両方に同じ `url` を入れるので、Player を作り直すときはいつもキャンバスも新しくなる)。`useEffect` の中で `AbortController` を作って `signal` を渡し、片付けで `abort()` と `dispose()` を呼びます。Player は `import()` で遅らせて読むと、最初の読み込みを軽くできます。
 
 ```tsx
 import { useEffect, useRef, useState } from 'react';
 import type { Player } from 'pukupop-player';
 
-/** 素材(assetId)ごとに url が1つ決まる前提。素材が変わると key で新しい <canvas> になる */
-export function PukuPopPreview({ assetId, url }: { assetId: string; url: string }) {
+/**
+ * url が変わると、key で新しい <canvas> になり、effect もその新しいキャンバスで作り直す。
+ * dispose() したキャンバスは使い回せないので、effect の依存に足すものは key にも入れる
+ */
+export function PukuPopPreview({ url }: { url: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,6 +108,7 @@ export function PukuPopPreview({ assetId, url }: { assetId: string; url: string 
     setError(null);
     (async () => {
       const res = await fetch(url, { signal: ac.signal });
+      if (!res.ok) throw new Error(`${url} を読み込めませんでした(HTTP ${res.status})`);
       const bytes = new Uint8Array(await res.arrayBuffer());
       const { createPlayer } = await import('pukupop-player');
       const p = await createPlayer(canvas, bytes, { signal: ac.signal });
@@ -119,18 +123,18 @@ export function PukuPopPreview({ assetId, url }: { assetId: string; url: string 
       ac.abort();
       player?.dispose();
     };
-  }, [assetId, url]);
+  }, [url]);
 
   return (
     <div>
-      <canvas key={assetId} ref={ref} style={{ display: 'block', width: '100%', aspectRatio: '4 / 3' }} />
+      <canvas key={url} ref={ref} style={{ display: 'block', width: '100%', aspectRatio: '4 / 3' }} />
       {error && <p role="alert">{error}</p>}
     </div>
   );
 }
 ```
 
-StrictMode で effect が2回走っても動きます(1回目は `aborted` で失敗し、同じキャンバスで2回目が作られる)。
+StrictMode で effect が2回走っても動きます(1回目は片付けの `abort()` で取り消され(`fetch` の `AbortError` か `PlayerError` の `aborted`)、同じキャンバスで2回目が作られる)。
 
 ## API
 
@@ -183,7 +187,7 @@ StrictMode で effect が2回走っても動きます(1回目は `aborted` で�
 
 ## 知っておくこと
 
-- **キャンバスは使い回せません。** `dispose()` したキャンバスで `createPlayer` を呼ぶと `canvas-unusable` で失敗します。作り直すときは新しい `<canvas>` を渡してください(React なら `<canvas key={素材の id} />`)。
+- **キャンバスは使い回せません。** `dispose()` したキャンバスで `createPlayer` を呼ぶと `canvas-unusable` で失敗します。作り直すときは新しい `<canvas>` を渡してください(React なら `<canvas key={url} />`。上の例)。
   `createPlayer` が失敗したあとに同じキャンバスを使えるのは、WebGL を作る前に失敗したときだけです。取り消し(`aborted`)と新しい版の形式(`unsupported-version`)のあとは、いつでも同じキャンバスを使えます。`invalid-file` は、ファイルを読む・画像をデコードする段階で見つかったものなら同じキャンバスを使えますが、WebGL を作ったあとの組み立て(テクスチャを作るなど)で失敗したものは、コンテキストを手放すのでそのキャンバスはもう使えません(次の `createPlayer` は `canvas-unusable` で失敗します)。どちらの段階かは外から見分けられないので、`invalid-file` のあとに作り直すときは新しい `<canvas>` を渡してください。
 - **キャンバスの大きさは CSS で決めます**(例: `width: 100%; aspect-ratio: 4 / 3`)。Player はキャンバスの CSS の大きさを書かず、描画の大きさだけを合わせます。CSS で決めていない(`width`・`height` の属性に任せた)キャンバスでも動きますが、大きさが変わり続けないよう、画面の倍率を掛けた高精細では描きません。
 - **画面の倍率だけが変わったとき**(ウィンドウを別のモニターへ移したなど)は、大きさの変化として届かないので `resize()` を呼んでください。
