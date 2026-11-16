@@ -85,6 +85,17 @@ const frames = (page: Page, n = 3) => page.evaluate(n => new Promise<void>(r => 
   const step = (k: number) => (k ? requestAnimationFrame(() => step(k - 1)) : r());
   step(n);
 }), n);
+/** 1枚目のレイヤーの揺れが、n フレームの間にどれだけ変わったか(最大と最小の差)。落ち着いていれば 0 に近い */
+const swingRange = (page: Page, n = 20) => page.evaluate(n => new Promise<number>(r => {
+  const p = (window as any).inner;
+  let lo = Infinity, hi = -Infinity, k = 0;
+  const step = () => {
+    const s = p.world.displacement(p.doc.layers[0].id), v = Math.hypot(s.x, s.y, s.z);
+    lo = Math.min(lo, v); hi = Math.max(hi, v);
+    if (++k >= n) r(hi - lo); else requestAnimationFrame(step);
+  };
+  step();
+}), n);
 /** 失敗した理由([code, message])。成功したら 'ok' */
 type Outcome = 'ok' | [string, string];
 
@@ -168,7 +179,7 @@ test('返すオブジェクトは API だけで、中身に触れない。info �
     const i3 = p.info;
     return { keys, names, same: i1 === i2, frozen, changed: i3 !== i1, sameAfter: i3 === p.info, take: [i1.takeSeconds > 1, i3.takeSeconds] };
   });
-  const api = ['dispose', 'info', 'pause', 'play', 'playing', 'resize', 'setFavorite'];
+  const api = ['autoSwing', 'dispose', 'info', 'pause', 'play', 'playing', 'resize', 'setAutoSwing', 'setFavorite', 'setTakePlaying', 'takePlaying'];
   expect(r.keys).toEqual(api);
   expect(r.names).toEqual(api);
   expect(r).toMatchObject({ same: true, frozen: [true, true, true, true], changed: true, sameAfter: true, take: [true, 0] });
@@ -207,27 +218,33 @@ test('記録のあるファイルはループ再生し、お気に入りで揺�
   expect(drawn(await snap(page))).toBe(true);
 });
 
-test('interaction: view: ドラッグで回り、ただのホイールはページのスクロールに任せ、Ctrl+ホイールでズームする', async ({ page }) => {
+test('interaction: view: 左ドラッグで平行移動、右ドラッグで回り、ただのホイールはページのスクロールに任せ、Ctrl+ホイールでズームする', async ({ page }) => {
   await open(page);
   await create(page, { autoSwing: false });
   const box = (await page.locator('#c').boundingBox())!;
   const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
   expect(await page.locator('#c').evaluate(c => (c as HTMLCanvasElement).style.touchAction)).toBe('none');
   const yaw = () => read<number>(page, 'inner.project.camera.yaw');
-  // 左ドラッグ: キャンバスの外まで引いても追う
+  const target = () => read<{ x: number; y: number; z: number }>(page, 'inner.project.camera.target');
+  const yaw0 = await yaw();
+  // 左ドラッグ: 画像がポインタについてくる(右へ引くと注視点は左へ、下へ引くと上へ)。回らない。キャンバスの外まで引いても追う
   await page.mouse.move(cx, cy);
   await page.mouse.down();
   for (let i = 1; i <= 10; i++) await page.mouse.move(cx + i * 40, cy + i * 5);
   await page.mouse.up();
-  const y1 = await yaw();
-  expect(y1).toBeLessThan(-0.5); // 右へ引くと yaw が減る(編集アプリと同じ向き)
-  expect(await read<number>(page, 'inner.project.camera.pitch')).toBeGreaterThan(0);
-  // 右ドラッグでも回る(メニューは出さない)
+  const t1 = await target();
+  expect(t1.x).toBeLessThan(-50);
+  expect(t1.y).toBeGreaterThan(0);
+  expect(await yaw()).toBe(yaw0);
+  // 右ドラッグ: 回る(メニューは出さない)
   await page.mouse.move(cx, cy);
   await page.mouse.down({ button: 'right' });
-  for (let i = 1; i <= 5; i++) await page.mouse.move(cx - i * 20, cy);
+  for (let i = 1; i <= 10; i++) await page.mouse.move(cx + i * 40, cy + i * 5);
   await page.mouse.up({ button: 'right' });
-  expect(await yaw()).toBeGreaterThan(y1);
+  const y1 = await yaw();
+  expect(y1).toBeLessThan(yaw0 - 0.5); // 右へ引くと yaw が減る(編集アプリと同じ向き)
+  expect(await read<number>(page, 'inner.project.camera.pitch')).toBeGreaterThan(0);
+  expect(await target()).toEqual(t1);
   // ホイールの扱いを、ページ側(window)で見る
   await page.evaluate(() => {
     const w = window as any;
@@ -257,28 +274,40 @@ test('interaction: view: ドラッグで回り、ただのホイールはペー�
   await page.evaluate(() => (window as any).player.pause());
   const t = await read<number>(page, 'inner.world.time'), before = await snap(page);
   await page.mouse.move(b2.x + b2.width / 2, b2.y + b2.height / 2);
-  await page.mouse.down();
+  await page.mouse.down({ button: 'right' });
   for (let i = 1; i <= 6; i++) await page.mouse.move(b2.x + b2.width / 2 - i * 30, b2.y + b2.height / 2);
-  await page.mouse.up();
+  await page.mouse.up({ button: 'right' });
   await expect.poll(async () => diff(before, await snap(page))).toBeGreaterThan(0.5);
   expect(await read<number>(page, 'inner.world.time')).toBe(t);
 });
 
-test('interaction: view: 視点を回した勢いで揺れる(編集アプリと同じ物理)', async ({ page }) => {
+test('interaction: view: 視点を回した・動かした勢いで揺れる(編集アプリと同じ物理)', async ({ page }) => {
   await open(page);
   await create(page, { autoSwing: false });
   const box = (await page.locator('#c').boundingBox())!;
   const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  // 揺れは、測り始めたときの姿(落ち着いた姿)からのずれで見る(落ち着いても 0 にはならないため)
+  await expect.poll(() => swingRange(page), { timeout: 10000 }).toBeLessThan(0.0002);
   await page.evaluate(() => {
     const w = window as any, p = w.inner;
+    w.__base = { ...p.world.displacement(p.doc.layers[0].id) };
     w.__maxSwing = 0;
     const tick = () => {
-      const s = p.world.displacement(p.doc.layers[0].id);
-      w.__maxSwing = Math.max(w.__maxSwing, Math.hypot(s.x, s.y, s.z));
+      const s = p.world.displacement(p.doc.layers[0].id), b = w.__base;
+      w.__maxSwing = Math.max(w.__maxSwing, Math.hypot(s.x - b.x, s.y - b.y, s.z - b.z));
       requestAnimationFrame(tick);
     };
     tick();
   });
+  // 右ドラッグで回す
+  await page.mouse.move(cx, cy);
+  await page.mouse.down({ button: 'right' });
+  for (let i = 1; i <= 8; i++) await page.mouse.move(cx + i * 30, cy);
+  await page.mouse.up({ button: 'right' });
+  await expect.poll(() => read<number>(page, '__maxSwing')).toBeGreaterThan(0.001);
+  // 揺れが収まってから、左ドラッグで平行移動しても揺れる
+  await expect.poll(() => swingRange(page), { timeout: 10000 }).toBeLessThan(0.0002);
+  await page.evaluate(() => { const w = window as any, p = w.inner; w.__base = { ...p.world.displacement(p.doc.layers[0].id) }; w.__maxSwing = 0; });
   await page.mouse.move(cx, cy);
   await page.mouse.down();
   for (let i = 1; i <= 8; i++) await page.mouse.move(cx + i * 30, cy);
@@ -286,10 +315,82 @@ test('interaction: view: 視点を回した勢いで揺れる(編集アプリと
   await expect.poll(() => read<number>(page, '__maxSwing')).toBeGreaterThan(0.001);
 });
 
+test('interaction: view: ダブルクリックで、作ったとき(お気に入りを当てたならそのとき)の視点に戻す。右ボタンでは戻さない', async ({ page }) => {
+  await open(page);
+  await create(page, { autoSwing: false, favorites: true });
+  const box = (await page.locator('#c').boundingBox())!;
+  const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  const view = () => page.evaluate(() => { const c = (window as any).inner.project.camera; return { yaw: c.yaw, pitch: c.pitch, zoom: c.zoom, target: c.target }; });
+  const home = await view();
+  // 回して平行移動してから、ダブルクリックで戻す
+  await page.mouse.move(cx, cy);
+  await page.mouse.down({ button: 'right' });
+  for (let i = 1; i <= 5; i++) await page.mouse.move(cx + i * 30, cy + i * 10);
+  await page.mouse.up({ button: 'right' });
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) await page.mouse.move(cx + i * 30, cy);
+  await page.mouse.up();
+  expect(await view()).not.toEqual(home);
+  // 右ボタンの2回押しでは戻さない
+  await page.mouse.click(cx, cy, { button: 'right', clickCount: 2 });
+  expect(await view()).not.toEqual(home);
+  await page.mouse.dblclick(cx, cy);
+  await expect.poll(view).toEqual(home);
+  // お気に入りを当てたら、そのときの視点(「静か」は右へ回した視点)に戻す
+  const calm = (await read<{ id: string }[]>(page, 'player.info.favorites'))[1];
+  await page.evaluate(id => (window as any).player.setFavorite(id), calm.id);
+  const calmView = await view();
+  expect(calmView.yaw).toBe(0.7);
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) await page.mouse.move(cx - i * 30, cy);
+  await page.mouse.up();
+  expect(await view()).not.toEqual(calmView);
+  await page.mouse.dblclick(cx, cy);
+  await expect.poll(view).toEqual(calmView);
+});
+
+test('記録の再生・停止(setTakePlaying)と自動で揺らす(setAutoSwing)を、play・pause と別に切り替えられる', async ({ page }) => {
+  await open(page);
+  // 記録の無いファイル: setTakePlaying は何もせず false
+  await create(page, { autoSwing: true });
+  expect(await page.evaluate(() => { const p = (window as any).player; return [p.takePlaying, p.setTakePlaying(true), p.takePlaying]; })).toEqual([false, false, false]);
+  // 自動で揺らす: ファイルの設定から始まり、切ると揺れが落ち着く。入れ直すとまた揺れる
+  expect(await read<boolean>(page, 'player.autoSwing')).toBe(true);
+  await page.evaluate(() => (window as any).player.setAutoSwing(false));
+  expect(await read<boolean>(page, 'player.autoSwing')).toBe(false);
+  expect(await read<boolean>(page, 'inner.project.autoSwing.enabled')).toBe(false);
+  await expect.poll(() => swingRange(page), { timeout: 15000 }).toBeLessThan(0.0002);
+  await page.evaluate(() => (window as any).player.setAutoSwing(true));
+  await expect.poll(() => swingRange(page)).toBeGreaterThan(0.001);
+  expect(await read<boolean>(page, 'player.playing')).toBe(true);
+  await page.evaluate(() => (window as any).player.dispose());
+
+  // 記録のあるファイル: 止めても動かす状態(playing)のまま、記録の位置は進まない。始めると初めから
+  await page.evaluate(() => { const c = document.createElement('canvas'); c.id = 'c'; document.getElementById('box')!.replaceChildren(c); });
+  await create(page, { autoSwing: false, take: true, favorites: true });
+  expect(await read<boolean>(page, 'player.takePlaying')).toBe(true);
+  await expect.poll(() => read<number>(page, 'inner.loop.position')).toBeGreaterThan(0.3);
+  expect(await page.evaluate(() => (window as any).player.setTakePlaying(false))).toBe(true);
+  expect(await page.evaluate(() => { const p = (window as any).player; return [p.takePlaying, p.playing]; })).toEqual([false, true]);
+  // 止めている間に始めても、play() するまで進まない
+  await page.evaluate(() => { const p = (window as any).player; p.pause(); p.setTakePlaying(true); });
+  expect(await read<boolean>(page, 'player.takePlaying')).toBe(true);
+  await frames(page, 5);
+  expect(await read<number>(page, 'inner.loop.position')).toBe(0);
+  await page.evaluate(() => (window as any).player.play());
+  await expect.poll(() => read<number>(page, 'inner.loop.position')).toBeGreaterThan(0.3);
+  // お気に入りで切り替わる(「静か」は記録も自動揺らしも無い)
+  const calm = (await read<{ id: string }[]>(page, 'player.info.favorites'))[1];
+  await page.evaluate(id => (window as any).player.setFavorite(id), calm.id);
+  expect(await page.evaluate(() => { const p = (window as any).player; return [p.takePlaying, p.autoSwing]; })).toEqual([false, false]);
+});
+
 test.describe('指の操作', () => {
   test.use({ hasTouch: true });
 
-  test('1本指のドラッグで回り、2本指のピンチでズームする', async ({ page }) => {
+  test('1本指のドラッグで回り、2本指のピンチでズームし、2本指でなぞると平行移動する。ダブルタップで視点を戻す', async ({ page }) => {
     await open(page);
     await create(page, { autoSwing: false });
     const box = (await page.locator('#c').boundingBox())!;
@@ -308,6 +409,18 @@ test.describe('指の操作', () => {
     for (let i = 1; i <= 6; i++) await touch('touchMove', [[cx - 40 - i * 15, cy], [cx + 40 + i * 15, cy]]);
     await touch('touchEnd', []);
     await expect.poll(() => read<number>(page, 'inner.project.camera.zoom')).toBeLessThan(z0 * 0.6);
+    // 2本指を同じ向きに動かすと平行移動(画像が指についてくるので、右へなぞると注視点は左へ)
+    const x0 = await read<number>(page, 'inner.project.camera.target.x');
+    await touch('touchStart', [[cx - 40, cy], [cx + 40, cy]]);
+    for (let i = 1; i <= 6; i++) await touch('touchMove', [[cx - 40 + i * 20, cy], [cx + 40 + i * 20, cy]]);
+    await touch('touchEnd', []);
+    await expect.poll(() => read<number>(page, 'inner.project.camera.target.x')).toBeLessThan(x0 - 10);
+    // ダブルタップで、作ったときの視点に戻す
+    for (let k = 0; k < 2; k++) {
+      await touch('touchStart', [[cx, cy]]);
+      await touch('touchEnd', []);
+    }
+    await expect.poll(() => page.evaluate(() => { const c = (window as any).inner.project.camera; return [c.yaw, c.zoom, c.target.x]; })).toEqual([yaw0, z0, 0]);
   });
 });
 
@@ -765,13 +878,16 @@ test('キャンバスの外に触らない(window・document の受け口と on*
   expect(await page.evaluate(() => (window as any).__spy.observed.map((e: Element) => e === document.getElementById('c')))).toEqual([true]);
   await page.evaluate(() => (window as any).player.dispose());
   expect(await look()).toEqual(before);
-  // 外した受け口は、キャンバスの上の操作に反応しない(dispose のあとに回しても視点は動かない)
-  const yaw = await read<number>(page, 'inner.project.camera.yaw');
-  await page.mouse.move(cx, cy);
-  await page.mouse.down();
-  await page.mouse.move(cx + 100, cy);
-  await page.mouse.up();
-  expect(await read<number>(page, 'inner.project.camera.yaw')).toBe(yaw);
+  // 外した受け口は、キャンバスの上の操作に反応しない(dispose のあとに動かしても・回しても視点は動かない)
+  const cam = () => page.evaluate(() => JSON.stringify((window as any).inner.project.camera));
+  const cam0 = await cam();
+  for (const button of ['left', 'right'] as const) {
+    await page.mouse.move(cx, cy);
+    await page.mouse.down({ button });
+    await page.mouse.move(cx + 100, cy);
+    await page.mouse.up({ button });
+  }
+  expect(await cam()).toBe(cam0);
   expect(await page.locator('#c').evaluate(c => (c as HTMLCanvasElement).style.touchAction)).toBe('');
   expect(before.listeners).toEqual([]);
 });
@@ -788,6 +904,14 @@ test('確認用のページ: 開くとサンプルを再生し、ボタンで止
   await page.locator('#play').click();
   await expect(page.locator('#play')).toHaveText('再生');
   await expect(page.locator('#state')).toContainText('playing: false');
+  // 記録の再生・停止と自動揺れのボタン(サンプルは記録あり・自動で揺らすあり)
+  await expect(page.locator('#take')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#take').click();
+  await expect(page.locator('#take')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#state')).toContainText('takePlaying: false');
+  await expect(page.locator('#swing')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#swing').click();
+  await expect(page.locator('#state')).toContainText('autoSwing: false');
   await page.locator('#favorites button', { hasText: '静か' }).click();
   await expect(page.locator('#favorites button', { hasText: '静か' })).toHaveAttribute('aria-pressed', 'true');
   await page.evaluate(() => { (window as any).__old = document.getElementById('c'); });

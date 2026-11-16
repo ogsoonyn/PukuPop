@@ -154,6 +154,16 @@ function defineActions(app: App, d: ActionDeps) {
       run: () => { if (app.takeState === 'playing') app.stopTake(); else app.playKeys(); },
       enabled: () => (app.takeState === 'playing' && !app.exporting) || app.canPlayKeys,
     },
+    // UIを隠している間の右上のバー(ui/hideUi.ts)の再生ボタン。キーフレームを再生できればそれを、できなければ記録をループ再生する
+    toggleAnimation: {
+      label: 'アニメーションの再生・停止', desc: 'キーフレームの動き(無ければ記録した操作)をループ再生する。再生中は止める',
+      run: () => {
+        if (app.takeState === 'playing') app.stopTake();
+        else if (app.canPlayKeys) app.playKeys();
+        else app.playTake();
+      },
+      enabled: () => !app.exporting && (app.takeState === 'playing' || app.canPlayKeys || (app.takeState === 'idle' && !!app.project.take)),
+    },
     toggleKeyPath: {
       label: 'キーフレームの経路', desc: '各フレームの枠と経路を3Dビューに重ねる',
       run: () => { const on = !app.keyOverlay.path; app.setKeyOverlay('path', on); if (on) d.showKeyFrames(); }, duringPreview: true,
@@ -520,11 +530,12 @@ export function bindActions(app: App, deps: ActionDeps): void {
   const blockedNotes = [...document.querySelectorAll<HTMLElement>('[data-blocked]')];
   for (const el of blockedNotes) if (!table[el.dataset.blocked!]?.blocked) throw new Error(`コマンド「${el.dataset.blocked}」に使えない理由がありません`);
   // 左のツールバーと、スマホのシートの一番上・上のバーと、PC のツールオプションの欄の右端(同じボタンを作っている)
-  const navs = '#toolNav, #mNav, #mTop, #quickActs';
+  // UIを隠している間の右上のバー(#viewBar)も同じ作り
+  const navs = '#toolNav, #mNav, #mTop, #quickActs, #viewBar';
   const pressables = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-pressed]`)];
-  // ツールオプションの欄の右端のボタンの絵(再生の絵は下の refresh が入れる)
-  for (const b of document.querySelectorAll<HTMLElement>('#quickActs [data-icon]')) b.querySelector('svg')!.innerHTML = ICONS[b.dataset.icon as IconName];
-  const keyPlayButtons = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-cmd=toggleKeyPlay]`)];
+  // ツールオプションの欄の右端と、右上のバーのボタンの絵(再生の絵は下の refresh が入れる)
+  for (const b of document.querySelectorAll<HTMLElement>(':is(#quickActs, #viewBar) [data-icon]')) b.querySelector('svg')!.innerHTML = ICONS[b.dataset.icon as IconName];
+  const keyPlayButtons = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) :is([data-cmd=toggleKeyPlay], [data-cmd=toggleAnimation])`)];
   const overlayBadges = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-pressed=overlay] .nav-badge`)];
   /** 'status' でも呼ぶ(0.5 秒ごと)ので、変わったときだけ書く */
   const setText = (el: Element, text: string) => { if (el.textContent !== text) el.textContent = text; };
@@ -568,7 +579,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
       b.querySelector('svg')!.innerHTML = ICONS[playing ? 'stop' : 'play'];
       const l = b.querySelector('.nav-label'); // スマホの上のバーのボタンはアイコンだけ
       if (l) l.textContent = playing ? '停止' : '再生';
-      b.setAttribute('aria-label', playing ? '再生を止める' : 'キーフレームを再生');
+      b.setAttribute('aria-label', playing ? '再生を止める' : b.dataset.cmd === 'toggleAnimation' ? 'アニメーションを再生' : 'キーフレームを再生');
     }
     for (const el of pressables) {
       const v = String(on[el.dataset.pressed as ViewCheck]);
