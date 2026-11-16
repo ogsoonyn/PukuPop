@@ -1,0 +1,29 @@
+{
+  "name": "pukupop-player",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PukuPop の .pukupop ファイルを、ほかの Web アプリの <canvas> に揺れたまま描く再生専用の部品",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ogsoonyn/PukuPop.git",
+    "directory": "packages/player"
+  },
+  "homepage": "https://github.com/ogsoonyn/PukuPop/tree/main/packages/player#readme",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./pukupop-player.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "module": "./pukupop-player.js",
+  "types": "./index.d.ts",
+  "files": [
+    "pukupop-player.js",
+    "index.d.ts",
+    "THIRD-PARTY-LICENSES.txt"
+  ],
+  "sideEffects": false
+}
