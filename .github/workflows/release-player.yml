@@ -1,0 +1,99 @@
+# Player(埋め込み用の再生専用の部品)のリリース。player-v<版> のタグを main のコミットに打って push すると動く。
+# 確かめ(タグの形・版・main の履歴・型検査・単体テスト・ビルド・npm pack・空のプロジェクトでの確かめ)が通ったら、
+# GitHub のリリースを作り、pukupop-player-<版>.tgz を添付する。アプリの公開(deploy-pages.yml。main への push)とは別。
+#
+# - 同じタグのリリースがもうあるときは、差し替えずに失敗する(使う側の package-lock.json の integrity と食い違うため)。
+#   直すときは版を上げて、新しいタグを打つ。
+# - 処理の中身は scripts/player-*.mjs にあり、手元でも同じものを流せる。
+# - 権限: 確かめのジョブは読むだけ。リリースを作るジョブだけが contents: write を持つ。
+#   ジョブの間でファイルを渡す action を増やさないため、リリースのジョブは同じコミットから作り直し、
+#   確かめのジョブと同じ .tgz(sha256 が一致)になったことを確かめてから添付する。
+name: Release Player
+
+on:
+  push:
+    tags: ['player-v*']
+
+permissions:
+  contents: read
+
+# タグごとに1つ。実行中のリリースは途中で止めない
+concurrency:
+  group: release-player-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # タグの指すコミットが main の履歴に含まれるかを見るので、履歴をすべて取る
+          fetch-depth: 0
+          persist-credentials: false
+      - run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # タグの形(player-v<semver>)・版の一致・main の履歴に含まれること。通らなければリリースを作らない
+      - id: tag
+        run: node scripts/player-release-check.mjs --main origin/main
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build:player
+      - run: npm run check:player
+      - id: pack
+        run: npm run pack:player
+      - run: npm run check:player-pack
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.verify.outputs.version }}
+      EXPECTED_SHA256: ${{ needs.verify.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:player
+      - id: pack
+        run: node scripts/player-pack.mjs --notes "$RUNNER_TEMP/release-notes.md"
+      - name: 確かめのジョブと同じ .tgz か
+        env:
+          ACTUAL_SHA256: ${{ steps.pack.outputs.sha256 }}
+        run: |
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::作り直した .tgz(sha256 $ACTUAL_SHA256)が、確かめた .tgz(sha256 $EXPECTED_SHA256)と違います。リリースは作りません"
+            exit 1
+          fi
+      - name: リリースを作って .tgz を添付する(同じタグのリリースがあれば差し替えずに失敗する)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TGZ: ${{ steps.pack.outputs.tgz }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "::error::リリース $TAG はもうあります。同じタグの .tgz は差し替えません。直すときは版を上げて新しいタグを打ってください"
+            exit 1
+          fi
+          # 版にプレリリース(0.2.0-rc.1 など)が付いていれば、プレリリースとして作る
+          case "$VERSION" in *-*) pre="--prerelease" ;; *) pre="" ;; esac
+          gh release create "$TAG" "$TGZ" --verify-tag $pre --title "pukupop-player $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
