@@ -213,7 +213,9 @@ three.js の大部分を含むため、埋め込み先では `import()` で遅�
 
 ## 版
 
-版は semver で付けます。0.x の間は、**API が変わるときに真ん中の数字を上げます**(例: 0.1.x → 0.2.0)。右の数字だけが上がるときは、API は変わりません。版は PukuPop のファイルの保存形式の版とは別です。新しい保存形式で作られたファイルは、古い Player では `unsupported-version` で失敗するので、新しい Player を入れてください。
+版は semver で付けます。0.x の間は、**API が変わるときに真ん中の数字を上げます**(例: 0.1.x → 0.2.0)。右の数字だけが上がるときは、API は変わりません。版は PukuPop のファイルの保存形式の版(`project.json` の `formatVersion`)とは別です。保存形式は項目を足すだけなら版を上げないので、そのようなファイルは古い Player でも読めます(足された項目は使われません)。保存形式の版が上がったファイルは、古い Player では `unsupported-version` で失敗するので、新しい Player を入れてください。
+
+`.pukupop` の中身(ZIP の中のパス、`project.json` の項目、元画像のパスと寸法、読むときの上限、版と互換)は [保存形式の文書](https://github.com/ogsoonyn/PukuPop/blob/main/docs/format.md) にあります。サーバー側で一覧用の画像を作る・ファイルを検査するときに使えます。
 
 ## ライセンス
 
