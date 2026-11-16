@@ -138,8 +138,9 @@ test('左のツールバー: キーフレームの再生・停止と、経路・
   await boot(page);
   const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
   const play = page.locator('#toolNav [data-cmd=toggleKeyPlay]'), path = page.locator('#toolNav [data-cmd=toggleKeyPath]'), ghost = page.locator('#toolNav [data-cmd=toggleKeyGhost]');
-  // フレームが2つ以上なければ再生できない
+  // フレームが2つ以上なければ再生できない(ツールオプションの欄の右端の再生も)
   await expect(play).toBeDisabled();
+  await expect(page.locator('#quickActs [data-cmd=toggleKeyPlay]')).toBeDisabled();
   await openTab(page, 'anim');
   await setCam(page, { zoom: 2.5 });
   await page.locator('#keyAdd').click();
@@ -153,6 +154,16 @@ test('左のツールバー: キーフレームの再生・停止と、経路・
   await play.click();
   expect(await app(a => a.takeState)).toBe('idle');
   await expect(play).toHaveText(/再生/);
+  // ツールオプションの欄の右端の再生ボタンも同じ動きで、再生中は停止のボタンになる
+  const quick = page.locator('#quickActs [data-cmd=toggleKeyPlay]');
+  await expect(quick).toHaveAccessibleName('キーフレームを再生');
+  await quick.click();
+  expect(await app(a => a.takeState)).toBe('playing');
+  await expect(quick).toHaveAccessibleName('再生を止める');
+  await expect(play).toHaveText(/停止/);
+  await quick.click();
+  expect(await app(a => a.takeState)).toBe('idle');
+  await expect(quick).toHaveAccessibleName('キーフレームを再生');
 
   // 経路・ゴースト: 右パネルのチェックボックスと同じ設定を切り替え、入・切を aria-pressed とメニューの ✓ に映す
   await expect(path).toHaveAttribute('aria-pressed', 'true');
