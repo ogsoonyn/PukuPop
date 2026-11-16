@@ -4,6 +4,7 @@
  *
  * 確かめること:
  * - 配布物のファイルがそろっていて、ほかのもの(CSS・分かれたチャンク・ソースマップ)が無い
+ * - 写したファイル(README・index.d.ts・package.json・LICENSE)が元とバイト単位で同じ(古い dist-player/ に気づけるように)
  * - ビルドした1本が ESM で、import 文・動的 import・export ... from で外のモジュールを参照していない(全部同梱)
  * - export しているのが createPlayer と PlayerError だけ(inspect などが出ていない)。Node で読み込んで確かめる
  *   (Node には DOM が無いので、モジュールの先頭で window・document に触ると落ちる)
@@ -17,7 +18,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { parseAst } from 'vite';
-import { distDir, bundleName, readPlayerPackage, SEMVER, fail } from './player-lib.mjs';
+import { root, pkgDir, distDir, bundleName, SEMVER, fail } from './player-lib.mjs';
 
 /**
  * 大きさの上限(バイト)。0.1.0 を作ったときの大きさ(そのまま 606 KB・gzip 159 KB)の約 1.3 倍。
@@ -47,6 +48,19 @@ const check = (ok, message) => { if (!ok) problems.push(message); };
 // 1. ファイルの一覧
 const files = readdirSync(distDir).sort();
 check(JSON.stringify(files) === JSON.stringify(EXPECTED), `dist-player/ のファイルが想定と違います: ${files.join(', ')}(想定: ${EXPECTED.join(', ')})`);
+
+// 1b. 写したファイルが元と同じ(元を直したのに build:player を流し直していない dist-player/ を見つける)
+const COPIED = [
+  ['README.md', join(pkgDir, 'README.md')],
+  ['index.d.ts', join(pkgDir, 'index.d.ts')],
+  ['package.json', join(pkgDir, 'package.json')],
+  ['LICENSE', join(root, 'LICENSE')],
+];
+for (const [file, source] of COPIED) {
+  let same = false;
+  try { same = readFileSync(join(distDir, file)).equals(readFileSync(source)); } catch { /* 無いときは 1. で見つかる */ }
+  check(same, `dist-player/${file} が元(${source.slice(root.length).replace(/\\/g, '/')})と違います(build:player を流し直してください)`);
+}
 
 // 2. 1本の ESM で、外のモジュールを参照していない
 const code = readFileSync(join(distDir, bundleName), 'utf8');
@@ -99,7 +113,6 @@ check(!/\bimport\b|\bfrom\s+['"]|\brequire\s*\(|<reference\b/.test(dts), 'index.
 
 // 6. package.json
 const pkg = JSON.parse(readFileSync(join(distDir, 'package.json'), 'utf8'));
-check(JSON.stringify(pkg) === JSON.stringify(readPlayerPackage()), 'dist-player/package.json が packages/player/package.json と違います(build:player を流し直してください)');
 check(pkg.name === 'pukupop-player', `name が pukupop-player ではありません: ${pkg.name}`);
 check(SEMVER.test(pkg.version ?? ''), `version が semver ではありません: ${pkg.version}`);
 check(pkg.type === 'module', 'type が module ではありません');
