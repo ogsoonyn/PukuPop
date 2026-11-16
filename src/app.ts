@@ -796,7 +796,8 @@ export class App extends Emitter<AppEvents> {
       const p = createProject(createDocument(asset, file.name)), d = this.newImageDefaults();
       p.background = d.background;
       p.autoSwing = d.autoSwing;
-      p.camera.fov = d.fov;
+      // 開いた直後はまだ塗っておらず膨らまないので、斜めに見せず正面から始める(サンプルは膨らみが見えるよう斜めのまま)
+      p.camera = frontCamera(d.fov);
       if (!(await this.loadProject(p, { canvas }))) return false;
       this.setTool('brush');
       toast(`「${file.name}」を開きました。動かしたい所を塗ってください。`, 'success');

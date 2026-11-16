@@ -153,6 +153,16 @@ test('左のツールバー: キーフレームの再生・停止と、経路・
   await play.click();
   expect(await app(a => a.takeState)).toBe('idle');
   await expect(play).toHaveText(/再生/);
+  // ツールオプションの欄の右端の再生ボタンも同じ動きで、再生中は停止のボタンになる
+  const quick = page.locator('#quickActs [data-cmd=toggleKeyPlay]');
+  await expect(quick).toHaveAccessibleName('キーフレームを再生');
+  await quick.click();
+  expect(await app(a => a.takeState)).toBe('playing');
+  await expect(quick).toHaveAccessibleName('再生を止める');
+  await expect(play).toHaveText(/停止/);
+  await quick.click();
+  expect(await app(a => a.takeState)).toBe('idle');
+  await expect(quick).toHaveAccessibleName('キーフレームを再生');
 
   // 経路・ゴースト: 右パネルのチェックボックスと同じ設定を切り替え、入・切を aria-pressed とメニューの ✓ に映す
   await expect(path).toHaveAttribute('aria-pressed', 'true');

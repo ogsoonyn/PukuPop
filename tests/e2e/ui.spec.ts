@@ -174,7 +174,7 @@ test('ショートカット: 一覧のキーがすべて期待どおりに効く
   await page.keyboard.press('Control+z');
   await page.keyboard.press('Control+y');
   expect(await sum()).toBe(0);
-  // 保存(Ctrl+S は今のファイルへ、Ctrl+Shift+S は保存先を選ぶ)・開く(Ctrl+O / Ctrl+Shift+O)は、ファイルの選択画面を横取りして確かめる
+  // 保存(Ctrl+S は今のファイルへ、Ctrl+Shift+S は保存先を選ぶ)・開く(Ctrl+O)は、ファイルの選択画面を横取りして確かめる
   await app(a => {
     const w = window as any;
     w.__calls = [];
@@ -189,9 +189,12 @@ test('ショートカット: 一覧のキーがすべて期待どおりに効く
   await expect.poll(calls).toEqual(['save', 'saveAs']);
   await page.keyboard.press('Control+o');
   await expect.poll(calls).toEqual(['save', 'saveAs', 'open:application/zip,image/*']);
+  // Ctrl+Shift+O(前は「画像を開く」)は、最近開いたファイルの一覧を開く
   await page.keyboard.press('Control+Shift+o');
-  // Ctrl+Shift+O(前の「画像を開く」)も、プロジェクトと画像の両方を開ける「開く」になる
-  await expect.poll(calls).toEqual(['save', 'saveAs', 'open:application/zip,image/*', 'open:application/zip,image/*']);
+  await expect(page.locator('#recentDialog')).toHaveAttribute('open', '');
+  expect(await calls()).toEqual(['save', 'saveAs', 'open:application/zip,image/*']);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#recentDialog')).not.toHaveAttribute('open', '');
   // 書き出し
   await page.keyboard.press('Control+e');
   await expect(page.locator('#exportDialog')).toHaveAttribute('open', '');
@@ -646,8 +649,8 @@ test('右パネルのタブは効く範囲で分ける。説明は「?」で開�
   await expect(page.locator('#toolNav > .tool')).toHaveCount(8);
   await expect(page.locator('#toolNav .tool svg')).toHaveCount(8);
   const acts = page.locator('#toolNav [role=group] .nav-act');
-  await expect(acts).toHaveCount(20); // 開く・保存・書き出しは既定では隠しているが、DOM にはある
-  await expect(page.locator('#toolNav [role=group] .nav-act svg')).toHaveCount(20);
+  await expect(acts).toHaveCount(22); // 開く・保存・書き出し・ポップOFF・揺れ停止は既定では隠しているが、DOM にはある
+  await expect(page.locator('#toolNav [role=group] .nav-act svg')).toHaveCount(22);
   await expect(page.locator('#toolNav [role=group] .tool')).toHaveCount(0);
   // ツールをいちばん上に置き、まとまりは上のメニューと同じ順に並べる
   await expect(page.locator('#toolNav > *').first()).toHaveAttribute('data-tool', 'brush');
@@ -1030,4 +1033,37 @@ test('上のメニューの「ツール」: 左のツールバーと同じツー
   await expect(page.locator('#toolNav [data-tool=smooth]')).toHaveAttribute('aria-pressed', 'true');
   await expect(menu.locator('[data-tool-check=smooth]')).toHaveText('✓');
   await expect(menu.locator('[data-tool-check]', { hasText: '✓' })).toHaveCount(1);
+});
+
+test('ツールオプションの欄の右端の自動揺れは、左のツールバー・右パネルと同じ設定を切り替え、入・切を aria-pressed に映す', async ({ page }) => {
+  await boot(page);
+  const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
+  const quick = page.locator('#quickActs [data-cmd=toggleAutoSwing]'), side = page.locator('#toolNav [data-cmd=toggleAutoSwing]');
+  // UIを隠す・設定の左に並ぶ
+  expect(await page.locator('#quickActs [data-cmd]').evaluateAll(els => els.map(e => (e as HTMLElement).dataset.cmd))).toEqual(['toggleKeyPlay', 'toggleAutoSwing', 'toggleUi', 'settings']);
+  await expect(quick).toHaveAccessibleName('自動で揺らす');
+  const on = await app(a => a.project.autoSwing.enabled);
+  await expect(quick).toHaveAttribute('aria-pressed', String(on));
+  await quick.click();
+  expect(await app(a => a.project.autoSwing.enabled)).toBe(!on);
+  await expect(quick).toHaveAttribute('aria-pressed', String(!on));
+  await expect(side).toHaveAttribute('aria-pressed', String(!on));
+  await side.click();
+  await expect(quick).toHaveAttribute('aria-pressed', String(on));
+});
+
+test('画像を開くと正面の視点で始まる(サンプルは斜めのまま)', async ({ page }) => {
+  await boot(page);
+  const cam = () => page.evaluate(() => { const c = (window as any).popstage.project.camera; return [c.yaw, c.pitch, c.roll, c.zoom]; });
+  const [yaw0, pitch0] = await cam();
+  expect(yaw0 !== 0 || pitch0 !== 0).toBe(true);
+  await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    c.getContext('2d')!.fillRect(8, 8, 48, 48);
+    const b: Blob = await new Promise(res => c.toBlob(x => res(x!), 'image/png'));
+    const a = (window as any).popstage;
+    a.dirty = false;
+    await a.openFile(new File([b], 'front.png', { type: 'image/png' }));
+  });
+  expect(await cam()).toEqual([0, 0, 0, 1]);
 });

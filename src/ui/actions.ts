@@ -69,9 +69,9 @@ function defineActions(app: App, d: ActionDeps) {
   };
   return {
     // ファイル
-    // プロジェクト(.pukupop)も画像も同じ「開く」で開く(中身で見分ける)。Ctrl+Shift+O は前の「画像を開く」のキー
-    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O', 'Ctrl+Shift+O'], run: d.openProject, enabled: roomForTab, blocked: tabsFull },
-    recent: { label: '最近開いたファイル', run: d.openRecent, enabled: roomForTab, blocked: tabsFull },
+    // プロジェクト(.pukupop)も画像も同じ「開く」で開く(中身で見分ける)。Ctrl+Shift+O は前は「画像を開く」のキーで、今は最近開いたファイル
+    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O'], run: d.openProject, enabled: roomForTab, blocked: tabsFull },
+    recent: { label: '最近開いたファイル', keys: ['Ctrl+Shift+O'], run: d.openRecent, enabled: roomForTab, blocked: tabsFull },
     save: { label: '保存', keys: ['Ctrl+S'], run: () => app.save(false), enabled: () => !!app.doc },
     saveAs: { label: '名前を付けて保存', keys: ['Ctrl+Shift+S'], run: () => app.save(true), enabled: () => !!app.doc },
     export: { label: '書き出し', keys: ['Ctrl+E'], run: d.openExport, enabled: () => !!app.doc },
@@ -234,6 +234,9 @@ const NAV_ACTIONS: readonly NavGroup[] = [
     items: [
       { cmd: 'toggleOverlay', icon: 'overlay', text: 'ウェイト', check: 'overlay', name: 'ウェイトの重ね表示' },
       { cmd: 'toggleFade', icon: 'fade', text: '画像を薄く', check: 'fade' },
+      // 見栄えを確かめるときに切り替える。キー(F・P)でも使えるので、既定では隠す(出すと低い画面ではツールバーがスクロールする)
+      { cmd: 'toggleFlat', icon: 'flat', text: 'ポップOFF', check: 'flat', name: 'ポップを一時OFF', defaultHidden: true },
+      { cmd: 'togglePause', icon: 'pause', text: '揺れ停止', check: 'pause', name: '揺れを一時停止', defaultHidden: true },
       { cmd: 'toggleMulti', icon: 'multi', text: '3面図', check: 'multi' },
       { cmd: 'toggleGrid', icon: 'grid', text: 'グリッド', check: 'grid' },
       { cmd: 'toggleTransparent', icon: 'transparent', text: '透過', check: 'transparent', name: '背景を透過' },
@@ -516,8 +519,8 @@ export function bindActions(app: App, deps: ActionDeps): void {
   /** 使えない理由の注意書き(data-blocked にコマンドの名前。メニューやダイアログの中に置き、使えない間だけ出す) */
   const blockedNotes = [...document.querySelectorAll<HTMLElement>('[data-blocked]')];
   for (const el of blockedNotes) if (!table[el.dataset.blocked!]?.blocked) throw new Error(`コマンド「${el.dataset.blocked}」に使えない理由がありません`);
-  // 左のツールバーと、スマホのシートの一番上・上のバー(同じボタンを作っている)
-  const navs = '#toolNav, #mNav, #mTop';
+  // 左のツールバーと、スマホのシートの一番上・上のバーと、PC のツールオプションの欄の右端(同じボタンを作っている)
+  const navs = '#toolNav, #mNav, #mTop, #quickActs';
   const pressables = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-pressed]`)];
   const keyPlayButtons = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-cmd=toggleKeyPlay]`)];
   const overlayBadges = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-pressed=overlay] .nav-badge`)];
