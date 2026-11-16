@@ -139,6 +139,38 @@ test('右上のバーで、アニメーションの再生・停止、自動で�
   // 戻すとバーは消える
   await page.keyboard.press('Tab');
   await expect(bar).toBeHidden();
+
+  // 欄を選ばずに閉じてフォーカスが残っても、Esc・(マウスで触ったなら)Tab で戻せる
+  for (const key of ['Escape', 'Tab']) {
+    await page.keyboard.press('Tab');
+    await expect(page.locator('html')).toHaveClass(/ui-hidden/);
+    await peek();
+    await fav.dispatchEvent('pointerdown');
+    await fav.focus();
+    await page.keyboard.press(key);
+    await expect(page.locator('html')).not.toHaveClass(/ui-hidden/);
+    expect(await page.evaluate(() => document.activeElement?.id)).not.toBe('viewFav');
+  }
+});
+
+test('見ている間は、戻る・進むのボタンでループ再生を止めない', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => {
+    const a = (window as any).popstage;
+    a.keyDraft = [0, 0.6].map(yaw => ({ view: { yaw, pitch: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } }, seconds: 1, mode: 'smooth' }));
+    a.emit('take', a.takeState);
+    a.playKeys();
+  });
+  await expect.poll(() => page.evaluate(() => (window as any).popstage.takeState)).toBe('playing');
+  await page.keyboard.press('Tab');
+  // Playwright のマウスは戻る・進むのボタンを押せないので、キャンバスに直に送る
+  await page.locator('#view').evaluate(c => {
+    for (const button of [3, 4]) {
+      c.dispatchEvent(new PointerEvent('pointerdown', { button, buttons: 8, pointerId: 1, pointerType: 'mouse', clientX: 700, clientY: 450, bubbles: true }));
+      c.dispatchEvent(new PointerEvent('pointerup', { button, buttons: 0, pointerId: 1, pointerType: 'mouse', clientX: 700, clientY: 450, bubbles: true }));
+    }
+  });
+  expect(await page.evaluate(() => (window as any).popstage.takeState)).toBe('playing');
 });
 
 test('入力欄やキーボードで移ってきたボタンでは、Tab はふつうにフォーカスを移す', async ({ page }) => {

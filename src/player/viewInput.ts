@@ -13,7 +13,10 @@ import { clampViewZoom, orbitCamera, panBy, type CameraState, type Vec3 } from '
 
 /** ホイールの量 1 あたりのズーム(拡大率の対数)。編集アプリのホイールと同じ感度 */
 const WHEEL_ZOOM = 0.0012;
-/** ダブルクリック・ダブルタップの判定: 1回の押して離すまでの時間・動いてよい量と、2回の間の時間・間の距離(編集アプリのダブルタップと同じ) */
+/**
+ * ダブルタップ(指)の判定: 1回の押して離すまでの時間・動いてよい量と、2回の間の時間・間の距離(編集アプリのダブルタップと同じ)。
+ * マウス・ペンのダブルクリックはブラウザの dblclick で受ける(OS のダブルクリックの間隔の設定に従うように)
+ */
 const TAP_MS = 300, TAP_MOVE = 10, DOUBLE_MS = 350, DOUBLE_DIST = 32;
 
 export interface ViewInputHost {
@@ -44,7 +47,7 @@ export function bindViewInput(canvas: HTMLCanvasElement, host: ViewInputHost): (
   let mousePan = false;
   /** 2本指の間隔と中心(ピンチと平行移動)。2本でないときは null */
   let pinch: { d: number; x: number; y: number } | null = null;
-  /** 触り始めてから全部を離すまでの記録(ダブルクリック・ダブルタップの判定) */
+  /** 触り始めてから全部を離すまでの記録(指のダブルタップの判定) */
   let tap: { t: number; x: number; y: number; moved: number; n: number; ok: boolean } | null = null;
   let lastTap: { t: number; x: number; y: number } | null = null;
   const two = () => {
@@ -67,7 +70,7 @@ export function bindViewInput(canvas: HTMLCanvasElement, host: ViewInputHost): (
     if (!touch) mousePan = e.button === 0;
     pinch = pointers.size === 2 ? two() : null;
     // ダブルクリックは左ボタンだけ(右ボタンは回すのに使う)
-    if (pointers.size === 1) tap = { t: performance.now(), x: e.clientX, y: e.clientY, moved: 0, n: 1, ok: touch || e.button === 0 };
+    if (pointers.size === 1) tap = { t: performance.now(), x: e.clientX, y: e.clientY, moved: 0, n: 1, ok: touch };
     else if (tap) tap.n = pointers.size;
     canvas.style.cursor = !touch && mousePan ? 'move' : 'grabbing';
   }, on);
@@ -108,6 +111,10 @@ export function bindViewInput(canvas: HTMLCanvasElement, host: ViewInputHost): (
   canvas.addEventListener('pointerup', end, on);
   canvas.addEventListener('pointercancel', end, on);
   canvas.addEventListener('lostpointercapture', end, on);
+  // マウス・ペンのダブルクリック(左ボタンだけで出る)。指のダブルタップは上で判定するので、指から出たもの(ブラウザによる)は使わない
+  let lastType = '';
+  canvas.addEventListener('pointerdown', e => { lastType = e.pointerType; }, on);
+  canvas.addEventListener('dblclick', () => { if (lastType !== 'touch') host.reset(); }, on);
   // 右ドラッグで回すので、キャンバスの上ではメニューを出さない
   canvas.addEventListener('contextmenu', e => e.preventDefault(), on);
 

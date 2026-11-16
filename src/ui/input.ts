@@ -71,7 +71,9 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     return hit ? frameCursor(app, hit, false) : null;
   }
   app.on('tool', updateCursor);
-  app.on('view', updateCursor); // UIを隠す・戻すで、ツールを使うか(viewOnly)が変わる
+  // UIを隠す・戻すと、ぼかすのプレビューの始まり・終わりで、ツールを使うか(viewOnly)が変わる
+  app.on('view', updateCursor);
+  app.on('blur', updateCursor);
 
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -177,7 +179,8 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     const quick = performance.now() - t.t < 300;
     if (t.n >= 2) {
       // 全体ぼかし・膨らませるのプレビュー中は、プレビュー中のウェイトに履歴を書き戻さないよう止める
-      if (!quick || t.moved > 16 || app.stroking || app.previewing) return;
+      // UIを隠して見ている間は、平行移動・ピンチのつもりの2本指で戻さないよう使わない
+      if (!quick || t.moved > 16 || app.stroking || app.previewing || viewOnly()) return;
       if (t.n === 2 ? app.history.undo() : app.history.redo()) toast(t.n === 2 ? '元に戻しました' : 'やり直しました');
       return;
     }
@@ -191,6 +194,8 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
   canvas.addEventListener('pointerdown', e => {
     // 指では、画像の外をなぞると回転する(右ドラッグの代わり)。ループ再生中は動いている画像で決める
     // 膨らませるの枠のハンドル(大きさ・回す)は、画像の外にはみ出していても掴めるようにする(枠の中を触るのは、画像の外なら今までどおり回転)
+    // 見ている間は、左・中・右のほかのボタン(戻る・進む・ペンの消しゴム)を使わない(ループ再生も止めない。Player と同じ)
+    if (viewOnly() && e.button > 2) return;
     const tool = toolFor(e.pointerType === 'touch');
     const outside = e.pointerType === 'touch' && tool !== 'pan' && !app.stage.pick(e.clientX, e.clientY)?.inside
       && !(tool === 'inflate' && app.previewingInflate && (hitFrame(app, e.clientX, e.clientY, true)?.kind ?? 'move') !== 'move');
@@ -219,7 +224,7 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     updateCursor();
   });
   // UIを隠している間は、ダブルクリックで視点を戻す(指のダブルタップ・Home と同じ。Player のダブルクリックに合わせる)
-  canvas.addEventListener('dblclick', e => { if (viewOnly() && e.button === 0) app.resetView(); });
+  canvas.addEventListener('dblclick', () => { if (viewOnly()) app.resetView(); });
 
   // 画像全体が動いている間(ピストン)は、ポインタが止まっていても、その下の画像の位置でブラシの円を描き直す
   app.on('frame', () => {

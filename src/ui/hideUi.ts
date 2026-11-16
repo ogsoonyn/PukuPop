@@ -94,6 +94,19 @@ export function bindHideUi(app: App): void {
     fav.hidden = !list.length;
     fav.disabled = !app.canEditFavorites;
   }
+  // 選ばずに閉じると欄にフォーカスが残り、Esc・Tab が欄のもの(文字の欄の扱い)になって UI を戻せない。
+  // Esc はいつも、Tab はマウス・指で触ってフォーカスしたときは、欄から離して UI を戻す(キーボードで移ってきたなら Tab はふつうに移る)
+  let favByPointer = false;
+  fav.addEventListener('pointerdown', () => { favByPointer = true; });
+  fav.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' && !(e.key === 'Tab' && favByPointer && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    fav.blur();
+    app.setUiHidden(false);
+  });
+  // 欄から離れたら、少し経てばバーを消す
+  fav.addEventListener('blur', () => { favByPointer = false; if (app.uiHidden) peek(); });
   fav.addEventListener('change', () => {
     const id = fav.value;
     fav.value = '';

@@ -71,15 +71,20 @@ document.querySelector('#toggle')?.addEventListener('click', () => {
   else player.play();
 });
 
-// 記録(アニメーション)の再生・停止と、自動で揺らすの切り替え。記録が無いファイルではアニメーションのボタンを出さない
+// 記録(アニメーション)の再生・停止と、自動で揺らすの切り替え。記録が無いときはアニメーションのボタンを出さない
+// (お気に入りで記録が入れ替わるので、setFavorite のあとにも決め直す)
 const anim = document.querySelector<HTMLButtonElement>('#anim');
-if (anim) anim.hidden = !player?.info.takeSeconds;
+const showAnim = () => { if (anim) anim.hidden = !player?.info.takeSeconds; };
+showAnim();
 anim?.addEventListener('click', () => player?.setTakePlaying(!player.takePlaying));
 document.querySelector('#swing')?.addEventListener('click', () => player?.setAutoSwing(!player.autoSwing));
 
 // お気に入り(揺れと動きの組み合わせ)に切り替える
 const first = player?.info.favorites[0];
-if (player && first) player.setFavorite(first.id);
+if (player && first) {
+  player.setFavorite(first.id);
+  showAnim();
+}
 
 // 片付ける。dispose() したキャンバスは使い回せないので、次は新しい <canvas> を渡す
 function close(): void {
@@ -178,8 +183,8 @@ StrictMode で effect が2回走っても動きます(1回目は片付けの `ab
 | `playing` | 動かす状態か(`pause()` していないか)。絵が実際に動いているかではない(下の「知っておくこと」) |
 | `play()` | 動かす。止めていたなら、止めた姿の続きから動く |
 | `pause()` | その姿のまま止める(動画の一時停止と同じ)。止めている間は物理も描画も進めない |
-| `takePlaying` | 記録(ループ再生する動き)を再生しているか。記録が無ければいつも `false` |
-| `setTakePlaying(on)` | 記録のループ再生を始める(初めから)・止める。止めても自動で揺らすの揺れは続く。`play()`・`pause()` とは別。記録が無ければ何もせず `false` を返す |
+| `takePlaying` | 記録(ループ再生する動き)を再生する状態か。`pause()` している間も、記録の再生を止めていなければ `true`。記録が無ければいつも `false` |
+| `setTakePlaying(on)` | 記録のループ再生を始める(初めから。すでに再生する状態なら何もしない)・止める。止めても自動で揺らすの揺れは続く。`play()`・`pause()` とは別。記録が無ければ何もせず `false` を返す |
 | `autoSwing` | 自動で揺らすが入っているか(初めはファイルの設定) |
 | `setAutoSwing(on)` | 自動で揺らすを入れる・切る(ファイルには書き戻さない)。`setFavorite` を呼ぶと、そのお気に入りの設定に変わる |
 | `setFavorite(id)` | お気に入りの揺れ・動きに切り替える。知らない id なら何もせず `false` を返す。動いているか止めているかは変えない |
