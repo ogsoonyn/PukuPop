@@ -46,7 +46,9 @@ jobs:
       # タグの形(player-v<semver>)・版の一致・main の履歴に含まれること。通らなければリリースを作らない
       - id: tag
         run: node scripts/player-release-check.mjs --main origin/main
-      - run: npm ci
+      # 依存のインストールのスクリプトは流さない(今の依存には無く、流さなくてもビルド・テストが通る)。
+      # release のジョブと同じ入れ方にして、作る .tgz をそろえる
+      - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test
       - run: npm run build:player
@@ -72,7 +74,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      # 書き込みの権限を持つジョブなので、依存のインストールのスクリプトは流さない(verify と同じ入れ方)
+      - run: npm ci --ignore-scripts
       - run: npm run build:player
       - id: pack
         run: node scripts/player-pack.mjs --notes "$RUNNER_TEMP/release-notes.md"
@@ -89,9 +92,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TGZ: ${{ steps.pack.outputs.tgz }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "::error::リリース $TAG はもうあります。同じタグの .tgz は差し替えません。直すときは版を上げて新しいタグを打ってください"
+            exit 1
+          fi
+          # リモートのタグが今のコミットを指していることを確かめる(動いている間にタグを打ち直されていたら作らない)。
+          # 注釈付きタグは ^{} の行がコミットを指すので、それがあればそちらを使う
+          remote=$(git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}")
+          tagged=$(printf '%s\n' "$remote" | awk -v ref="refs/tags/$TAG^{}" '$2 == ref { print $1 }')
+          if [ -z "$tagged" ]; then
+            tagged=$(printf '%s\n' "$remote" | awk -v ref="refs/tags/$TAG" '$2 == ref { print $1 }')
+          fi
+          if [ "$tagged" != "$COMMIT_SHA" ]; then
+            echo "::error::リモートのタグ $TAG(${tagged:-見つからない})が、確かめたコミット $COMMIT_SHA を指していません。リリースは作りません"
             exit 1
           fi
           # 版にプレリリース(0.2.0-rc.1 など)が付いていれば、プレリリースとして作る

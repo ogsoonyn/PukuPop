@@ -67,7 +67,7 @@ npm run check:player-pack  # .tgz を OS の一時ディレクトリの空のプ
 - 実装が済んだら別のエージェントにレビューさせる。PR 前のレビューの指摘は、その PR の中で直す。直したら `develop` 向けの PR を作り、報告する。許可があれば、 `gh pr merge --merge` でマージする。
 - 頼まれたレビューで見つけた課題と、作業の範囲の外で見つけた課題は Issue に立てる。`develop` にマージして直った Issue は、PR の番号をコメントに書いて閉じてよい。
 - `main` へは `develop` からのリリース PR(タイトルは「リリース: …」)だけを、頼まれたときに作る。`main` への push はそのまま GitHub Pages への公開になる。
-- Player のリリースも頼まれたときだけ行う。`packages/player/package.json` の版(と README の URL)を上げた変更を `develop` → `main` のリリース PR で入れたあと、`main` のそのコミットに `player-v<版>` のタグを打って push する(`git tag player-v0.1.0 <main のコミット>` → `git push origin player-v0.1.0`)。タグが `main` の履歴に無い・版が食い違う・形が違うと、ワークフローはリリースを作らずに失敗する。
+- Player のリリースも頼まれたときだけ行う。`packages/player/package.json` の版(と README の URL)を上げた変更を `develop` → `main` のリリース PR で入れたあと、`main` のそのコミットに `player-v<版>` のタグを打って push する(`git tag player-v0.1.0 <main のコミット>` → `git push origin player-v0.1.0`)。タグは1つずつ push する(`git push --tags` などでまとめて push しない。GitHub は一度に3つを超えるタグの push ではワークフローを動かさない)。タグが `main` の履歴に無い・版が食い違う・形が違うと、ワークフローはリリースを作らずに失敗する。
 - PR の本文には、変えたこと、動きが変わるところ、確認したこと(テストの件数と、落ちたテストとその理由)を書く。
 
 ## 手元の動作確認を乱さない
