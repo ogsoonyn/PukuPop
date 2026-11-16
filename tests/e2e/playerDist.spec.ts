@@ -93,7 +93,7 @@ test('ビルドした1本を読み込むと、絵が出て、止める・お気�
   });
   expect(after).toEqual({
     paused: false, fav: true, unknown: false, playing: true, disposed: false, frozen: true,
-    keys: ['dispose', 'info', 'pause', 'play', 'playing', 'resize', 'setFavorite'],
+    keys: ['autoSwing', 'dispose', 'info', 'pause', 'play', 'playing', 'resize', 'setAutoSwing', 'setFavorite', 'setTakePlaying', 'takePlaying'],
   });
   // キャンバスの外に触らない: window・document の受け口(ビルドした1本から付けたもの)、on* プロパティ、保存領域、head の CSS、親要素。
   // window に足されたものは、同梱した three.js が読み込んだときに書く版(__THREE__)だけ
