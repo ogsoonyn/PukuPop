@@ -6,6 +6,7 @@ import type { RecordSample } from '../../src/physics/recorder';
 import { StageSwing, BASE_EASE, type PlaybackScene } from '../../src/playback/stageSwing';
 import { LoopPlayback, sameView } from '../../src/playback/loopPlayback';
 import type { PlaybackStage } from '../../src/playback/stageApi';
+import { preparePhysics, feedView, advanceSwing } from '../../src/playback/frame';
 
 /** Stage の偽物。再生のつなぎが呼んだものを控える(three.js を import しない) */
 function fakeStage() {
@@ -267,5 +268,58 @@ describe('記録のループ再生(LoopPlayback)', () => {
     expect(world.viewRig).toBeNull();
     expect(calls.rig.at(-1)).toBeNull();
     expect(log).toEqual([]);
+  });
+
+  it('シークしてから刻みを挟まずに止めても・捨てても、印は次の再生の最初の刻みまで残す(シークのリセットを操作の記録に残すため)', () => {
+    for (const end of ['stop', 'discard'] as const) {
+      const { pb, advance, stepped } = setup();
+      pb.play();
+      pb.seek(0.5);
+      if (end === 'stop') pb.stop(); else pb.discard();
+      pb.play();
+      advance(2);
+      expect(stepped.map(s => s.seeked), end).toEqual([true, false]);
+    }
+  });
+
+  it('状態は読むだけで、外から書き換えられない', () => {
+    const { pb } = setup();
+    pb.play();
+    expect(() => { (pb as unknown as { playing: boolean }).playing = false; }).toThrow();
+    expect(pb.playing).toBe(true);
+  });
+});
+
+describe('1フレームの物理の組み立て(playback/frame.ts)', () => {
+  it('物理の準備で、正規化座標の大きさと重心の求め方を物理へ渡す', () => {
+    const { stage } = fakeStage(), doc = docOf(), w = new PhysicsWorld(), sw = new StageSwing(stage, sceneOf(doc));
+    preparePhysics(w, doc, sw.centerOf);
+    expect(w.unitPx).toBe(200);
+    expect(w.centerOf).toBe(sw.centerOf);
+  });
+
+  it('視点を物理へ入れる。揺らすツールの量は注視点に足し、省けば今の視点のまま', () => {
+    const w = new PhysicsWorld(), cam: CameraState = { fov: 40, yaw: 0.3, pitch: -0.2, roll: 0.1, zoom: 2, target: { x: 1, y: 2, z: 3 } };
+    feedView(w, cam);
+    expect(w.viewTarget).toEqual({ x: 1, y: 2, z: 3 });
+    expect(w.viewAngles).toEqual({ yaw: 0.3, pitch: -0.2, roll: 0.1, zoom: 2 });
+    feedView(w, cam, { x: 10, y: 0, z: -1 });
+    expect(w.viewTarget).toEqual({ x: 11, y: 2, z: 2 });
+    w.viewTarget.x = 99;
+    expect(cam.target.x).toBe(1); // 視点の注視点を共有しない
+  });
+
+  it('物理を進めるときに今の自動揺らしを渡し、刻みごとに入力の関数を呼び、揺れと画像全体のずれを Stage へ当てる', () => {
+    const { stage, calls } = fakeStage(), doc = docOf(), w = new PhysicsWorld(), sw = new StageSwing(stage, sceneOf(doc));
+    doc.layers[0].weights.data.fill(255);
+    preparePhysics(w, doc, sw.centerOf);
+    const auto = { enabled: true, period: 1, strength: 0.8 };
+    let steps = 0;
+    advanceSwing(0.05, w, sw, auto, doc, () => { steps++; });
+    expect(w.autoSwing).toBe(auto);
+    expect(steps).toBe(Math.floor(0.05 / PHYSICS_DT));
+    expect(calls.swing.get(0)).toBeDefined();
+    expect(calls.base.length).toBeGreaterThan(0);
+    expect(calls.reach.length).toBe(1);
   });
 });

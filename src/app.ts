@@ -14,6 +14,7 @@ import { captureFavorite, favoriteChanges, nextFavoriteName, applyView, FAVORITE
 import { Stage, type ViewOptions } from './stage/stage';
 import { StageSwing, type BaseState } from './playback/stageSwing';
 import { LoopPlayback } from './playback/loopPlayback';
+import { preparePhysics, feedView, advanceSwing } from './playback/frame';
 import { TakeRecording, type TakeState } from './app/recording';
 import { KeyframeEditor } from './app/keyframes';
 import { BlurPreview } from './app/blurPreview';
@@ -335,8 +336,7 @@ export class App extends Emitter<AppEvents> {
     this.stage.setTransform(doc);
     this.stage.setLayers(doc.layers);
     this.pendingUploads.clear();
-    this.world.unitPx = Math.max(doc.image.width, doc.image.height) / 2;
-    this.world.centerOf = this.centerOf;
+    preparePhysics(this.world, doc, this.centerOf);
     this.applyBackground();
     this.syncView();
     this.emit('status', undefined);
@@ -1188,10 +1188,8 @@ export class App extends Emitter<AppEvents> {
     // ループ再生中は、記録どおりに物理へ入れる(playback/loopPlayback.ts)
     if (this.playback.step()) return;
     const w = this.world, c = this.project.camera;
-    // 平行移動・回転・ズームでも、「揺らす」で振っても揺らす
-    const s = this.shake;
-    w.viewTarget = { x: c.target.x + s.x, y: c.target.y + s.y, z: c.target.z + s.z };
-    w.viewAngles = { yaw: c.yaw, pitch: c.pitch, roll: c.roll, zoom: c.zoom };
+    // 平行移動・回転・ズームでも、「揺らす」で振っても揺らす(playback/frame.ts。Player と共通)
+    feedView(w, c, this.shake);
     this.recorder.record({
       viewCut: w.viewCut,
       viewTarget: { ...w.viewTarget },
@@ -1353,10 +1351,8 @@ export class App extends Emitter<AppEvents> {
     if (this.exporting || this.stage.contextLost || !doc || !this.stage.hasDocument) return;
     const p = this.perf;
     let t = p ? performance.now() : 0;
-    this.world.autoSwing = this.project.autoSwing;
-    this.world.advance(dt, doc.layers, this.recordStep);
-    this.applySwing(this.world, doc);
-    this.swing.showBase(dt, this.world, doc); // ライブ表示の画像全体のずれ(applySwing の後)
+    // 物理を進めて揺れを Stage へ当てる(playback/frame.ts。Player と共通)
+    advanceSwing(dt, this.world, this.swing, this.project.autoSwing, doc, this.recordStep);
     if (p) t = p.lap('physics', t, performance.now());
     this.flushWeights();
     if (p) t = p.lap('upload', t, performance.now());

@@ -12,7 +12,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "build:player": "vite build --config vite.player.config.ts && node scripts/player-package.mjs",
+    "check:player": "node scripts/player-check-build.mjs",
+    "pack:player": "node scripts/player-pack.mjs",
+    "check:player-pack": "node scripts/player-check-pack.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",

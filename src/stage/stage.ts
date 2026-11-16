@@ -439,11 +439,16 @@ export class Stage {
   /** 描画の倍率。上限は 2 */
   private pixelRatio(): number { return Math.min(window.devicePixelRatio || 1, 2); }
 
-  resize(): void {
+  /**
+   * キャンバスの CSS の大きさに描画バッファを合わせる(CSS は書かない)。
+   * pixelRatio を渡すと、画面の倍率の代わりにその倍率で描く(Player が、大きさを属性で決めているキャンバスで 1 を渡す)。
+   * 省いたときは画面の倍率(上限 2。編集アプリはいつも省く)
+   */
+  resize(pixelRatio?: number): void {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (!w || !h) return;
     // モニターの移動やブラウザの拡大で倍率が変わったら、読み直す
-    const dpr = this.pixelRatio();
+    const dpr = pixelRatio ?? this.pixelRatio();
     if (dpr !== this.renderer.getPixelRatio()) this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(w, h, false);
     const m = this.main();
@@ -722,13 +727,23 @@ export class Stage {
     this.exportTarget?.dispose(); this.exportTarget = null;
   }
 
+  /**
+   * テクスチャ・ジオメトリ・レンダラを解放し、WebGL のコンテキストまで手放す(ブラウザのコンテキスト数の上限に当たらないように)。
+   * 編集アプリは呼ばない(Stage を作り直さない)。Player(src/player)が作り直すたびに呼ぶ。
+   * コンテキストを手放すと webglcontextlost が届くので、自分と three.js の受け口を先に外してから手放す(失われた扱いにしない)
+   */
   dispose(): void {
     this.readBuf = null;
+    this.onContextChange = null;
     this.canvas.removeEventListener('webglcontextlost', this.onLost);
     this.canvas.removeEventListener('webglcontextrestored', this.onRestored);
     this.mapTex?.dispose(); this.weightTex?.dispose(); this.exportTarget?.dispose();
-    this.mesh?.geometry.dispose(); this.material.dispose(); this.renderer.dispose();
+    this.mesh?.geometry.dispose(); this.material.dispose();
     this.ghostGeo?.dispose(); for (const m of this.ghostMats) m.dispose();
+    const lost = this.renderer.getContext().isContextLost();
+    this.renderer.dispose(); // three.js の受け口もここで外れる
+    // すでに失われていれば手放すものが無い(失われたコンテキストでは拡張が取れず、three.js が警告を出すので呼ばない)
+    if (!lost) this.renderer.forceContextLoss();
   }
 }
 

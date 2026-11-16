@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# Player のライブラリのビルド結果と、npm pack でできる .tgz
+dist-player/
+*.tgz
 coverage/
 test-results/
 playwright-report/
@@ -10,5 +13,7 @@ playwright-report/
 .claude/worktrees/
 .claude/settings.local.json
 vite.*.config.ts
+# vite.player.config.ts は Player のライブラリのビルドの設定(追跡する)。エージェントの作業用の名前に使わない
+!vite.player.config.ts
 playwright.*.config.ts
 .vite-*/
