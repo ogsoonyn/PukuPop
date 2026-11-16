@@ -5,7 +5,8 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { createRequire } from 'node:module';
 
 /** リポジトリの直下 */
 export const root = fileURLToPath(new URL('..', import.meta.url));
@@ -41,9 +42,14 @@ export function run(cmd, args, { cwd = root, capture = false, allowFail = false 
   return { status: r.status, stdout: r.stdout ?? '' };
 }
 
-/** リポジトリの TypeScript(tsc)を Node で流す(新しく何も入れない) */
+/**
+ * リポジトリの TypeScript(tsc)を Node で流す(新しく何も入れない)。
+ * tsc の場所は Node の解決で探す(git worktree のように node_modules が親のディレクトリにあっても見つかる)。
+ * typescript の exports は bin/tsc を出していないので、出している package.json を解決し、その隣の bin/tsc を使う
+ */
 export function tsc(args, opts) {
-  return run(process.execPath, [join(root, 'node_modules', 'typescript', 'bin', 'tsc'), ...args], opts);
+  const tscBin = join(dirname(createRequire(import.meta.url).resolve('typescript/package.json')), 'bin', 'tsc');
+  return run(process.execPath, [tscBin, ...args], opts);
 }
 
 /** 失敗を分かる文言で出して終える */
