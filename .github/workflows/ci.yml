@@ -1,4 +1,5 @@
-# develop / main 向けの PR と develop への push のとき、型検査・単体テスト・ビルドを流す(E2E は流さない)
+# develop / main 向けの PR と develop への push のとき、型検査・単体テスト・ビルドを流す(E2E は流さない)。
+# Player のライブラリも、ビルド・確かめ・npm pack・空のプロジェクトでの確かめまで流す(リリースは作らない。release-player.yml)
 name: CI
 
 on:
@@ -28,3 +29,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # Player のライブラリ(手書きの型定義と実装の食い違いは、上の typecheck が見る)
+      - run: npm run build:player
+      - run: npm run check:player
+      - run: npm run pack:player
+      - run: npm run check:player-pack

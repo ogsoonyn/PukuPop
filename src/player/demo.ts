@@ -7,6 +7,8 @@
  * 作り直しは dispose() のあと新しい <canvas> に差し替える(キャンバスは使い回さない、の手本)。
  * ?e2e を付けると自動では読み込まず、ドロップの受け口も付けない(E2E は window.playerDemo で自分で作る)。
  * ?preserve を付けると、WebGL の描画を読み出せるよう preserveDrawingBuffer を入れる(E2E で画素を比べるため。Player は関わらない)。
+ * ?dist を付けると、ソース(./index)ではなく、ライブラリとしてビルドした1本(/dist-player/pukupop-player.js。npm run build:player で作る)を読む
+ * (tests/e2e/playerDist.spec.ts)。そのときは中身を覗く口(inspect)は使えない。
  */
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import { createProject, type CameraState } from '../model/project';
@@ -80,8 +82,12 @@ function withBrokenImage(bytes: Uint8Array): Uint8Array {
 type PlayerModule = typeof import('./index');
 let inspectFn: ((p: Player) => unknown) | null = null;
 
-/** Player の入口を読む。中身を覗く口(player.ts の inspect。入口からは出さない)も一緒に読んでおく */
+/** ライブラリとしてビルドした1本(?dist のときに読む) */
+const DIST_URL = '/dist-player/pukupop-player.js';
+
+/** Player の入口を読む。中身を覗く口(player.ts の inspect。入口からは出さない)も一緒に読んでおく。?dist ならビルドした1本を読む */
 async function load(): Promise<PlayerModule> {
+  if (params.has('dist')) return (await import(/* @vite-ignore */ DIST_URL)) as PlayerModule;
   const [m, internal] = await Promise.all([import('./index'), import('./player')]);
   inspectFn = internal.inspect;
   return m;

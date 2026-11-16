@@ -13,6 +13,21 @@ npm test           # 単体テスト(Vitest)
 npm run e2e        # E2E テスト(Playwright。エージェントは下の「手元の動作確認を乱さない」に従う)
 ```
 
+Player(`src/player`)のライブラリのビルドと配布(Issue #127)は次のとおり。
+
+```sh
+npm run build:player       # vite.player.config.ts で dist-player/ に ESM を1本出し、package.json・README・index.d.ts・ライセンスをそろえる
+npm run check:player       # ビルドの確かめ(外のモジュールの参照・export・編集アプリの部品・大きさの上限)
+npm run pack:player        # dist-player/ を npm pack して、直下に pukupop-player-<版>.tgz を作る(sha256・integrity を出す)
+npm run check:player-pack  # .tgz を OS の一時ディレクトリの空のプロジェクトに入れ、Node で import し、README のコードを型検査する
+```
+
+- 配り方: npm には公開しない。`main` のコミットに `player-v<版>` のタグを打って push すると、`.github/workflows/release-player.yml` が確かめのあと GitHub のリリースを作り、`.tgz` を添付する。使う側は `package.json` の依存に tarball の URL を書く。
+- 同じタグのリリースの `.tgz` は差し替えない(使う側の `package-lock.json` の integrity と食い違う)。直すときは版を上げて新しいタグを打つ。ワークフローも、同じタグのリリースがあれば失敗する。
+- 版の元は `packages/player/package.json` の `version` だけ(アプリの `package.json` の版とも、保存形式の `FORMAT_VERSION` とも別)。semver で、0.x の間は API を変えるときに真ん中の数字を上げる。上げたら `packages/player/README.md` の入れ方の URL も直す(`tests/unit/playerDts.test.ts` が確かめる)。
+- 型定義は手書き(`packages/player/index.d.ts`。内部の型・`inspect` を載せない)。実装と食い違うと、`npm run typecheck` が `tests/types/player-dts.ts` で、入口の名前の一覧の食い違いは `tests/unit/playerDts.test.ts` が見つける。Player の API を変えたら、d.ts・README・型のコメントを一緒に直す。
+- CI(`ci.yml`)も Player のビルド・確かめ・npm pack・空のプロジェクトでの確かめまで流す。ビルドした1本がブラウザで動くことは `tests/e2e/playerDist.spec.ts`(確認用のページに `?dist`)が見る。
+
 | ディレクトリ | 役割 |
 | --- | --- |
 | `src/model` | ドキュメントモデル(Project / Document / Layer)、ウェイトマップ、変更通知 |
@@ -26,6 +41,8 @@ npm run e2e        # E2E テスト(Playwright。エージェントは下の「�
 | `src/ui` | 画面の部品(入力、パネル、ダイアログ、3面図) |
 | `src/app` | 編集アプリだけの部品(タブ、自動保存、記録を取る側、キーフレームの下書き、膨らませる・全体ぼかしのプレビュー、新しい画像の既定) |
 | `src/player` | 埋め込み用の再生専用の部品(Player、Issue #127)。`index.ts` が入口。リポジトリの直下の `player.html` と `src/player/demo.ts` は、開発用のサーバーで開く確認用のページ(`/player.html`。本番のビルドには入らない。`?e2e` で自動の読み込みを止める) |
+| `packages/player` | Player のライブラリの配布物の元: `package.json`(名前 `pukupop-player`・版の元)、埋め込み先の開発者向けの `README.md`、手書きの型定義 `index.d.ts` |
+| `scripts` | アイコンの生成と、Player のライブラリのスクリプト(`player-*.mjs`: 配布物をそろえる・ビルドの確かめ・npm pack・空のプロジェクトでの確かめ・リリースのタグの確かめ) |
 | `src/app.ts` | 各モジュールをつなぐ本体。画面の部品と E2E(`window.popstage`)が使う公開面を持ち、中身は `src/playback`・`src/app` へ委ねる |
 
 - `model` / `commands` / `paint` / `physics` / `storage` は DOM と three.js を参照しない。ブラウザ無しで単体テストできるようにするため。
@@ -50,6 +67,7 @@ npm run e2e        # E2E テスト(Playwright。エージェントは下の「�
 - 実装が済んだら別のエージェントにレビューさせる。PR 前のレビューの指摘は、その PR の中で直す。直したら `develop` 向けの PR を作り、報告する。許可があれば、 `gh pr merge --merge` でマージする。
 - 頼まれたレビューで見つけた課題と、作業の範囲の外で見つけた課題は Issue に立てる。`develop` にマージして直った Issue は、PR の番号をコメントに書いて閉じてよい。
 - `main` へは `develop` からのリリース PR(タイトルは「リリース: …」)だけを、頼まれたときに作る。`main` への push はそのまま GitHub Pages への公開になる。
+- Player のリリースも頼まれたときだけ行う。`packages/player/package.json` の版(と README の URL)を上げた変更を `develop` → `main` のリリース PR で入れたあと、`main` のそのコミットに `player-v<版>` のタグを打って push する(`git tag player-v0.1.0 <main のコミット>` → `git push origin player-v0.1.0`)。タグは1つずつ push する(`git push --tags` などでまとめて push しない。GitHub は一度に3つを超えるタグの push ではワークフローを動かさない)。タグが `main` の履歴に無い・版が食い違う・形が違うと、ワークフローはリリースを作らずに失敗する。
 - PR の本文には、変えたこと、動きが変わるところ、確認したこと(テストの件数と、落ちたテストとその理由)を書く。
 
 ## 手元の動作確認を乱さない
@@ -57,7 +75,7 @@ npm run e2e        # E2E テスト(Playwright。エージェントは下の「�
 メインの作業ツリーからはポート 5173 の dev サーバーで動作確認をしている。エージェントの作業がそれを止めたり重くしたりしないようにする(E2E の Chrome は SwiftShader で描くので CPU を大きく使い、5173 が固まったことがある)。
 
 - 実装は `.claude/worktrees/<名前>` の git worktree で行う(node_modules は親から解決される)。
-- 自分で立てる Vite はポート 5175〜5179 にし、`cacheDir` を分ける。設定ファイルは `vite.<名前>.config.ts` / `playwright.<名前>.config.ts`、キャッシュは `.vite-<名前>/` という名前にする(`.gitignore` で追跡外になる)。
+- 自分で立てる Vite はポート 5175〜5179 にし、`cacheDir` を分ける。設定ファイルは `vite.<名前>.config.ts` / `playwright.<名前>.config.ts`、キャッシュは `.vite-<名前>/` という名前にする(`.gitignore` で追跡外になる)。`vite.player.config.ts` は Player のライブラリのビルドの設定で追跡しているので、作業用の名前に使わない(`<名前>` を `player` にしない)。
 - E2E に既定の `playwright.config.ts` は使わない(ポート 5174 のサーバーを使い回す設定のため)。自分の Playwright の設定は既定の設定を広げて作り(`{ ...base, ... }`)、`webServer: undefined` にし、`use.baseURL` を自分で立てたポートにする。`workers` と `grepInvert` は上書きしない(手元では Playwright の既定の並列数で流す。並列で流すと 5173 が重くなることがある。クラウドでは既定の設定が 1 にする)。
 - 作業中は、変えた機能の spec だけを流す。全件の E2E は最後に1回だけ流す。
 - クラウド環境では、E2E は自動で 1 並列になり、`@local` の付いたテストは外れる(`.claude/rules/testing.md`)。外れたテストに関わる変更は、手元で流すよう報告に書く。
