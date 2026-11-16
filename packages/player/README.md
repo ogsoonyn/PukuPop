@@ -183,7 +183,8 @@ StrictMode で effect が2回走っても動きます(1回目は `aborted` で�
 
 ## 知っておくこと
 
-- **キャンバスは使い回せません。** `dispose()` したキャンバスで `createPlayer` を呼ぶと `canvas-unusable` で失敗します。作り直すときは新しい `<canvas>` を渡してください(React なら `<canvas key={素材の id} />`)。取り消し(`aborted`)と読み込みの失敗(`invalid-file`・`unsupported-version`)のあとは、同じキャンバスを使えます。
+- **キャンバスは使い回せません。** `dispose()` したキャンバスで `createPlayer` を呼ぶと `canvas-unusable` で失敗します。作り直すときは新しい `<canvas>` を渡してください(React なら `<canvas key={素材の id} />`)。
+  `createPlayer` が失敗したあとに同じキャンバスを使えるのは、WebGL を作る前に失敗したときだけです。取り消し(`aborted`)と新しい版の形式(`unsupported-version`)のあとは、いつでも同じキャンバスを使えます。`invalid-file` は、ファイルを読む・画像をデコードする段階で見つかったものなら同じキャンバスを使えますが、WebGL を作ったあとの組み立て(テクスチャを作るなど)で失敗したものは、コンテキストを手放すのでそのキャンバスはもう使えません(次の `createPlayer` は `canvas-unusable` で失敗します)。どちらの段階かは外から見分けられないので、`invalid-file` のあとに作り直すときは新しい `<canvas>` を渡してください。
 - **キャンバスの大きさは CSS で決めます**(例: `width: 100%; aspect-ratio: 4 / 3`)。Player はキャンバスの CSS の大きさを書かず、描画の大きさだけを合わせます。CSS で決めていない(`width`・`height` の属性に任せた)キャンバスでも動きますが、大きさが変わり続けないよう、画面の倍率を掛けた高精細では描きません。
 - **画面の倍率だけが変わったとき**(ウィンドウを別のモニターへ移したなど)は、大きさの変化として届かないので `resize()` を呼んでください。
 - `interaction: 'view'`(既定)では、キャンバスに `touch-action: none` と `cursor: grab` が付きます(`dispose()` で元に戻ります)。1本指の縦の動きも回すのに使うので、**スマホではキャンバスの上から指で縦にスクロールできません**。困るときは `'none'` にしてください。

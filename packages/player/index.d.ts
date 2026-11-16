@@ -14,7 +14,8 @@
 /**
  * 失敗の種類。
  * - 'aborted': options.signal で取り消された
- * - 'invalid-file': 読めない・壊れているファイル(ZIP でない、project.json が無い・不正、画像やウェイトが壊れている、上限を超えるなど)
+ * - 'invalid-file': 読めない・壊れているファイル(ZIP でない、project.json が無い・不正、画像やウェイトが壊れている、上限を超えるなど)。
+ *   WebGL を作ったあとの組み立てで失敗したときもこれになり、そのときはキャンバスがもう使えない(createPlayer の説明)
  * - 'unsupported-version': このプレーヤーより新しい版の形式で保存されている
  * - 'canvas-unusable': キャンバスが使えない(dispose() したキャンバス・ほかのライブラリが WebGL を手放したキャンバス、2D などほかの用途で使われている、ほかの Player が使っている)
  * - 'webgl-unavailable': WebGL2 を使えない(ブラウザ・端末が対応していない、作れない)
@@ -117,7 +118,10 @@ export interface Player {
  * (作りかけの描画を解放し、キャンバスを使っている最中の印も外してから)。
  * キャンバスの大きさは CSS で決める(例: width: 100%; aspect-ratio: 4 / 3)。CSS で決めていないキャンバスでも動くが、高精細では描かない。
  *
- * 読み込みとデコードは WebGL を作る前に済ませる。取り消し(signal)・読み込みの失敗では、キャンバスは使えるまま残る
- * (同じキャンバスで次の createPlayer を呼べる)。
+ * 読み込みとデコードは WebGL を作る前に済ませる。WebGL を作る前の失敗(取り消しの 'aborted'、'unsupported-version'、
+ * ファイルを読む・デコードする段階の 'invalid-file')では、キャンバスは使えるまま残る(同じキャンバスで次の createPlayer を呼べる)。
+ * WebGL を作ったあとの組み立てで失敗したとき('invalid-file' など)は、コンテキストを手放すので、そのキャンバスはもう使えない
+ * (次の createPlayer は 'canvas-unusable' で失敗する)。'invalid-file' はどちらの段階かを外から見分けられないので、
+ * 作り直すときは新しい <canvas> を渡す。
  */
 export declare function createPlayer(canvas: HTMLCanvasElement, bytes: Uint8Array | ArrayBuffer, options?: PlayerOptions): Promise<Player>;

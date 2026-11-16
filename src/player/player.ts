@@ -124,7 +124,10 @@ const OTHER_USE = 'このキャンバスはほかの用途(2D の描画など)�
  * キャンバスの大きさは CSS で決める(例: width: 100%; aspect-ratio: 4 / 3)。CSS で決めていないキャンバスでも動くが、高精細では描かない。
  *
  * await は読み込み(deserializeProject)と画像のデコードだけで、どちらも WebGL を作る前に済ませる。
- * WebGL を作ってから返すまでは await を挟まないので、取り消し・読み込みの失敗ではキャンバスは使えるまま残る
+ * WebGL を作ってから返すまでは await を挟まないので、取り消し・読み込み(デコードまで)の失敗ではキャンバスは使えるまま残る。
+ * WebGL を作ったあとの組み立て(PlayerImpl)で失敗したときは、描画を捨ててコンテキストを手放すので、キャンバスを使えなくして
+ * ('invalid-file' などで)失敗する。'invalid-file' はどちらの段階でも同じ code なので、利用者向けの説明では
+ * 「invalid-file のあとは新しい canvas を渡す」とする(packages/player/README.md・index.d.ts)
  */
 export async function createPlayer(canvas: HTMLCanvasElement, bytes: Uint8Array | ArrayBuffer, options: PlayerOptions = {}): Promise<Player> {
   const { signal } = options;
