@@ -33,7 +33,9 @@ export const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\
  */
 export function run(cmd, args, { cwd = root, capture = false, allowFail = false } = {}) {
   const win = process.platform === 'win32' && cmd === 'npm';
-  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit', shell: win });
+  // シェルを通すときは、空白などを含む引数(一時ディレクトリ・.tgz の場所)を引用符で囲む
+  const quote = a => (/[\s"&|<>^()]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
+  const r = spawnSync(cmd, win ? args.map(quote) : args, { cwd, encoding: 'utf8', stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit', shell: win });
   if (r.error) throw r.error;
   if (r.status !== 0 && !allowFail) throw new Error(`${cmd} ${args.join(' ')} が失敗しました(終了コード ${r.status})`);
   return { status: r.status, stdout: r.stdout ?? '' };
