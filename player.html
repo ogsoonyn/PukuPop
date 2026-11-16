@@ -7,6 +7,7 @@
 <!--
   Player(src/player)の確認用のページ。開発用のサーバー(Vite)でだけ開く。本番のビルドの入口は index.html だけなので、ここは入らない。
   開くとサンプルを読み込んで再生する。?e2e を付けると自動では読み込まず、E2E(tests/e2e/player.spec.ts)が window.playerDemo を使う。
+  ?dist を付けると、ライブラリとしてビルドした1本(dist-player/。npm run build:player で作る)を読む。
   スタイルはこの <style> だけ(アプリの CSS は読まない。Player が CSS を足さないことを確かめるため)。
 -->
 <style>
