@@ -14,7 +14,7 @@
   "exports": {
     ".": {
       "types": "./index.d.ts",
-      "import": "./pukupop-player.js"
+      "default": "./pukupop-player.js"
     },
     "./package.json": "./package.json"
   },

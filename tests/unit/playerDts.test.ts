@@ -85,7 +85,8 @@ describe('Player の package.json と README', () => {
     expect(pkg.name).toBe('pukupop-player');
     expect(pkg.version).toMatch(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/);
     expect(pkg.type).toBe('module');
-    expect(pkg.exports['.']).toEqual({ types: './index.d.ts', import: './pukupop-player.js' });
+    expect(pkg.exports['.']).toEqual({ types: './index.d.ts', default: './pukupop-player.js' });
+    expect(Object.keys(pkg.exports['.'])).toEqual(['types', 'default']); // types が先
     expect(pkg.files.sort()).toEqual(['THIRD-PARTY-LICENSES.txt', 'index.d.ts', 'pukupop-player.js']);
     expect(pkg).not.toHaveProperty('dependencies');
     expect(pkg).not.toHaveProperty('peerDependencies');

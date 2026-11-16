@@ -104,10 +104,11 @@ check(pkg.name === 'pukupop-player', `name が pukupop-player ではありませ
 check(SEMVER.test(pkg.version ?? ''), `version が semver ではありません: ${pkg.version}`);
 check(pkg.type === 'module', 'type が module ではありません');
 check(!pkg.dependencies && !pkg.peerDependencies && !pkg.optionalDependencies, '依存が書かれています(three.js と fflate は同梱するので要らない)');
-const targets = [pkg.types, pkg.module, pkg.exports?.['.']?.types, pkg.exports?.['.']?.import, pkg.exports?.['./package.json']];
+const targets = [pkg.types, pkg.module, pkg.exports?.['.']?.types, pkg.exports?.['.']?.default, pkg.exports?.['./package.json']];
 for (const t of targets) check(typeof t === 'string' && files.includes(t.replace(/^\.\//, '')), `package.json が指すファイルがありません: ${t}`);
 for (const f of pkg.files ?? []) check(files.includes(f), `files に書いたファイルがありません: ${f}`);
-check(pkg.exports?.['.']?.import === `./${bundleName}` && pkg.exports?.['.']?.types === './index.d.ts', 'exports の "." が想定と違います');
+// 条件は types を先に、残りは default で受ける(import に限ると require や条件を見ない道具から引けない)
+check(JSON.stringify(pkg.exports?.['.']) === JSON.stringify({ types: './index.d.ts', default: `./${bundleName}` }), 'exports の "." が想定と違います({ types, default } の順にする)');
 
 // 7. 大きさ
 const raw = Buffer.byteLength(code), gzip = gzipSync(code).length;
