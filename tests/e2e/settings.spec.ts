@@ -114,7 +114,8 @@ test('ポップOFF・揺れ停止は、既定では隠し、設定で出せる�
   await page.keyboard.press('Escape');
   // 表示のまとまりの、画像を薄くの次に並ぶ
   const shown = await page.locator('#toolNav .nav-group[aria-label=表示に効く操作] [data-nav]:visible').evaluateAll(els => els.map(e => (e as HTMLElement).dataset.nav));
-  expect(shown.slice(1, 4)).toEqual(['toggleFade', 'toggleFlat', 'togglePause']);
+  const at = shown.indexOf('toggleFade');
+  expect(shown.slice(at, at + 3)).toEqual(['toggleFade', 'toggleFlat', 'togglePause']);
   const flat = nav(page, 'toggleFlat'), pause = nav(page, 'togglePause');
   await expect(flat).toHaveAccessibleName('ポップを一時OFF');
   await expect(flat).toHaveAttribute('title', /\(F\)/);
@@ -134,4 +135,9 @@ test('ポップOFF・揺れ停止は、既定では隠し、設定で出せる�
   await expect(pause).toHaveAttribute('aria-pressed', String(paused));
   await page.keyboard.press('f');
   await expect(flat).toHaveAttribute('aria-pressed', 'false');
+  // 出したことを覚えている
+  await page.waitForTimeout(400);
+  await page.goto('/?e2e');
+  await page.waitForFunction(() => (window as any).popstage?.doc);
+  for (const id of ['toggleFlat', 'togglePause']) await expect(nav(page, id)).toBeVisible();
 });

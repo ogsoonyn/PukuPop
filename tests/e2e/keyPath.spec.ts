@@ -138,8 +138,9 @@ test('左のツールバー: キーフレームの再生・停止と、経路・
   await boot(page);
   const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
   const play = page.locator('#toolNav [data-cmd=toggleKeyPlay]'), path = page.locator('#toolNav [data-cmd=toggleKeyPath]'), ghost = page.locator('#toolNav [data-cmd=toggleKeyGhost]');
-  // フレームが2つ以上なければ再生できない
+  // フレームが2つ以上なければ再生できない(ツールオプションの欄の右端の再生も)
   await expect(play).toBeDisabled();
+  await expect(page.locator('#quickActs [data-cmd=toggleKeyPlay]')).toBeDisabled();
   await openTab(page, 'anim');
   await setCam(page, { zoom: 2.5 });
   await page.locator('#keyAdd').click();

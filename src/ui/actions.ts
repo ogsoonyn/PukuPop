@@ -522,6 +522,8 @@ export function bindActions(app: App, deps: ActionDeps): void {
   // 左のツールバーと、スマホのシートの一番上・上のバーと、PC のツールオプションの欄の右端(同じボタンを作っている)
   const navs = '#toolNav, #mNav, #mTop, #quickActs';
   const pressables = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-pressed]`)];
+  // ツールオプションの欄の右端のボタンの絵(再生の絵は下の refresh が入れる)
+  for (const b of document.querySelectorAll<HTMLElement>('#quickActs [data-icon]')) b.querySelector('svg')!.innerHTML = ICONS[b.dataset.icon as IconName];
   const keyPlayButtons = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-cmd=toggleKeyPlay]`)];
   const overlayBadges = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-pressed=overlay] .nav-badge`)];
   /** 'status' でも呼ぶ(0.5 秒ごと)ので、変わったときだけ書く */
