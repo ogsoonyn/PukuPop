@@ -176,6 +176,37 @@ test('画像から新しく作る: 最初の保存は POST し、応答の Locat
   ]);
 });
 
+test('画像から作って保存したあとに読み直すと、保存したファイルを開き、次の保存も PUT にする(Issue #150)', async ({ page }) => {
+  const srv = await fakeServer(page);
+  await open(page, { image: '/files/cat.png', create: '/files/', back: '/files/' });
+  const historyLength = await page.evaluate(() => history.length);
+  await paint(page);
+  await save(page);
+  await expect.poll(async () => (await state(page)).dirty).toBe(false);
+  // POST が通ったら、ページの URL を保存したファイルを開く形に置き換える(履歴は増やさない。back などは引き継ぐ)
+  await expect.poll(() => new URL(page.url()).searchParams.get('src')).toBe('/files/new-1.pukupop');
+  const q = new URL(page.url()).searchParams;
+  expect([q.has('image'), q.has('create'), q.get('back'), q.get('name'), q.has('embed'), q.has('e2e')]).toEqual([false, false, '/files/', 'cat.pukupop', true, true]);
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  const saved = srv.files.get('/files/new-1.pukupop')!.body;
+
+  await page.reload();
+  await page.waitForFunction(() => { const a = (window as any).popstage; return a?.doc && a.stage.hasDocument && a.paused; });
+  expect(await state(page)).toMatchObject({ tabs: 1, name: 'cat.pukupop', dirty: false, target: expect.stringMatching(/\/files\/new-1\.pukupop$/) });
+  await expect(page.locator('#embedBack')).toBeVisible();
+  // 開いたのは元の画像でなく保存したファイル(塗った分が入っている)
+  expect(await page.evaluate(() => (window as any).popstage.doc.layers.some((l: any) => l.weights.data.some((v: number) => v > 0)))).toBe(true);
+  await page.locator('[data-tool="brush"]').click();
+  await paint(page);
+  await save(page);
+  await expect.poll(async () => (await state(page)).dirty).toBe(false);
+  expect(srv.writes()).toEqual([
+    { method: 'POST', path: '/files/', ifMatch: undefined },
+    { method: 'PUT', path: '/files/new-1.pukupop', ifMatch: '"v1"' },
+  ]);
+  expect(srv.files.get('/files/new-1.pukupop')!.body.equals(saved)).toBe(false);
+});
+
 test('保存の最中にもう一度押しても、二重に書かない(新規が2つできない)', async ({ page }) => {
   const srv = await fakeServer(page, { hold: true });
   await open(page, { image: '/files/cat.png', create: '/files/' });

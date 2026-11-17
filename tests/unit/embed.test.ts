@@ -3,7 +3,7 @@
  * fetch は作り物に差し替え、送ったリクエストを控えて確かめる
  */
 import { describe, it, expect } from 'vitest';
-import { parseEmbedParams, backUrl, sameOriginUrl, fetchForOpen, ServerTarget, EmbedError } from '../../src/app/embed';
+import { parseEmbedParams, backUrl, reopenUrl, sameOriginUrl, fetchForOpen, ServerTarget, EmbedError } from '../../src/app/embed';
 import { SaveConflictError } from '../../src/app/saveTarget';
 
 const PAGE = 'https://archive.example/pukupop/?x';
@@ -169,6 +169,25 @@ describe('サーバーの保存先', () => {
     expect(await t.isSame(new ServerTarget('y', { url }, PAGE))).toBe(true);
   });
 
+  it('POST が通ったら、保存先(Location)を一度だけ知らせる。知らせる側が失敗しても保存は通す', async () => {
+    const f = fakeFetch(
+      new Response(null, { status: 500 }),
+      new Response(null, { status: 201, headers: { Location: 'cat.pukupop' } }),
+      new Response(null, { status: 200 }),
+    );
+    const seen: string[] = [];
+    const t = new ServerTarget('cat.pukupop', { create: 'https://archive.example/files/', onCreated: l => { seen.push(l); throw new Error('x'); } }, PAGE, f.fn);
+    const err = console.error; console.error = () => {};
+    try {
+      await expect(t.write(blob())).rejects.toThrow('HTTP 500');
+      expect(seen).toEqual([]);
+      await t.write(blob());
+      await t.write(blob());
+    } finally { console.error = err; }
+    expect(seen).toEqual([url]);
+    expect(t.location).toBe(url);
+  });
+
   it('POST の応答に Location が無い・別のオリジンなら失敗にし、次もまた POST する', async () => {
     const f = fakeFetch(
       new Response(null, { status: 201 }),
@@ -183,5 +202,21 @@ describe('サーバーの保存先', () => {
     await t.write(blob());
     expect(f.calls.map(c => c.init?.method)).toEqual(['POST', 'POST', 'POST', 'POST']);
     expect(t.location).toBe('https://archive.example/files/ok.pukupop');
+  });
+});
+
+describe('初めて保存したあとのページの URL(Issue #150)', () => {
+  const page = 'https://archive.example/pukupop/?image=%2Ffiles%2Fcat.png&create=%2Ffiles%2F&back=%2Fa%2Fb%3Fx%3D1&name=Cat&embed#h';
+  it('image・create を外して src を保存先(パスだけ)にし、back などほかのクエリとハッシュを引き継ぐ', () => {
+    const u = new URL(reopenUrl(page, 'https://archive.example/files/cat.pukupop?v=2', 'Cat.pukupop'));
+    expect(u.pathname).toBe('/pukupop/');
+    expect(u.hash).toBe('#h');
+    expect([...u.searchParams]).toEqual([['src', '/files/cat.pukupop?v=2'], ['back', '/a/b?x=1'], ['embed', ''], ['name', 'Cat.pukupop']]);
+  });
+  it('読み直すと、保存したファイルを開き、上書き先も同じ(次の保存は PUT)', () => {
+    const next = reopenUrl(page, 'https://archive.example/files/123', 'cat.pukupop');
+    expect(parseEmbedParams(new URL(next).search, next)).toEqual({
+      kind: 'project', src: 'https://archive.example/files/123', save: 'https://archive.example/files/123', name: 'cat.pukupop', back: 'https://archive.example/a/b?x=1',
+    });
   });
 });

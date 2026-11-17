@@ -2,7 +2,7 @@
  * 埋め込みモードの画面(Issue #146)。起動時にクエリのファイルを開き、埋め込み元へ戻るボタンと、離れる前の確認を受け持つ。
  * クエリの読み方とサーバーとのやりとりは src/app/embed.ts(App を通して使う)。
  */
-import { parseEmbedParams, backUrl, type App } from '../app';
+import { parseEmbedParams, backUrl, reopenUrl, type App } from '../app';
 import { ui } from './ids';
 import { ask } from './dom';
 
@@ -43,7 +43,10 @@ export function bindEmbed(app: App): EmbedSession {
     async open() {
       let reason: string;
       try {
-        if (await app.openEmbedded(parseEmbedParams(search, page))) return;
+        // 画像から作って初めて保存したら、ページの URL を保存したファイルを開く形にする(履歴は増やさない)。
+        // 読み直したときに元の画像から開き直して、次の保存でもう1つファイルを作らないため(Issue #150)
+        const created = (loc: string, name: string) => history.replaceState(history.state, '', reopenUrl(location.href, loc, name));
+        if (await app.openEmbedded(parseEmbedParams(search, page), created)) return;
         reason = 'ファイルの中身を読めませんでした。';
       } catch (e) { reason = e instanceof Error ? e.message : String(e); }
       const r = await ask({ title: 'ファイルを開けませんでした', body: reason, yes: back ? '戻る' : 'OK', no: null });

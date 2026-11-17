@@ -5,7 +5,8 @@
  *
  *   既存の .pukupop を編集: ?src=<URL>[&save=<URL>]  … src を GET で開き、保存は save(省けば src)へ PUT で上書きする
  *   画像から新しく作る:     ?image=<URL>&create=<URL> … image を GET で開き、最初の保存は create へ POST。
- *                                                    応答の Location を保存先にし、以後は PUT で上書きする
+ *                                                    応答の Location を保存先にし、以後は PUT で上書きする。
+ *                                                    ページの URL も ?src=<Location> に置き換える(reopenUrl)
  *   どちらにも付けられる:   &back=<URL>(戻るボタンの行き先)、&name=<名前>(見出しに出す名前)
  *
  * クエリで受け取る URL・POST の応答の Location は、ページと同じオリジンの http(s) のものだけを使う。
@@ -94,6 +95,24 @@ export function parseEmbedParams(search: string, page: string): EmbedOpen {
   throw new EmbedError('開くファイルが指定されていません(src か image を指定してください)。');
 }
 
+/**
+ * 画像から作った作業を初めて保存した(POST が通った)あとの、ページの URL(Issue #150)。
+ * image・create(と save)を外し、src を保存先(Location)にする。読み直したとき(Android の Chrome が裏のタブを捨てたときも)に、
+ * 元の画像でなく保存したファイルを開き、次の保存も POST でなく PUT にするため。
+ * name は見出しに出していた名前にする(省くと Location の最後の部分になり、/files/123 のような URL では名前が変わるため)。
+ * back などほかのクエリ・ハッシュは引き継ぐ。location は同じオリジンの絶対 URL(ServerTarget が確かめたもの)なので、パスだけにする
+ */
+export function reopenUrl(page: string, location: string, name: string): string {
+  const u = new URL(page), loc = new URL(location);
+  const q = new URLSearchParams({ src: loc.origin === u.origin ? loc.pathname + loc.search : loc.href });
+  for (const [k, v] of new URLSearchParams(u.search)) {
+    if (k !== 'src' && k !== 'image' && k !== 'create' && k !== 'save' && k !== 'name') q.append(k, v);
+  }
+  q.append('name', name);
+  u.search = q.toString();
+  return u.href;
+}
+
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 const defaultFetch: Fetch = (input, init) => fetch(input, init);
 
@@ -141,10 +160,12 @@ export class ServerTarget implements SaveTarget {
   private url: string | null;
   private etag: string | null;
   private readonly create: string | null;
+  private readonly onCreated: ((location: string) => void) | null;
 
   constructor(
     readonly name: string,
-    opts: { url: string; etag?: string | null } | { create: string },
+    /** onCreated は、POST が通って保存先(Location)が決まったときに一度だけ呼ぶ(ページの URL を置き換えるため。reopenUrl) */
+    opts: { url: string; etag?: string | null } | { create: string; onCreated?: (location: string) => void },
     /** ページの URL(Location が同じオリジンかを確かめる) */
     private readonly page: string,
     private readonly fetchFn: Fetch = defaultFetch,
@@ -152,6 +173,7 @@ export class ServerTarget implements SaveTarget {
     this.url = 'url' in opts ? opts.url : null;
     this.etag = 'url' in opts ? opts.etag ?? null : null;
     this.create = 'create' in opts ? opts.create : null;
+    this.onCreated = 'create' in opts ? opts.onCreated ?? null : null;
   }
 
   /** 今の上書き先(まだ一度も保存していない新規なら null) */
@@ -178,6 +200,8 @@ export class ServerTarget implements SaveTarget {
     if (!loc) throw new Error('サーバーが保存先(Location)を返しませんでした。');
     this.url = sameOriginUrl(loc, create, this.page, 'サーバーが返した保存先(Location)');
     this.etag = strongEtag(res);
+    // 知らせる側の失敗で、通った保存を失敗にしない(サーバーにはもうファイルがあり、次は PUT になる)
+    try { this.onCreated?.(this.url); } catch (e) { console.error(e); }
   }
 
   private async send(url: string, method: 'PUT' | 'POST', body: Blob, headers: Record<string, string>): Promise<Response> {

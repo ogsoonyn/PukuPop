@@ -51,7 +51,7 @@ export interface BrushOptions { size: number; strength: number; hardness: number
 
 export { INFLATE_ANGLE, type InflateArea, type InflateSettings, type InflateState } from './app/inflatePreview';
 export { countLabel } from './app/labels';
-export { parseEmbedParams, backUrl, EmbedError, type EmbedOpen } from './app/embed';
+export { parseEmbedParams, backUrl, reopenUrl, EmbedError, type EmbedOpen } from './app/embed';
 
 type AppEvents = {
   tool: Tool;
@@ -842,16 +842,19 @@ export class App extends Emitter<AppEvents> {
   /**
    * 埋め込みモードで、クエリで受け取ったファイルをサーバーから取って開く(Issue #146、src/app/embed.ts)。
    * 保存先はサーバー(既存の .pukupop は save へ PUT、画像から作るときは最初だけ create へ POST)。
-   * 取れなければ例外を投げ、開けなければ(理由は知らせて)false を返す
+   * 取れなければ例外を投げ、開けなければ(理由は知らせて)false を返す。
+   * onCreated は、画像から作った作業を初めて保存して保存先(Location)が決まったときに、その URL と見出しの名前で呼ぶ
+   * (画面がページの URL を置き換える。Issue #150)
    */
-  async openEmbedded(o: EmbedOpen): Promise<boolean> {
+  async openEmbedded(o: EmbedOpen, onCreated?: (location: string, name: string) => void): Promise<boolean> {
     return this.whileOpening(async () => {
       setBusy(true);
       let got: Awaited<ReturnType<typeof fetchForOpen>>;
       const page = location.href;
       try { got = await fetchForOpen(o.kind === 'project' ? o.src : o.image, page); } finally { setBusy(false); }
       if (o.kind === 'project') return this.openProjectBytes(got.bytes, o.name, new ServerTarget(o.name, { url: o.save, etag: got.etag }, page));
-      const target = new ServerTarget(`${o.name.replace(/\.[^.]+$/, '') || 'untitled'}${FILE_EXTENSION}`, { create: o.create }, page);
+      const name = `${o.name.replace(/\.[^.]+$/, '') || 'untitled'}${FILE_EXTENSION}`;
+      const target = new ServerTarget(name, { create: o.create, onCreated: onCreated && (loc => onCreated(loc, name)) }, page);
       return this.openImage(new File([got.bytes as BlobPart], o.name, { type: got.type }), target);
     });
   }
