@@ -10,7 +10,7 @@ export const UI_IDS = {
   embedBack: 'button', docTabs: 'div', toolMenu: 'ul',
   brushSize: 'input', brushSizeO: 'output', brushStrength: 'input', brushStrengthO: 'output',
   brushHardness: 'input', brushHardnessO: 'output', brushPressure: 'select', toolHint: 'span',
-  tInflKind: 'select', tInflProfile: 'select', tInflSoft: 'input', tInflSoftO: 'output', tInflAngle: 'input', tInflAngleO: 'output', tInflBlend: 'select',
+  tInflBlend: 'select', tInflLayerBlend: 'select', tInflCorner: 'input', tInflWarpReset: 'button',
   // ツールバー・3Dビュー
   toolNav: 'nav', stage: 'div', view: 'canvas', multiView: 'div', dropHint: 'div', keyPath: 'div', inflateFrame: 'div', takeCam: 'button',
   playBar: 'div', playStart: 'button', playStop: 'button', playPause: 'button', playSrc: 'span', playTime: 'span', playTrack: 'div', playKeys: 'div', playLoop: 'span', playCam: 'button', mFine: 'button', busy: 'div', viewBar: 'div', viewFav: 'select', uiRestore: 'button', panelToggle: 'button', sidePanel: 'aside',
@@ -42,7 +42,7 @@ export const UI_IDS = {
   // 全体ぼかし
   blurDialog: 'dialog', blurTitle: 'h3', blurTarget: 'p', blurRadius: 'input', blurRadiusN: 'input', blurCancel: 'button', blurApply: 'button',
   // 膨らませる
-  inflateDialog: 'dialog', inflTitle: 'h3', inflTarget: 'p', inflKind: 'select', inflW: 'input', inflH: 'input', inflHeight: 'input', inflHeightN: 'input',
+  inflateDialog: 'dialog', inflHead: 'div', inflTitle: 'h3', inflCompact: 'button', inflRows: 'div', inflHeightRow: 'div', inflTarget: 'p', inflKind: 'select', inflW: 'input', inflH: 'input', inflHeight: 'input', inflHeightN: 'input',
   inflSoft: 'input', inflSoftN: 'input', inflAngle: 'input', inflAngleN: 'input', inflCorner: 'input', inflWarpReset: 'button', inflRoundRow: 'div', inflRound: 'input', inflRoundN: 'input', inflBulgeRow: 'div', inflBulge: 'input', inflBulgeN: 'input', inflBlur: 'input', inflBlurN: 'input', inflBlend: 'select', inflLayerBlend: 'select', inflNewLayer: 'input', inflNote: 'p', inflCancel: 'button', inflApply: 'button',
   // 確認・数値入力
   askDialog: 'dialog', askTitle: 'h3', askBody: 'p', askInputWrap: 'div', askInputLabel: 'span', askInput: 'input', askNo: 'button', askYes: 'button',

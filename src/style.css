@@ -89,6 +89,12 @@ html.mobile #favList { max-height: 10rem; }
 .float-panel { position: fixed; left: auto; right: 1rem; top: auto; bottom: 2.5rem; margin: 0; z-index: 40; width: min(34rem, calc(100vw - 2rem)); }
 /* 膨らませるのパネルは項目名が長い(ウェイトの重ね方・仕上げのぼかしなど)ので、折り返さないよう名前の列を広げる(スマホは下で戻す) */
 #inflateDialog .prop2 { grid-template-columns: 9rem 1fr; }
+/* たたんだ膨らませるパネル: 高さと適用・キャンセルだけ。知らせ(新しいレイヤーに作るなど、黄色の文)は残す(ui/inflateDialog.ts) */
+html:not(.mobile) #inflateDialog.compact { width: min(22rem, calc(100vw - 2rem)); }
+html:not(.mobile) #inflateDialog.compact :is(#inflTarget, #inflRows > :not(#inflHeightRow), #inflNote:not(.text-warning)) { display: none; }
+html:not(.mobile) #inflateDialog.compact #inflRows { padding-top: .5rem; }
+html:not(.mobile) #inflateDialog.compact #inflHeightRow { grid-template-columns: 3rem 1fr; }
+html.mobile #inflCompact { display: none; }
 .float-handle { cursor: move; user-select: none; touch-action: none; }
 .float-handle::before { content: "⠿" / ""; margin-right: .375rem; opacity: .4; font-weight: 400; }
 html.mobile .float-handle { cursor: auto; touch-action: auto; }
@@ -297,6 +303,8 @@ html.mobile #mPanes [data-brush-opt] { display: grid; grid-template-columns: 6.5
 html.mobile #mPanes [data-brush-opt] input[type=range] { width: 100%; }
 html.mobile #mPanes [data-inflate-opt]:not([hidden]) { display: grid; grid-template-columns: 6.5rem 1fr 3.25rem; align-items: center; }
 html.mobile #mPanes [data-inflate-opt] input[type=range], html.mobile #mPanes [data-inflate-opt] select { width: 100%; }
+/* スマホの欄はプレビュー中に隠れる(パネルがシートに入る)ので、描く前は押せない範囲ごとの項目を出さない(上の display: grid より強くする) */
+html.mobile #mPanes [data-inflate-opt][data-inflate-range] { display: none; }
 html.mobile #mPanes #layerList { max-height: none; }
 html.mobile #mPanes #layerList + * { margin-top: 0; }
 /* 膨らませるのパネルは「ツール」タブの中に置く */
