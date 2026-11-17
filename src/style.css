@@ -362,6 +362,8 @@ output.is-mixed { font-size: .7rem; opacity: .8; }
 .inflate-frame .if-shape { fill: none; stroke: var(--if); stroke-width: 1; stroke-dasharray: 5 4; }
 .inflate-frame .if-halo { stroke: rgb(0 0 0 / .4); stroke-width: 3; stroke-dasharray: none; }
 .inflate-frame .if-handle { fill: #fff; stroke: #0369a1; stroke-width: 1.5; }
+/* 四隅を動かす点は、回すハンドル(白い丸)と見分けられるよう、塗りを枠の色にする */
+.inflate-frame .if-corner { fill: var(--if); stroke: #fff; }
 
 /* キーフレームの枠と経路(ui/keyPath.ts)。画像の明暗どちらの上でも読めるよう、線の下に暗い太い線(kp-halo)を敷く。主ビューの外へははみ出させない */
 /* 止まっている間の再生のバー(z-index 5)より上にして、バーの所に来た番号も押せるようにする(線や枠はポインタを通す) */

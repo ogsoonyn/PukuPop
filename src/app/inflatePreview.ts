@@ -46,7 +46,7 @@ export const INFLATE_ANGLE = { min: -90, max: 90 };
 /** 仕上げのぼかしの半径の範囲(元画像のピクセル) */
 export const INFLATE_BLUR = { min: 0, max: 100 };
 /** 四隅を動かせる範囲(正規化した座標で、崩す前の位置からのずれ) */
-export const WARP_MAX = 1.5;
+export { WARP_MAX } from '../paint/shapeWarp';
 export interface InflateState {
   /** 範囲を描いたレイヤー */
   readonly layerId: string;

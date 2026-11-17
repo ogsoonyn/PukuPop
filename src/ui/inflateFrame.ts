@@ -113,8 +113,8 @@ function geometry(app: App, withEllipse = true): Geometry | null {
   const rot = { x: top.x + dx / l * ROT_GAP, y: top.y + dy / l * ROT_GAP };
   const minSide = Math.min(dist(corners[0], corners[1]), dist(corners[1], corners[2]));
   let ellipse: Pt[] | null = null;
-  const square = st.shape === 'ellipse', round = square ? 0 : st.round, bulge = square ? 0 : st.bulge;
-  if (withEllipse && (square || warped || round || bulge)) {
+  const isEllipse = st.shape === 'ellipse', round = isEllipse ? 0 : st.round, bulge = isEllipse ? 0 : st.bulge;
+  if (withEllipse && (isEllipse || warped || round || bulge)) {
     ellipse = [];
     for (const q of outlineSquare(st.shape, round, a.w, a.h)) {
       const w = fromSquare(q.x, q.y, a.warp, bulge), p = toScreen(w.x, w.y);
@@ -125,18 +125,14 @@ function geometry(app: App, withEllipse = true): Geometry | null {
   return { corners, handles, top, rot, center, minSide, ellipse, cornerEdit: s.cornerEdit };
 }
 
-/** 点が(凸の)四角形の中にあるか */
+/** 点が四角形の中にあるか。四隅を動かすと凹んだりねじれたりするので、偶奇の規則で数える */
 function insideQuad(q: readonly Pt[], p: Pt): boolean {
-  let sign = 0;
-  for (let i = 0; i < q.length; i++) {
-    const a = q[i], b = q[(i + 1) % q.length];
-    const c = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
-    if (c === 0) continue;
-    const s = Math.sign(c);
-    if (sign && s !== sign) return false;
-    sign = s;
+  let inside = false;
+  for (let i = 0, j = q.length - 1; i < q.length; j = i++) {
+    const a = q[i], b = q[j];
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
   }
-  return true;
+  return inside;
 }
 
 /** 辺のハンドルを出すか(枠が画面上で十分大きいとき)。描くのと当たり判定で同じ条件にする。スマホの画面では指に合わせて境目を大きくする */

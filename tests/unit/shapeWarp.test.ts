@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { WeightMap } from '../../src/model/weightmap';
-import { fromSquare, invBilinear, toSquare, warpCorners } from '../../src/paint/shapeWarp';
-import { inflateShape, type InflateParams } from '../../src/paint/inflate';
+import { fromSquare, invBilinear, toSquare, warpCorners, warpReach } from '../../src/paint/shapeWarp';
+import { inflateShape, shapeDepth, shapeExtent, type InflateParams, type InflateShape } from '../../src/paint/inflate';
 
 const params = (p: Partial<InflateParams> = {}): InflateParams => ({ level: 1, softness: 0, profile: 'dome', blend: 'max', ...p });
 const at = (wm: WeightMap, x: number, y: number) => wm.data[y * wm.width + x];
@@ -79,5 +79,55 @@ describe('崩した形で膨らませる', () => {
     const k = new WeightMap(64, 64);
     inflateShape(k, k.data.slice(), { ...rect, kind: 'kamaboko', bulge: 1 }, params({ softness: 1, profile: 'cone' }));
     expect(at(k, 32, 32 + 24)).toBeGreaterThan(0);
+  });
+});
+
+describe('形を崩す: 見直しで足した確かめ', () => {
+  it('ふくらみが最大でも、角の近くで輪郭と測り方が食い違わない', () => {
+    for (const b of [1, -1, 0.6]) for (const [x, y] of [[0.98, 0.98], [1, 0.9], [0.9, -1], [-0.95, 0.99], [0.2, 1]]) {
+      const p = fromSquare(x, y, null, b), q = toSquare(p.x, p.y, null, b)!;
+      expect(Math.abs(q.x - x)).toBeLessThan(1e-6); expect(Math.abs(q.y - y)).toBeLessThan(1e-6);
+    }
+  });
+
+  it('ふくらみは -1〜1 に収める(範囲の外を渡しても 1 と同じ)', () => {
+    const s: InflateShape = { kind: 'rect', cx: 50, cy: 50, rx: 20, ry: 20, bulge: 5 };
+    expect(shapeExtent(s)).toEqual(shapeExtent({ ...s, bulge: 1 }));
+    expect(shapeDepth(s, 50, 75)).toBeCloseTo(shapeDepth({ ...s, bulge: 1 }, 50, 75), 9);
+  });
+
+  it('外接矩形は崩した側だけ広がる(左上の角を外へ引くと、右下は広がらない)', () => {
+    const r = warpReach([-1, -1, 0, 0, 0, 0, 0, 0], 0);
+    expect(r).toEqual({ x0: -2, x1: 1, y0: -2, y1: 1 });
+    const e = shapeExtent({ kind: 'rect', cx: 0, cy: 0, rx: 10, ry: 10, warp: [-1, -1, 0, 0, 0, 0, 0, 0] });
+    expect(e.x0).toBeCloseTo(-20, 9); expect(e.x1).toBeCloseTo(10, 9);
+  });
+
+  it('崩して傾けた形も、傾ける前と同じ所が膨らむ', () => {
+    const w = [0.3, 0, 0, 0.2, -0.4, -0.3, 0, 0];
+    const s: InflateShape = { kind: 'rect', cx: 50, cy: 50, rx: 20, ry: 12, warp: w };
+    const t: InflateShape = { ...s, angle: Math.PI / 2 };
+    // 90° 回すと、傾ける前の (dx, dy) は画面の (-dy, dx) に来る
+    for (const [dx, dy] of [[5, 3], [-10, 4], [15, -8]]) {
+      expect(shapeDepth(t, 50 - dy, 50 + dx)).toBeCloseTo(shapeDepth(s, 50 + dx, 50 + dy), 6);
+    }
+  });
+
+  it('四隅がねじれた(潰れた)形でも、計算が止まらず値が 0〜255 に収まる', () => {
+    const wm = new WeightMap(64, 64), base = wm.data.slice();
+    // 右上と右下を入れ替える(ねじれた四角)・右の2つを1点に潰す
+    for (const warp of [[0, 0, 0, 2, 0, -2, 0, 0], [0, 0, -1, 1, -1, -1, 0, 0]]) {
+      inflateShape(wm, base, { kind: 'rect', cx: 32, cy: 32, rx: 20, ry: 20, warp }, params());
+      for (const v of wm.data) expect(v >= 0 && v <= 255).toBe(true);
+    }
+  });
+
+  it('カマボコの覆いは端だけで下がり、置き換えるでも上下の辺に前のウェイトを残さない', () => {
+    const wm = new WeightMap(64, 64);
+    wm.data.fill(200);
+    const base = wm.data.slice();
+    inflateShape(wm, base, { kind: 'kamaboko', cx: 32, cy: 32.3, rx: 20, ry: 10 }, params({ blend: 'replace', level: 0 }));
+    // 上の辺のすぐ内側(深さはほぼ 0)は、置き換えて 0 になる
+    expect(at(wm, 32, 22)).toBe(0);
   });
 });

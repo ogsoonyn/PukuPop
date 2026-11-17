@@ -55,7 +55,7 @@ function blend(base: number, v: number, mode: InflateBlend): number {
 }
 
 /** 辺のふくらみは矩形・カマボコだけに効く */
-const bulgeOf = (s: InflateShape) => (s.kind === 'ellipse' ? 0 : s.bulge ?? 0);
+const bulgeOf = (s: InflateShape) => (s.kind === 'ellipse' ? 0 : Math.max(-1, Math.min(1, s.bulge ?? 0)));
 const roundOf = (s: InflateShape) => (s.kind === 'ellipse' ? 0 : Math.max(0, Math.min(1, s.round ?? 0)));
 
 /**
@@ -96,15 +96,22 @@ export function shapeDepth(s: InflateShape, x: number, y: number, rot = rotation
 /** 傾きの cos・sin(傾けていなければ null)。ピクセルごとに計算しないよう、先に1回だけ求める */
 const rotation = (s: InflateShape) => (s.angle ? { c: Math.cos(s.angle), n: Math.sin(s.angle) } : null);
 
-/** 傾けた形の外接矩形の半分の幅・縦 */
-export function shapeExtent(s: InflateShape): { ex: number; ey: number } {
-  const c = Math.abs(Math.cos(s.angle ?? 0)), n = Math.abs(Math.sin(s.angle ?? 0));
+/** 傾けた形の外接矩形(中心からのピクセル。左・右・上・下) */
+export function shapeExtent(s: InflateShape): { x0: number; x1: number; y0: number; y1: number } {
+  const c = Math.cos(s.angle ?? 0), n = Math.sin(s.angle ?? 0);
   const b = bulgeOf(s);
-  if (s.kind === 'ellipse' && isFlatWarp(s.warp)) return { ex: Math.hypot(s.rx * c, s.ry * n), ey: Math.hypot(s.rx * n, s.ry * c) };
-  // 崩した形は、届く範囲の四角の外接矩形(少し広めでよい)
-  const { mx, my } = isFlatWarp(s.warp) && !b ? { mx: 1, my: 1 } : warpReach(s.warp, b);
-  const rx = s.rx * mx, ry = s.ry * my;
-  return { ex: rx * c + ry * n, ey: rx * n + ry * c };
+  if (s.kind === 'ellipse' && isFlatWarp(s.warp)) {
+    const ex = Math.hypot(s.rx * c, s.ry * n), ey = Math.hypot(s.rx * n, s.ry * c);
+    return { x0: -ex, x1: ex, y0: -ey, y1: ey };
+  }
+  // 崩した形は、届く範囲の四角(傾ける前)の四隅を傾けた範囲
+  const r = isFlatWarp(s.warp) && !b ? { x0: -1, x1: 1, y0: -1, y1: 1 } : warpReach(s.warp, b);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const [u, v] of [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]]) {
+    const px = u * s.rx, py = v * s.ry, X = px * c - py * n, Y = px * n + py * c;
+    x0 = Math.min(x0, X); x1 = Math.max(x1, X); y0 = Math.min(y0, Y); y1 = Math.max(y1, Y);
+  }
+  return { x0, x1, y0, y1 };
 }
 
 /** 斜面を測る半径(この長さで縁から奥までの深さ 1 になる) */
@@ -114,9 +121,9 @@ const slopeRadius = (s: InflateShape) => (s.kind === 'kamaboko' ? s.ry : Math.mi
 const blurMargin = (blur: number) => Math.ceil(blur * 1.5);
 
 function shapeBounds(s: InflateShape, w: number, h: number, margin = 0): Rect | null {
-  const e = shapeExtent(s), ex = e.ex + margin, ey = e.ey + margin;
-  const x0 = Math.max(0, Math.floor(s.cx - ex)), y0 = Math.max(0, Math.floor(s.cy - ey));
-  const x1 = Math.min(w, Math.ceil(s.cx + ex)), y1 = Math.min(h, Math.ceil(s.cy + ey));
+  const e = shapeExtent(s);
+  const x0 = Math.max(0, Math.floor(s.cx + e.x0 - margin)), y0 = Math.max(0, Math.floor(s.cy + e.y0 - margin));
+  const x1 = Math.min(w, Math.ceil(s.cx + e.x1 + margin)), y1 = Math.min(h, Math.ceil(s.cy + e.y1 + margin));
   return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
 }
 
@@ -135,7 +142,7 @@ export function inflateShape(wm: WeightMap, base: Uint8Array, s: InflateShape, p
     const depth = depthAt(s, l.dx, l.dy);
     if (depth <= 0) return [0, 0];
     // カマボコの切り立った端(角を丸めたらその縁)は、1px の幅で 0 へ落とす(傾けたときに端がギザギザにならないよう)
-    const cover = s.kind === 'kamaboko' ? clamp01(0.5 - roundRectSdf(s, l.dx, l.dy)) : 1;
+    const cover = s.kind === 'kamaboko' ? kamabokoCover(s, l.dx, l.dy) : 1;
     return [cover * p.level * profileAt(ramp(depth, p.softness, R), p.profile), cover];
   };
   if (!blur) {
@@ -173,6 +180,16 @@ function mixReplace(base: number, v: number, cover: number): number {
   const c = cover < 0 ? 0 : cover > 1 ? 1 : cover;
   const out = base * (1 - c) + v * 255;
   return Math.round(out < 0 ? 0 : out > 255 ? 255 : out);
+}
+
+/**
+ * カマボコの切り立った端の覆い(1px で 0 へ落とす)。上下の辺は深さで 0 へ下がるので、
+ * 端(角を丸めたらその丸み)の所だけで測る(上下の辺の縁まで覆いを下げると、置き換えるで前のウェイトが残ってしまう)
+ */
+function kamabokoCover(s: InflateShape, dx: number, dy: number): number {
+  const rr = roundOf(s) * Math.min(s.rx, s.ry);
+  if (Math.abs(dx) <= s.rx - rr - 1) return 1;
+  return clamp01(0.5 - roundRectSdf(s, dx, dy));
 }
 
 const clamp01 = (v: number) => (v <= 0 ? 0 : v >= 1 ? 1 : v);
