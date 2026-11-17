@@ -565,7 +565,8 @@ export function bindPanels(app: App): { refresh: () => void } {
     }
     // 膨らませるのプレビュー中は、新しいレイヤーに作るかどうかがこのレイヤーのポップ量で決まるので、ポップ量は触らせない。
     // レイヤー一覧も、仮に入れたレイヤーの名前や表示を変えて記録しないよう、操作できなくする
-    if (app.previewingInflate) ui.pPop.disabled = ui.pPopN.disabled = true;
+    // 重ね方も、膨らませる先のレイヤーの重ね方をパネルで変えているので、ここでは触らせない
+    if (app.previewingInflate) ui.pPop.disabled = ui.pPopN.disabled = ui.pBlend.disabled = true;
     // 全体ぼかしのプレビュー中も、ぼかしているレイヤーを切り替えたり消したりしないよう、一覧は操作できなくする
     list.inert = ui.layerSelBar.inert = app.previewing;
     list.classList.toggle('opacity-60', app.previewing);

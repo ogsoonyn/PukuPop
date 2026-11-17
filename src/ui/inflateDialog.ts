@@ -2,9 +2,9 @@
  * 「膨らませる」のパネル。膨らみツールで範囲を描くと開き、数値を変えるとその場でプレビューする。
  * 視点を回して形を確かめられるよう、ほかの操作を止めないダイアログ(show)にする。適用で1手として記録する。
  */
-import { INFLATE_ANGLE, type App, type InflateArea, type InflateSettings } from '../app';
+import { INFLATE_ANGLE, INFLATE_BLUR, type App, type InflatePatch, type InflateSettings } from '../app';
 import type { InflateProfile, InflateBlend } from '../paint/inflate';
-import { LIMITS } from '../model/project';
+import { BLENDS, BLEND_ORDER, LIMITS, type BlendMode } from '../model/project';
 import { popSliderRange, popToSlider, sliderToPop } from './popSlider';
 import { ui } from './ids';
 
@@ -14,9 +14,11 @@ export function bindInflateDialog(app: App): void {
   const height = ui.inflHeight, heightN = ui.inflHeightN;
   const soft = ui.inflSoft, softN = ui.inflSoftN;
   const angle = ui.inflAngle, angleN = ui.inflAngleN;
-  const blend = ui.inflBlend;
+  const blur = ui.inflBlur, blurN = ui.inflBlurN;
+  const blend = ui.inflBlend, layerBlend = ui.inflLayerBlend;
+  for (const b of BLEND_ORDER) layerBlend.add(new Option(BLENDS[b].label, b));
   const profiles = [...document.querySelectorAll<HTMLInputElement>('input[name=inflProfile]')];
-  let queued: { settings?: Partial<InflateSettings>; area?: Partial<InflateArea> } = {}, scheduled = false;
+  let queued: InflatePatch = {}, scheduled = false;
 
   /** 高さのスライダーの右端。最大値の設定より高い高さで始めたときは、その値まで広げる(触っただけで一気に下がらないように) */
   let startHeight = 0;
@@ -24,8 +26,8 @@ export function bindInflateDialog(app: App): void {
   const clampInt = (v: string, min: number, max: number) => Math.max(min, Math.min(max, Math.round(+v || 0)));
   const flush = () => { const q = queued; queued = {}; app.updateInflate(q); };
   /** 大きな画像でも滑らかに動かせるよう、プレビューは1フレームに1回だけ計算する */
-  const update = (patch: typeof queued) => {
-    queued = { settings: { ...queued.settings, ...patch.settings }, area: { ...queued.area, ...patch.area } };
+  const update = (patch: InflatePatch) => {
+    queued = { settings: { ...queued.settings, ...patch.settings }, area: { ...queued.area, ...patch.area }, layerBlend: patch.layerBlend ?? queued.layerBlend };
     if (scheduled) return;
     scheduled = true;
     requestAnimationFrame(() => { scheduled = false; flush(); });
@@ -43,13 +45,17 @@ export function bindInflateDialog(app: App): void {
   angle.addEventListener('input', () => { angleN.value = angle.value; update({ settings: { angle: angleOf(angle.value) } }); });
   angle.addEventListener('dblclick', () => { angle.value = angleN.value = '0'; update({ settings: { angle: 0 } }); });
   angleN.addEventListener('input', () => { if (angleN.value === '' || angleN.value === '-') return; angle.value = String(angleOf(angleN.value)); update({ settings: { angle: angleOf(angleN.value) } }); });
+  const blurOf = (v: string) => clampInt(v, INFLATE_BLUR.min, INFLATE_BLUR.max);
+  blur.addEventListener('input', () => { blurN.value = blur.value; update({ settings: { blur: blurOf(blur.value) } }); });
+  blurN.addEventListener('input', () => { if (blurN.value === '') return; blur.value = String(blurOf(blurN.value)); update({ settings: { blur: blurOf(blurN.value) } }); });
   blend.addEventListener('change', () => update({ settings: { blend: blend.value as InflateBlend } }));
+  layerBlend.addEventListener('change', () => update({ layerBlend: layerBlend.value as BlendMode }));
   for (const r of profiles) r.addEventListener('change', () => { if (r.checked) update({ settings: { profile: r.value as InflateProfile } }); });
-  for (const el of [w, h, heightN, softN, angleN]) el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } });
+  for (const el of [w, h, heightN, softN, angleN, blurN]) el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } });
 
   function finish(apply: boolean): void {
     if (!app.previewingInflate) return;
-    if (scheduled || queued.settings || queued.area) flush(); // まだ反映していない入力があれば、先に反映してから確定する
+    if (scheduled || queued.settings || queued.area || queued.layerBlend) flush(); // まだ反映していない入力があれば、先に反映してから確定する
     app.endInflate(apply);
   }
   ui.inflApply.addEventListener('click', () => finish(true));
@@ -70,7 +76,9 @@ export function bindInflateDialog(app: App): void {
     set(height, String(popToSlider(st.height, heightMax()))); set(heightN, String(st.height));
     set(soft, String(Math.round(st.softness * 100))); set(softN, String(Math.round(st.softness * 100)));
     set(angle, String(st.angle)); set(angleN, String(st.angle));
+    set(blur, String(st.blur)); set(blurN, String(st.blur));
     set(blend, st.blend);
+    set(layerBlend, s.layerBlend);
     for (const r of profiles) r.checked = r.value === st.profile;
     // 高さ = ウェイト × ポップ量。このレイヤーのポップ量を超えるときは、新しいレイヤーに作ることを知らせる
     const note = ui.inflNote, pop = s.sourcePop;

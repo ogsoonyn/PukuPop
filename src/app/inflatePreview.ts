@@ -1,31 +1,38 @@
 /**
- * 膨らませる(編集アプリだけの機能): 範囲(楕円・矩形)を、指定した高さと断面で一括して膨らませる。
+ * 膨らませる(編集アプリだけの機能): 範囲(楕円・矩形・カマボコ)を、指定した高さと断面で一括して膨らませる。
  * プレビューしながら数値を決め、適用で1手として記録する。
  * 高さが範囲を描いたレイヤーのポップ量を超えるときは、そのレイヤーには触れず、ポップ量 = 高さの新しいレイヤーに作る
  * (今の塗りを縮めてポップ量を上げると、揺れも小さくなり、8 ビットのウェイトの階調も粗くなるため)。
  * 新しいレイヤーはプレビューの間だけ仮に挿入し、アンドゥにも「未保存」にも数えない。
+ * 膨らませる先のレイヤーの重ね方(加算・最大)もプレビュー中に変えられ、適用で膨らみと一緒に1手にし、キャンセルで元に戻す。
+ * 選ばなければ、同じレイヤーなら今の重ね方のまま、新しいレイヤーなら加算(前と同じ)。
  * App とは InflateHost の分だけでつながる。始まり・変更の知らせと、始めてよいかの確かめは App が受け持つ。
  */
-import { createLayer, LIMITS, type Store, type Document, type Layer } from '../model/project';
-import { InsertLayer, WeightEdit, diffTiles } from '../commands/commands';
+import { BLENDS, createLayer, LIMITS, type Store, type Document, type Layer, type BlendMode } from '../model/project';
+import { Batch, InsertLayer, PatchLayer, WeightEdit, diffTiles } from '../commands/commands';
 import type { History } from '../commands/history';
-import { inflateShape, type InflateProfile, type InflateBlend } from '../paint/inflate';
+import { inflateShape, INFLATE_KINDS, type InflateKind, type InflateProfile, type InflateBlend } from '../paint/inflate';
 import { toast } from '../ui/dom';
 
 /** 「膨らませる」の範囲。中心と幅・縦は元画像のピクセル単位(中心が原点、y は上向き) */
 export interface InflateArea { x: number; y: number; w: number; h: number }
 export interface InflateSettings {
-  shape: 'ellipse' | 'rect';
+  shape: InflateKind;
   /** 頂上の高さ(元画像のピクセル)。null はレイヤーのポップ量と同じ */
   height: number | null;
   softness: number; // 0〜1
   /** 形の傾き(度、-90〜90)。正で時計回り */
   angle: number;
   profile: InflateProfile;
+  /** ウェイトの重ね方(今回の膨らみを、レイヤーの今のウェイトとどう重ねるか) */
   blend: InflateBlend;
+  /** 仕上げのぼかしの半径(元画像のピクセル)。0 でぼかさない */
+  blur: number;
 }
 /** 形の傾きの範囲(度) */
 export const INFLATE_ANGLE = { min: -90, max: 90 };
+/** 仕上げのぼかしの半径の範囲(元画像のピクセル) */
+export const INFLATE_BLUR = { min: 0, max: 100 };
 export interface InflateState {
   /** 範囲を描いたレイヤー */
   readonly layerId: string;
@@ -37,7 +44,12 @@ export interface InflateState {
   readonly newLayer: { readonly name: string; readonly pop: number } | null;
   /** 高さがポップ量を超えるが、レイヤーが上限の枚数なので新しいレイヤーを作れない(ポップ量の高さで止まる) */
   readonly limited: boolean;
+  /** 膨らませる先のレイヤー(新しいレイヤーに作るならそのレイヤー)の重ね方 */
+  readonly layerBlend: BlendMode;
 }
+
+/** プレビュー中に変えられるもの */
+export interface InflatePatch { area?: Partial<InflateArea>; settings?: Partial<InflateSettings>; layerBlend?: BlendMode }
 
 export interface InflateHost {
   readonly store: Store;
@@ -58,7 +70,14 @@ interface InflateSession {
   /** 新しいレイヤーに作るときの名前(仮に挿入していなくても決めておく) */
   newName: string;
   limited: boolean;
+  /** 範囲を描いたレイヤーの、始めたときの重ね方(キャンセルで戻す) */
+  sourceBlend: BlendMode;
+  /** パネルで選んだ重ね方。選んでいなければ null(同じレイヤーなら今の重ね方、新しいレイヤーなら加算) */
+  layerBlend: BlendMode | null;
 }
+
+/** 膨らませる先のレイヤーに当てる重ね方 */
+const targetBlend = (s: InflateSession): BlendMode => s.layerBlend ?? (s.newLayer ? 'add' : s.sourceBlend);
 
 export class InflatePreview {
   private session: InflateSession | null = null;
@@ -69,7 +88,7 @@ export class InflatePreview {
 
   get state(): InflateState | null {
     const s = this.session; if (!s) return null;
-    return { layerId: s.layerId, area: s.area, settings: s.settings, sourcePop: s.sourcePop, limited: s.limited, newLayer: s.newLayer && { name: s.newLayer.name, pop: s.newLayer.pop } };
+    return { layerId: s.layerId, area: s.area, settings: s.settings, sourcePop: s.sourcePop, limited: s.limited, layerBlend: targetBlend(s), newLayer: s.newLayer && { name: s.newLayer.name, pop: s.newLayer.pop } };
   }
 
   /** プレビューで仮に入れているレイヤーの id(入れていなければ undefined) */
@@ -84,13 +103,15 @@ export class InflatePreview {
       // 前回の高さは引き継ぐが、このレイヤーのポップ量は超えない(いきなり新しいレイヤーに作らない)
       settings: { ...st, height: layer.pop > 0 ? Math.min(st.height ?? layer.pop, layer.pop) : (st.height ?? LIMITS.pop.def) },
       sourcePop: layer.pop, newLayer: null, newName: nextInflateLayerName(doc), limited: false,
+      sourceBlend: layer.blend, layerBlend: null,
     };
     this.render();
   }
 
-  update(patch: { area?: Partial<InflateArea>; settings?: Partial<InflateSettings> }): void {
+  update(patch: InflatePatch): void {
     const s = this.session; if (!s) return;
     if (patch.area) s.area = { ...s.area, ...patch.area };
+    if (patch.layerBlend) s.layerBlend = patch.layerBlend;
     if (patch.settings) s.settings = { ...s.settings, ...patch.settings, height: patch.settings.height ?? s.settings.height };
     this.render();
   }
@@ -117,6 +138,13 @@ export class InflatePreview {
     }
   }
 
+  /** 重ね方をプレビューに当てる。変更としては数えない(適用のときに1手にする) */
+  private static setBlend(store: Store, layer: Layer, blend: BlendMode): void {
+    if (layer.blend === blend) return;
+    layer.blend = blend;
+    store.emit('layer', { layerId: layer.id, keys: ['blend'] });
+  }
+
   private render(): void {
     const store = this.host.store, s = this.session, doc = store.doc; if (!s || !doc) return;
     const source = store.findLayer(s.layerId)?.layer; if (!source) return;
@@ -130,6 +158,9 @@ export class InflatePreview {
     store.weightsChanged(s.layerId, source.weights.fullRect, false);
     this.setPreviewLayer(useNew);
     const target = s.newLayer ?? source, wm = target.weights;
+    // 重ね方は膨らませる先にだけ当てる。新しいレイヤーに作る間は、範囲を描いたレイヤーを元の重ね方に戻しておく
+    InflatePreview.setBlend(store, source, s.newLayer ? s.sourceBlend : targetBlend(s));
+    if (s.newLayer) InflatePreview.setBlend(store, s.newLayer, targetBlend(s));
     if (s.newLayer) {
       wm.data.fill(0);
       const pop = Math.min(LIMITS.pop.max, Math.ceil(st.height));
@@ -141,7 +172,7 @@ export class InflatePreview {
     inflateShape(wm, base, {
       kind: st.shape, cx: (a.x / doc.image.width + 0.5) * wm.width, cy: (0.5 - a.y / doc.image.height) * wm.height, rx: a.w / 2 * kx, ry: a.h / 2 * ky,
       angle: st.angle * Math.PI / 180,
-    }, { level, softness: st.softness, profile: st.profile, blend: st.blend });
+    }, { level, softness: st.softness, profile: st.profile, blend: st.blend, blur: st.blur * kx });
     store.weightsChanged(target.id, wm.fullRect, false);
   }
 
@@ -151,7 +182,10 @@ export class InflatePreview {
     const source = store.findLayer(s.layerId)?.layer, newLayer = s.newLayer;
     if (!apply || !doc || !source) {
       this.setPreviewLayer(false);
-      if (source) { source.weights.data.set(s.original); store.weightsChanged(s.layerId, source.weights.fullRect, false); }
+      if (source) {
+        source.weights.data.set(s.original); store.weightsChanged(s.layerId, source.weights.fullRect, false);
+        InflatePreview.setBlend(store, source, s.sourceBlend);
+      }
       this.session = null;
       h.ended();
       return;
@@ -159,7 +193,7 @@ export class InflatePreview {
     this.session = null;
     const st = s.settings;
     h.inflateSettings = { ...st }; // 次に描くときも同じ設定で始める
-    const shape = `${st.shape === 'ellipse' ? '楕円' : '矩形'} ${Math.round(s.area.w)}×${Math.round(s.area.h)}px${st.angle ? `・${st.angle}°` : ''}`;
+    const shape = `${INFLATE_KINDS[st.shape]} ${Math.round(s.area.w)}×${Math.round(s.area.h)}px${st.angle ? `・${st.angle}°` : ''}${st.blur ? `・ぼかし ${st.blur}px` : ''}`;
     if (newLayer && !newLayer.weights.data.some(v => v > 0)) {
       // 範囲がすべて画像の外などで何も膨らまなかったときは、空のレイヤーを残さない
       this.session = s;
@@ -176,9 +210,14 @@ export class InflatePreview {
     } else {
       const tiles = diffTiles(s.original, source.weights);
       const height = s.limited ? s.sourcePop : st.height; // 上限の枚数で新しいレイヤーを作れないときは、ポップ量で止まる
-      if (!tiles.length) toast('変化はありませんでした。');
+      const label = `膨らませる(${shape}・高さ ${height}px)`;
+      // 重ね方を変えていれば、膨らみと一緒に1手にする(当ててあるので積むだけ)
+      const after = targetBlend(s);
+      const blendCmd = after !== s.sourceBlend ? new PatchLayer(`膨らませる(重ね方: ${BLENDS[after].label})`, s.layerId, { blend: s.sourceBlend }, { blend: after }) : null;
+      const weightCmd = tiles.length ? new WeightEdit(label, s.layerId, tiles) : null;
+      if (!weightCmd && !blendCmd) toast('変化はありませんでした。');
       else {
-        h.history.push(new WeightEdit(`膨らませる(${shape}・高さ ${height}px)`, s.layerId, tiles));
+        h.history.push(weightCmd && blendCmd ? new Batch(label, [weightCmd, blendCmd]) : (weightCmd ?? blendCmd)!);
         store.emit('change', undefined);
       }
     }

@@ -18,7 +18,7 @@ import { preparePhysics, feedView, advanceSwing } from './playback/frame';
 import { TakeRecording, type TakeState } from './app/recording';
 import { KeyframeEditor } from './app/keyframes';
 import { BlurPreview } from './app/blurPreview';
-import { InflatePreview, type InflateArea, type InflateSettings, type InflateState } from './app/inflatePreview';
+import { InflatePreview, type InflateArea, type InflatePatch, type InflateSettings, type InflateState } from './app/inflatePreview';
 import { countLabel } from './app/labels';
 import { createTab, tabName, suggestedName, trimHiddenHistory, MAX_TABS, TABS_FULL_NOTE, type Tab } from './app/tab';
 import { TabAutosaver } from './app/autosave';
@@ -49,7 +49,7 @@ export type { TakeState } from './app/recording';
 
 export interface BrushOptions { size: number; strength: number; hardness: number; pressure: PressureMode }
 
-export { INFLATE_ANGLE, type InflateArea, type InflateSettings, type InflateState } from './app/inflatePreview';
+export { INFLATE_ANGLE, INFLATE_BLUR, type InflateArea, type InflatePatch, type InflateSettings, type InflateState } from './app/inflatePreview';
 export { countLabel } from './app/labels';
 export { parseEmbedParams, backUrl, reopenUrl, EmbedError, type EmbedOpen } from './app/embed';
 
@@ -147,7 +147,7 @@ export class App extends Emitter<AppEvents> {
   shake: Vec3 = { x: 0, y: 0, z: 0 };
   brush: BrushOptions = { size: 64, strength: 0.3, hardness: 0, pressure: 'strength' };
   /** 前回の「膨らませる」の設定(次に範囲を描いたときの初期値) */
-  inflateSettings: InflateSettings = { shape: 'ellipse', height: null, softness: 1, angle: 0, profile: 'dome', blend: 'max' };
+  inflateSettings: InflateSettings = { shape: 'ellipse', height: null, softness: 1, angle: 0, profile: 'dome', blend: 'max', blur: 0 };
   get imageCanvas(): HTMLCanvasElement | null { return this.tab.imageCanvas; }
   /** 表示用の画像の一辺の上限 */
   private get displaySize(): number { return Math.min(4096, this.stage.maxTextureSize); }
@@ -1061,7 +1061,7 @@ export class App extends Emitter<AppEvents> {
     return true;
   }
 
-  updateInflate(patch: { area?: Partial<InflateArea>; settings?: Partial<InflateSettings> }): void {
+  updateInflate(patch: InflatePatch): void {
     if (!this.inflate.active) return;
     this.inflate.update(patch);
     this.emit('inflate', 'change');

@@ -158,7 +158,7 @@
     <output id="brushHardnessO" class="w-10 tabular-nums"></output></label>
   <!-- 膨らみの既定値(次に範囲を描くときの設定。描いたあとは下のパネルと同じ値を変える)。ui/toolOptions.ts -->
   <label class="flex items-center gap-2" data-inflate-opt hidden>形
-    <select id="tInflKind" class="select select-xs w-20"><option value="ellipse">楕円</option><option value="rect">矩形</option></select></label>
+    <select id="tInflKind" class="select select-xs w-24"><option value="ellipse">楕円</option><option value="rect">矩形</option><option value="kamaboko">カマボコ</option></select></label>
   <label class="flex items-center gap-2" data-inflate-opt hidden>断面
     <select id="tInflProfile" class="select select-xs w-28"><option value="dome">ドーム</option><option value="cushion">クッション</option><option value="cone">直線</option></select></label>
   <label class="flex items-center gap-2" data-inflate-opt hidden>縁のなだらかさ
@@ -167,7 +167,7 @@
   <label class="flex items-center gap-2" data-inflate-opt hidden title="形の傾き。正で時計回り">角度
     <input id="tInflAngle" type="range" min="-90" max="90" step="1" value="0" class="range range-xs w-16">
     <output id="tInflAngleO" class="w-10 tabular-nums"></output></label>
-  <label class="flex items-center gap-2" data-inflate-opt hidden>重ね方
+  <label class="flex items-center gap-2" data-inflate-opt hidden title="今回の膨らみを、レイヤーの今のウェイトとどう重ねるか">ウェイトの重ね方
     <select id="tInflBlend" class="select select-xs w-32"><option value="max">重ねる(高い方)</option><option value="add">足す</option><option value="replace">置き換える</option></select></label>
   <span id="toolHint" class="tool-hint hidden md:flex flex-1 min-w-0"></span>
   <!-- よく使う操作(アニメーションの再生・停止、自動で揺らす)と、全画面表示・設定。メニューバーはタブに幅を使うので、この欄の右端に置く。
@@ -553,8 +553,9 @@
   <h3 id="inflTitle" class="font-bold text-lg">範囲を膨らませる</h3>
   <p id="inflTarget" class="text-sm opacity-70 pt-1 pb-3"></p>
   <div class="flex flex-col gap-2">
-    <div class="prop2"><span>形</span>
-      <select id="inflKind" class="select select-sm w-40"><option value="ellipse">楕円</option><option value="rect">矩形</option></select></div>
+    <div class="prop2"><span class="prop-name">形<button type="button" class="help-btn" data-help="inflKindHelp"></button></span>
+      <select id="inflKind" class="select select-sm w-40"><option value="ellipse">楕円</option><option value="rect">矩形</option><option value="kamaboko">カマボコ</option></select></div>
+    <p id="inflKindHelp" class="help-text" hidden>楕円・矩形は、縁のどこからも中へ向かって盛り上がります。カマボコは、上下の辺からだけ盛り上がって横に稜線ができ、左右の端は切り立ちます。縦にしたいときは角度を 90° にします。</p>
     <div class="prop2"><span>大きさ</span>
       <div class="flex items-center gap-1">幅 <input id="inflW" type="number" min="2" max="8192" class="input input-sm w-20 text-right"> × 縦 <input id="inflH" type="number" min="2" max="8192" class="input input-sm w-20 text-right"> px</div></div>
     <div class="prop2"><span class="prop-name">角度<button type="button" class="help-btn" data-help="inflAngleHelp"></button></span>
@@ -572,8 +573,15 @@
         <input class="join-item btn btn-sm" type="radio" name="inflProfile" value="cone" aria-label="直線" title="まっすぐな斜面(台形・円すい)">
       </div></div>
     <p id="inflProfileHelp" class="help-text" hidden>ドーム: 断面が円弧で、丸く膨らみます。クッション: 縁も頂上もなめらかです。直線: まっすぐな斜面(台形・円すい)です。</p>
-    <div class="prop2"><span>重ね方</span>
+    <div class="prop2"><span class="prop-name">仕上げのぼかし<button type="button" class="help-btn" data-help="inflBlurHelp"></button></span>
+      <div class="flex items-center gap-2"><input id="inflBlur" type="range" min="0" max="100" class="range range-sm range-primary flex-1"><input id="inflBlurN" type="number" min="0" max="100" class="input input-sm w-20 text-right"> px</div></div>
+    <p id="inflBlurHelp" class="help-text" hidden>形を当てたあとに、今回の膨らみだけをこの半径でぼかしてから重ねます。0 でぼかしません。前に塗ったウェイトはぼかしません。縁は形の外へ少しにじみます。</p>
+    <div class="prop2"><span class="prop-name">ウェイトの重ね方<button type="button" class="help-btn" data-help="inflBlendHelp"></button></span>
       <select id="inflBlend" class="select select-sm w-40"><option value="max">重ねる(高い方)</option><option value="add">足す</option><option value="replace">置き換える</option></select></div>
+    <p id="inflBlendHelp" class="help-text" hidden>今回の膨らみを、レイヤーの今のウェイトとどう重ねるかです。重ねる: 高い方を残します。足す: 足し合わせます。置き換える: 範囲の中を今回の膨らみにします。</p>
+    <div class="prop2"><span class="prop-name">レイヤーの重ね方<button type="button" class="help-btn" data-help="inflLayerBlendHelp"></button></span>
+      <select id="inflLayerBlend" class="select select-sm w-40"></select></div>
+    <p id="inflLayerBlendHelp" class="help-text" hidden>膨らませる先のレイヤーが、ほかのレイヤーとどう重なるかです(右パネルのレイヤーの「重ね方」と同じ)。新しいレイヤーに作るときは、そのレイヤーに効きます。適用すると膨らみと一緒に1手になり、キャンセルすると元に戻ります。</p>
   </div>
   <p id="inflNote" class="text-xs opacity-80 pt-3 leading-snug"></p>
   <div class="flex justify-end gap-2 mt-3">
