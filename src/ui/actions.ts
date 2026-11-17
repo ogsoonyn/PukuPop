@@ -33,6 +33,8 @@ export interface Action {
   hidden?: boolean;
   /** 使えないときの理由(ショートカットで押したときに知らせ、ボタンのツールチップに足す)。理由を出すほどでないときは null */
   blocked?: () => string | null;
+  /** 埋め込みモード(App.embedded)では使わない。使えなくし、メニュー・ボタンも隠す(style.css の data-embed-off) */
+  noEmbed?: boolean;
 }
 
 /** 画面の部品のうち、コマンドから開くもの */
@@ -61,7 +63,16 @@ function defineActions(app: App, d: ActionDeps) {
   const tabsFree = () => !app.busy && !pointerHeld;
   // タブが上限なら開く系は使えなくする(ファイルを選んだ後で断るのではなく、選ぶ前に分かるように)
   const roomForTab = () => app.canOpenTab;
-  const tabsFull = () => (app.canOpenTab ? null : TABS_FULL_NOTE);
+  const tabsFull = () => (app.canOpenTab || app.embedded ? null : TABS_FULL_NOTE);
+  const animationToggle: Action = {
+    label: 'アニメーションの再生・停止', desc: 'アニメーションの動き(キーフレームか記録した操作)をループ再生する。再生中は止める',
+    run: () => {
+      if (app.takeState === 'playing') app.stopTake();
+      else if (app.canPlayKeys) app.playKeys();
+      else app.playTake();
+    },
+    enabled: () => !app.exporting && (app.takeState === 'playing' || app.canPlayKeys || (app.takeState === 'idle' && !!app.project.take)),
+  };
   const brushStep = (dir: 1 | -1) => () => {
     const el = ui.brushSize, step = Math.max(2, Math.round(app.brush.size * 0.15));
     el.value = String(app.brush.size + dir * step);
@@ -70,16 +81,16 @@ function defineActions(app: App, d: ActionDeps) {
   return {
     // ファイル
     // プロジェクト(.pukupop)も画像も同じ「開く」で開く(中身で見分ける)。Ctrl+Shift+O は前は「画像を開く」のキーで、今は最近開いたファイル
-    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O'], run: d.openProject, enabled: roomForTab, blocked: tabsFull },
-    recent: { label: '最近開いたファイル', keys: ['Ctrl+Shift+O'], run: d.openRecent, enabled: roomForTab, blocked: tabsFull },
+    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O'], run: d.openProject, enabled: roomForTab, blocked: tabsFull, noEmbed: true },
+    recent: { label: '最近開いたファイル', keys: ['Ctrl+Shift+O'], run: d.openRecent, enabled: roomForTab, blocked: tabsFull, noEmbed: true },
     save: { label: '保存', keys: ['Ctrl+S'], run: () => app.save(false), enabled: () => !!app.doc },
-    saveAs: { label: '名前を付けて保存', keys: ['Ctrl+Shift+S'], run: () => app.save(true), enabled: () => !!app.doc },
+    saveAs: { label: '名前を付けて保存', keys: ['Ctrl+Shift+S'], run: () => app.save(true), enabled: () => !!app.doc, noEmbed: true },
     export: { label: '書き出し', keys: ['Ctrl+E'], run: d.openExport, enabled: () => !!app.doc },
-    sample: { label: 'サンプルを開く', run: () => app.whileOpening(() => app.loadSample()), enabled: () => !app.busy && roomForTab(), blocked: tabsFull },
+    sample: { label: 'サンプルを開く', run: () => app.whileOpening(() => app.loadSample()), enabled: () => !app.busy && roomForTab(), blocked: tabsFull, noEmbed: true },
     // タブ。Ctrl+W・Ctrl+Tab はブラウザが使うので Alt と組み合わせる
-    closeTab: { label: 'タブを閉じる', keys: ['Alt+W'], run: () => app.closeTab(), enabled: tabsFree },
-    nextTab: { label: '次のタブ', keys: ['Alt+PageDown'], run: () => app.stepTab(1), enabled: () => app.tabs.length > 1 && tabsFree(), helpRow: '次のタブ・前のタブ' },
-    prevTab: { label: '前のタブ', keys: ['Alt+PageUp'], run: () => app.stepTab(-1), enabled: () => app.tabs.length > 1 && tabsFree(), helpRow: '次のタブ・前のタブ' },
+    closeTab: { label: 'タブを閉じる', keys: ['Alt+W'], run: () => app.closeTab(), enabled: tabsFree, noEmbed: true },
+    nextTab: { label: '次のタブ', keys: ['Alt+PageDown'], run: () => app.stepTab(1), enabled: () => app.tabs.length > 1 && tabsFree(), helpRow: '次のタブ・前のタブ', noEmbed: true },
+    prevTab: { label: '前のタブ', keys: ['Alt+PageUp'], run: () => app.stepTab(-1), enabled: () => app.tabs.length > 1 && tabsFree(), helpRow: '次のタブ・前のタブ', noEmbed: true },
     // 編集
     undo: { label: '元に戻す', keys: ['Ctrl+Z'], run: () => app.history.undo(), enabled: () => app.history.canUndo && !app.stroking },
     redo: { label: 'やり直す', keys: ['Ctrl+Shift+Z', 'Ctrl+Y'], run: () => app.history.redo(), enabled: () => app.history.canRedo && !app.stroking },
@@ -136,10 +147,8 @@ function defineActions(app: App, d: ActionDeps) {
       label: '操作の記録', helpLabel: '記録の開始・停止', keys: ['R'], desc: 'つかむ・揺らす・移動・視点の操作を覚える(最長 60 秒)',
       run: () => app.toggleRecording(), enabled: () => !!app.doc && !app.exporting,
     },
-    togglePlay: {
-      label: 'ループ再生', helpLabel: 'ループ再生・停止', keys: ['L'], desc: '画面を触ると止まる',
-      run: () => app.togglePlay(), enabled: () => !!app.project.take && app.takeState !== 'recording' && !app.exporting,
-    },
+    // アニメーションの再生・停止のキー(L)とメニュー。動きは下の toggleAnimation と同じ
+    togglePlay: { ...animationToggle, label: 'アニメーションの再生', helpLabel: 'アニメーションの再生・停止', keys: ['L'], desc: 'アニメーションの動き(キーフレームか記録した操作)をループ再生する。画面を触ると止まる' },
     resetPlayView: {
       label: 'カメラを戻す', helpLabel: '再生中のカメラを戻す', keys: ['Shift+Home'], desc: 'ループ再生中に動かした視点を、再生を始めた視点(記録の初めの視点。キーフレームなら1番の視点)へ戻す。再生は続ける',
       run: () => app.resetPlayView(), enabled: () => app.takeState === 'playing',
@@ -149,21 +158,12 @@ function defineActions(app: App, d: ActionDeps) {
       run: () => app.setPlayPaused(!app.playPaused), enabled: () => app.takeState === 'playing',
     },
     stopPlay: { label: '停止', helpLabel: 'ループ再生を止める', desc: 'ループ再生を止める', run: () => app.stopTake(), enabled: () => app.takeState === 'playing' },
-    toggleKeyPlay: {
-      label: 'キーフレームの再生・停止', desc: 'キーフレームの動きをループ再生する。再生中は止める(手で記録した操作の再生も止める)',
-      run: () => { if (app.takeState === 'playing') app.stopTake(); else app.playKeys(); },
-      enabled: () => (app.takeState === 'playing' && !app.exporting) || app.canPlayKeys,
-    },
-    // UIを隠している間の右上のバー(ui/hideUi.ts)の再生ボタン。キーフレームを再生できればそれを、できなければ記録をループ再生する
-    toggleAnimation: {
-      label: 'アニメーションの再生・停止', desc: 'キーフレームの動き(無ければ記録した操作)をループ再生する。再生中は止める',
-      run: () => {
-        if (app.takeState === 'playing') app.stopTake();
-        else if (app.canPlayKeys) app.playKeys();
-        else app.playTake();
-      },
-      enabled: () => !app.exporting && (app.takeState === 'playing' || app.canPlayKeys || (app.takeState === 'idle' && !!app.project.take)),
-    },
+    // アニメーション(再生する動きは1つ)の再生・停止。今の動きがキーフレームから作ったもの(か空)で一覧を再生できれば一覧から
+    // (直していれば作り直す)、記録した操作ならそれをループ再生する。右パネルの帯・左のツールバー・ツールオプションの欄の右端・
+    // スマホの上のバー・UIを隠している間の右上のバーの再生は、どれもこの動き。
+    // toggleKeyPlay は前の名前(左のツールバーで隠すボタンの設定が、この名前で覚えてある)で、同じ動きにしてある
+    toggleAnimation: animationToggle,
+    toggleKeyPlay: animationToggle,
     toggleKeyPath: {
       label: 'キーフレームの経路', desc: '各フレームの枠と経路を3Dビューに重ねる',
       run: () => { const on = !app.keyOverlay.path; app.setKeyOverlay('path', on); if (on) d.showKeyFrames(); }, duringPreview: true,
@@ -172,7 +172,7 @@ function defineActions(app: App, d: ActionDeps) {
       label: 'キーフレームのゴースト', desc: '各フレームの画像を半透明で重ねる',
       run: () => { const on = !app.keyOverlay.ghost; app.setKeyOverlay('ghost', on); if (on) d.showKeyFrames(); }, duringPreview: true,
     },
-    clearTake: { label: '記録を消す', desc: '元に戻せる', run: () => app.clearTake(), enabled: () => !!app.project.take && app.takeState !== 'recording' },
+    clearTake: { label: 'アニメーションを消す', desc: 'アニメーションの動き(キーフレームか記録した操作)を消す。元に戻せる', run: () => app.clearTake(), enabled: () => !!app.project.take && app.takeState !== 'recording' },
     // レイヤー
     addLayer: { label: '新規レイヤー', run: () => app.addLayer(), enabled: () => !!app.doc },
     duplicateLayer: { label: '複製', run: () => app.duplicateLayer(), enabled: layer },
@@ -260,7 +260,7 @@ const NAV_ACTIONS: readonly NavGroup[] = [
     items: [
       { cmd: 'toggleAutoSwing', icon: 'autoSwing', text: '自動揺れ', check: 'autoSwing', name: '自動で揺らす' },
       // 再生中は「停止」に変わる(下の refresh)
-      { cmd: 'toggleKeyPlay', icon: 'play', text: '再生', name: 'キーフレームを再生' },
+      { cmd: 'toggleKeyPlay', icon: 'play', text: '再生', name: 'アニメーションを再生' },
       { cmd: 'toggleKeyPath', icon: 'keyPath', text: '経路', check: 'keyPath', name: 'キーフレームの経路' },
       { cmd: 'toggleKeyGhost', icon: 'keyGhost', text: 'ゴースト', check: 'keyGhost', name: 'キーフレームのゴースト' },
       // 揺らしながら試している最中に、いい動きをすぐ残せるように
@@ -349,7 +349,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
 
   const enabled = (name: string): boolean => {
     const a = table[name];
-    if (!a) return false;
+    if (!a || (a.noEmbed && app.embedded)) return false;
     if (app.previewing && !a.duringPreview) return false;
     return !a.enabled || a.enabled();
   };
@@ -452,6 +452,8 @@ export function bindActions(app: App, deps: ActionDeps): void {
   for (const b of cmdButtons) {
     const name = b.dataset.cmd!, a = table[name];
     if (!a) throw new Error(`コマンド「${name}」がありません`);
+    // 埋め込みモードで使わないコマンドは隠す(メニューの項目は <li> ごと)
+    if (a.noEmbed && app.embedded) (b.parentElement?.localName === 'li' ? b.parentElement : b).setAttribute('data-embed-off', '');
     if (a.keys) {
       b.setAttribute('aria-keyshortcuts', ariaKeys(a.keys));
       const tk = b.querySelector('kbd.tool-key');
@@ -487,11 +489,12 @@ export function bindActions(app: App, deps: ActionDeps): void {
     }));
     const rows = new Map<string, string[]>();
     for (const a of Object.values(table)) {
-      if (!a.keys || a.hidden) continue;
+      if (!a.keys || a.hidden || (a.noEmbed && app.embedded)) continue;
       const row = a.helpRow ?? a.helpLabel ?? a.label;
       rows.set(row, [...(rows.get(row) ?? []), ...a.keys]);
     }
-    for (const h of HELP_ONLY_KEYS) rows.set(h.label, h.keys);
+    // 埋め込みモードでは貼り付けて開かない(main.ts)
+    if (!app.embedded) for (const h of HELP_ONLY_KEYS) rows.set(h.label, h.keys);
     // キーもマウスの操作と同じ書き方(キーの札)で出す
     ui.helpKeys.replaceChildren(...[...rows].flatMap(([label, keys]) => [
       Object.assign(document.createElement('span'), { textContent: label }),
@@ -571,7 +574,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
       const b = el.parentElement!, name = mode === 'all' ? 'ウェイトの重ね表示(全レイヤー)' : 'ウェイトの重ね表示';
       if (b.getAttribute('aria-label') !== name) b.setAttribute('aria-label', name);
     }
-    // キーフレームの再生ボタンは、再生中は停止のボタンにする
+    // アニメーションの再生ボタンは、再生中は停止のボタンにする
     const playing = app.takeState === 'playing';
     for (const b of keyPlayButtons) {
       if (b.dataset.playing === String(playing)) continue;
@@ -579,7 +582,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
       b.querySelector('svg')!.innerHTML = ICONS[playing ? 'stop' : 'play'];
       const l = b.querySelector('.nav-label'); // スマホの上のバーのボタンはアイコンだけ
       if (l) l.textContent = playing ? '停止' : '再生';
-      b.setAttribute('aria-label', playing ? '再生を止める' : b.dataset.cmd === 'toggleAnimation' ? 'アニメーションを再生' : 'キーフレームを再生');
+      b.setAttribute('aria-label', playing ? '再生を止める' : 'アニメーションを再生');
     }
     for (const el of pressables) {
       const v = String(on[el.dataset.pressed as ViewCheck]);

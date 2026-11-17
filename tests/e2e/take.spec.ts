@@ -103,7 +103,7 @@ test('操作の記録: ボタンで記録・再生・消す。3Dビューの下�
   await page.locator('#pTabs [data-ptab=anim]').click();
   await page.locator('#takeRec').click();
   expect(await app(page, a => a.takeState)).toBe('recording');
-  await expect(page.locator('#takeRec')).toContainText('停止');
+  await expect(page.locator('#takeRec')).toContainText('記録を止める');
   await app(page, a => { a.world.grab = { x: 0.2, y: 0, z: 0 }; for (let i = 0; i < 60; i++) a.frame(1 / 60); a.world.grab = null; for (let i = 0; i < 30; i++) a.frame(1 / 60); });
   await page.locator('#playStop').click();
   expect(await app(page, a => a.takeState)).toBe('idle');
@@ -197,7 +197,7 @@ test('キーフレーム: 視点を追加・登録・見る・削除し、つな
   await expect(page.locator('#keyTotal')).toHaveText('1周 5.5秒');
   await page.locator('#keyMake').click();
   expect(await app(page, a => [a.takeState, a.takeLength, a.project.take.keys.length])).toEqual(['playing', 5.5, 2]);
-  await expect(page.locator('#takeInfo')).toHaveText('再生中');
+  await expect(page.locator('#takeInfo')).toHaveText('◆ キーフレーム 5.5秒');
   // 再生中は画像から見た視点がフレームの間を動き、画像が動くので揺れる
   await expect.poll(() => app(page, a => a.playView.yaw), { timeout: 8000 }).toBeGreaterThan(0.2);
   await expect.poll(() => app(page, a => Math.abs(a.world.displacement(a.doc.layers[0].id).x)), { timeout: 8000 }).toBeGreaterThan(0.001);
@@ -207,10 +207,12 @@ test('キーフレーム: 視点を追加・登録・見る・削除し、つな
   await app(page, a => { a.project.camera.yaw += 1; });
   await page.locator('#takeCam').click();
   expect(await app(page, a => [a.takeState, a.project.camera.yaw])).toEqual(['playing', start]);
-  await expect(page.locator('#keyMake')).toHaveText(/停止/);
-  await page.locator('#keyMake').click();
+  // 再生・停止は上の帯のボタン1つ(キーフレームの「この並びで作る」は作り直すだけで、停止にはならない)
+  await expect(page.locator('#takePlay')).toHaveText(/停止/);
+  await expect(page.locator('#keyMake')).toHaveText('この並びで作る');
+  await page.locator('#takePlay').click();
   expect(await app(page, a => a.takeState)).toBe('idle');
-  await expect(page.locator('#keyMake')).toHaveText(/再生/);
+  await expect(page.locator('#takePlay')).toHaveText(/再生/);
   await expect(page.locator('#takeCam')).toBeDisabled();
   await app(page, a => a.playTake());
   expect(await app(page, a => a.takeState)).toBe('playing');
@@ -276,4 +278,51 @@ test('キーフレーム: 行の左端のつまみをドラッグで並べ替え
   // 並べ替えた後に再生すると、その順で作り直す
   await page.locator('#keyMake').click();
   expect(await app(page, a => a.project.take.keys.map((k: any) => k.view.yaw))).toEqual([0.3, 0.1, 0.2]);
+});
+
+test('アニメーションの箱: 動きは1つで、記録とキーフレームのどちらで作っても帯の中身が入れ替わる。今の中身を作った側が光る', async ({ page }) => {
+  await boot(page);
+  await page.locator('#pTabs [data-ptab=anim]').click();
+  const info = page.locator('#takeInfo'), rec = page.locator('#recSection'), key = page.locator('#keySection');
+  await expect(info).toHaveText('なし');
+  await expect(rec).not.toHaveClass(/\bon\b/);
+  await expect(key).not.toHaveClass(/\bon\b/);
+  await expect(page.locator('#takePlay')).toBeDisabled();
+  // キーフレームで作ると、帯はキーフレームの印になり、キーフレームの側が光る
+  await app(page, a => {
+    a.keyDraft = [0, 0.6].map(yaw => ({ view: { yaw, pitch: 0, roll: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } }, seconds: 1, mode: 'smooth' }));
+    a.emit('take', a.takeState);
+  });
+  await page.locator('#keyMake').click();
+  await expect(info).toHaveText(/^◆ キーフレーム 2\.0秒/);
+  await expect(key).toHaveClass(/\bon\b/);
+  await expect(key.locator('.anim-using')).toBeVisible();
+  await expect(rec.locator('.anim-using')).toBeHidden();
+  await expect(page.locator('#playSrc')).toHaveAttribute('data-src', 'key');
+  await page.locator('#takePlay').click();
+  expect(await app(page, a => a.takeState)).toBe('idle');
+  // 記録すると帯は記録の印になり、記録の側が光る(キーフレームの一覧はそのまま残る)
+  await recordTake(page);
+  await expect(info).toHaveText(/^● 記録 /);
+  await expect(rec).toHaveClass(/\bon\b/);
+  await expect(key).not.toHaveClass(/\bon\b/);
+  expect(await app(page, a => a.keyDraft.length)).toBe(2);
+  // 帯の再生・ツールオプションの欄の右端の再生は、入っている記録を再生する(キーフレームに入れ替えない)
+  for (const b of ['#takePlay', '#quickActs [data-cmd=toggleKeyPlay]']) {
+    await page.locator(b).click();
+    expect(await app(page, a => [a.takeState, !!a.project.take.keys])).toEqual(['playing', false]);
+    await expect(page.locator('#playSrc')).toHaveAttribute('data-src', 'rec');
+    await page.locator(b).click();
+    expect(await app(page, a => a.takeState)).toBe('idle');
+  }
+  // 「この並びで作る」で、キーフレームの動きに入れ替わる(元に戻せる)
+  await page.locator('#keyMake').click();
+  expect(await app(page, a => [a.takeState, !!a.project.take.keys])).toEqual(['playing', true]);
+  await expect(key).toHaveClass(/\bon\b/);
+  await app(page, a => { a.stopTake(); a.history.undo(); });
+  await expect(info).toHaveText(/^● 記録 /);
+  // 消すと帯は「なし」になり、どちらも光らない
+  await page.locator('#takeClear').click();
+  await expect(info).toHaveText('なし');
+  await expect(rec).not.toHaveClass(/\bon\b/);
 });

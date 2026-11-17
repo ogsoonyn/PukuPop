@@ -23,6 +23,8 @@ import { countLabel } from './app/labels';
 import { createTab, tabName, suggestedName, trimHiddenHistory, MAX_TABS, TABS_FULL_NOTE, type Tab } from './app/tab';
 import { TabAutosaver } from './app/autosave';
 import { newImageDefaults } from './app/newImage';
+import { fileTarget, SaveConflictError, type SaveTarget } from './app/saveTarget';
+import { fetchForOpen, ServerTarget, type EmbedOpen } from './app/embed';
 import { PhysicsWorld } from './physics/world';
 import { MotionRecorder } from './physics/recorder';
 import { takeSeconds, type KeyFrame } from './physics/take';
@@ -49,6 +51,7 @@ export interface BrushOptions { size: number; strength: number; hardness: number
 
 export { INFLATE_ANGLE, type InflateArea, type InflateSettings, type InflateState } from './app/inflatePreview';
 export { countLabel } from './app/labels';
+export { parseEmbedParams, backUrl, EmbedError, type EmbedOpen } from './app/embed';
 
 type AppEvents = {
   tool: Tool;
@@ -149,8 +152,16 @@ export class App extends Emitter<AppEvents> {
   /** 表示用の画像の一辺の上限 */
   private get displaySize(): number { return Math.min(4096, this.stage.maxTextureSize); }
 
-  get fileHandle(): FileSystemFileHandle | null { return this.tab.fileHandle; }
-  set fileHandle(h: FileSystemFileHandle | null) { this.tab.fileHandle = h; }
+  /** 今のタブの保存先(ファイルの場所か、埋め込みモードのサーバー) */
+  get saveTarget(): SaveTarget | null { return this.tab.target; }
+  /** 今のタブの保存先のファイルの場所(E2E が作り物のハンドルを入れるのにも使う) */
+  get fileHandle(): FileSystemFileHandle | null { return this.tab.target?.handle ?? null; }
+  set fileHandle(h: FileSystemFileHandle | null) { this.tab.target = h ? fileTarget(h) : null; }
+  /**
+   * 埋め込みモード(Issue #146、main.ts が起動の前に入れる)。1タブ1ファイルにし、ほかのファイルを開く・タブを閉じる・
+   * 名前を付けて保存・自動保存・最近開いたファイル・保存領域の永続化の頼みを止める
+   */
+  embedded = false;
   get fileName(): string | null { return this.tab.fileName; }
   set fileName(n: string | null) { this.tab.fileName = n; }
   get dirty(): boolean { return this.tab.dirty; }
@@ -534,7 +545,7 @@ export class App extends Emitter<AppEvents> {
   private get replaceable(): boolean { return this.tab.sample && !this.tab.dirty; }
 
   /** 新しく開けるか(タブの数が上限でも、今のタブを置き換えて開けるなら開ける)。開く系のメニュー・ボタンを使えなくするのに使う */
-  get canOpenTab(): boolean { return this.replaceable || this.tabs.length < MAX_TABS; }
+  get canOpenTab(): boolean { return this.replaceable || (!this.embedded && this.tabs.length < MAX_TABS); }
 
   /** タブの数が上限で、新しいタブを開けないか。開けないときは伝える(メニューは先に使えなくしてあるので、ここに来るのはドロップや貼り付けなど) */
   tabsFull(): boolean {
@@ -552,7 +563,7 @@ export class App extends Emitter<AppEvents> {
    * 後から始まった別の読み込みに追い越されたときや、タブの数が上限のときは何もせず false を返す。
    * 今のタブが変更していないサンプルなら置き換え、そうでなければ新しいタブで開く(今のタブはそのまま裏に残る)。
    */
-  async loadProject(project: Project, opts: { fileName?: string | null; handle?: FileSystemFileHandle | null; dirty?: boolean; canvas?: HTMLCanvasElement; sample?: boolean; replace?: boolean; tabId?: string; order?: number } = {}): Promise<boolean> {
+  async loadProject(project: Project, opts: { fileName?: string | null; target?: SaveTarget | null; dirty?: boolean; canvas?: HTMLCanvasElement; sample?: boolean; replace?: boolean; tabId?: string; order?: number } = {}): Promise<boolean> {
     const doc = project.documents[0];
     if (!doc) throw new Error('プロジェクトに画像が入っていません');
     const token = ++this.syncToken;
@@ -570,7 +581,7 @@ export class App extends Emitter<AppEvents> {
     // 並び: 置き換えなら同じ位置、新しいタブなら今のタブの右隣(自動保存から戻すときもこの並びにする)
     const i = this.tabs.indexOf(old), right = this.tabs[i + 1];
     const order = opts.order ?? (replace ? old.order : right ? (old.order + right.order) / 2 : Math.max(Date.now(), old.order + 1));
-    const tab = createTab(project, { id: opts.tabId, order, sample: opts.sample, fileName: opts.fileName ?? null, fileHandle: opts.handle ?? null, dirty: !!opts.dirty });
+    const tab = createTab(project, { id: opts.tabId, order, sample: opts.sample, fileName: opts.fileName ?? null, target: opts.target ?? null, dirty: !!opts.dirty });
     if (replace) this.tabs.splice(i, 1, tab); else this.tabs.splice(i + 1, 0, tab);
     this.enterTab(tab, canvas);
     return true;
@@ -619,7 +630,7 @@ export class App extends Emitter<AppEvents> {
   }
 
   /** タブの自動保存を取り消して消す(実行中のものは終わってから消す) */
-  private dropTabAutosave(t: Tab): void { this.autosaver.drop(t); }
+  private dropTabAutosave(t: Tab): void { if (!this.embedded) this.autosaver.drop(t); }
 
   /** タブを表に出す。切り替えたら true */
   async switchTab(id: string): Promise<boolean> {
@@ -657,7 +668,7 @@ export class App extends Emitter<AppEvents> {
    */
   async closeTab(id: string = this.tab.id): Promise<boolean> {
     const t = this.tabs.find(x => x.id === id);
-    if (!t) return false;
+    if (!t || this.embedded) return false; // 埋め込みモードは1タブ1ファイル
     // 変更していないサンプルが1枚だけなら、閉じても同じものに戻るだけなので何もしない
     if (this.tabs.length === 1 && this.replaceable) return false;
     if (this.busy) { toast('いまはタブを閉じられません。処理が終わってからもう一度お試しください。', 'warning'); return false; }
@@ -722,9 +733,10 @@ export class App extends Emitter<AppEvents> {
   private opening = false;
 
   async openFile(file: File, handle?: FileSystemFileHandle): Promise<void> {
+    if (this.embedded) return; // 埋め込みモードは、クエリで受け取ったファイルだけを開く(main.ts)
     if (this.busy) { toast('いまはファイルを開けません。処理が終わってからもう一度お試しください。', 'warning'); return; }
     const t = performance.now();
-    await this.whileOpening(() => this.openFileNow(file, handle));
+    await this.whileOpening(() => this.openFileNow(file, handle ? fileTarget(handle) : undefined));
     this.perf?.event({ t, d: performance.now() - t, kind: 'open', detail: `${file.name}(${(file.size / 1e6).toFixed(1)}MB)` });
   }
 
@@ -736,23 +748,21 @@ export class App extends Emitter<AppEvents> {
 
   /** そのファイルを開けるか(開いているタブを出すだけなら開ける)。開けないときは伝える */
   async roomFor(handle?: FileSystemFileHandle): Promise<boolean> {
-    return !!(await this.tabOf(handle)) || !this.tabsFull();
+    return !!(await this.tabOf(handle ? fileTarget(handle) : undefined)) || !this.tabsFull();
   }
 
-  /** 同じ場所のファイルを開いているタブ(ファイルの場所を受け取れる Chrome 系だけ分かる) */
-  private async tabOf(handle: FileSystemFileHandle | undefined): Promise<Tab | undefined> {
-    if (!handle) return undefined;
-    for (const t of this.tabs) {
-      try { if (t.fileHandle && await t.fileHandle.isSameEntry(handle)) return t; } catch { /* 比べられなければ別のファイルとして開く */ }
-    }
+  /** 同じ保存先のファイルを開いているタブ(ファイルの場所を受け取れる Chrome 系と、埋め込みモードのサーバーだけ分かる) */
+  private async tabOf(target: SaveTarget | undefined): Promise<Tab | undefined> {
+    if (!target) return undefined;
+    for (const t of this.tabs) if (t.target && await t.target.isSame(target)) return t;
     return undefined;
   }
 
-  private async openFileNow(file: File, handle: FileSystemFileHandle | undefined): Promise<void> {
+  private async openFileNow(file: File, target: SaveTarget | undefined): Promise<void> {
     const project = isProjectFile(file);
     if (!project && !isImageFile(file)) { toast('PNG / JPEG / WebP の画像か、.pukupop ファイルを選んでください。', 'warning'); return; }
     // 開いているプロジェクトなら、そのタブを出す(同じ作業を2つのタブで別々に変えないように)
-    const same = project ? await this.tabOf(handle) : undefined;
+    const same = project ? await this.tabOf(target) : undefined;
     if (same) {
       if (same !== this.tab) await this.switchTabNow(same);
       toast(`「${file.name}」はもう開いています。`, 'info');
@@ -766,8 +776,8 @@ export class App extends Emitter<AppEvents> {
         return;
       }
       // 一覧への記録は待たない(記録が遅れたり失敗したりしても、次のファイルを開けるように)
-      if (await this.openProjectBytes(bytes, file.name, handle ?? null)) void this.remember('project', file.name, file.size, handle, () => bytes);
-    } else if (await this.openImage(file)) void this.remember('image', file.name, file.size, handle, async () => new Uint8Array(await file.arrayBuffer()));
+      if (await this.openProjectBytes(bytes, file.name, target ?? null)) void this.remember('project', file.name, file.size, target?.handle, () => bytes);
+    } else if (await this.openImage(file)) void this.remember('image', file.name, file.size, target?.handle, async () => new Uint8Array(await file.arrayBuffer()));
   }
 
   /**
@@ -775,6 +785,7 @@ export class App extends Emitter<AppEvents> {
    * 一覧に入れられなくても、開く・保存するのは止めない。
    */
   private async remember(kind: RecentKind, name: string, size: number, handle: FileSystemFileHandle | null | undefined, bytes: () => Promise<Uint8Array> | Uint8Array, thumbPng?: Uint8Array): Promise<void> {
+    if (this.embedded) return; // 埋め込みモードでは、最近開いたファイルを使わない(埋め込む側のオリジンに残さない)
     const png = thumbPng ?? await this.thumbnail();
     const thumb = png ? new Blob([png as BlobPart], { type: 'image/png' }) : undefined;
     await recent.add({ name, kind, size, thumb, handle, bytes });
@@ -788,8 +799,8 @@ export class App extends Emitter<AppEvents> {
     return newImageDefaults(this.project, prefs.get<Record<string, unknown>>('newImage'));
   }
 
-  /** 開けたら true */
-  async openImage(file: File): Promise<boolean> {
+  /** 開けたら true。target は保存先(埋め込みモードで画像から新しく作るときの、サーバーの保存先) */
+  async openImage(file: File, target: SaveTarget | null = null): Promise<boolean> {
     setBusy(true);
     try {
       const { asset, canvas } = await fileToAsset(file, this.displaySize);
@@ -798,7 +809,7 @@ export class App extends Emitter<AppEvents> {
       p.autoSwing = d.autoSwing;
       // 開いた直後はまだ塗っておらず膨らまないので、斜めに見せず正面から始める(サンプルは膨らみが見えるよう斜めのまま)
       p.camera = frontCamera(d.fov);
-      if (!(await this.loadProject(p, { canvas }))) return false;
+      if (!(await this.loadProject(p, { canvas, target }))) return false;
       this.setTool('brush');
       toast(`「${file.name}」を開きました。動かしたい所を塗ってください。`, 'success');
       return true;
@@ -812,17 +823,34 @@ export class App extends Emitter<AppEvents> {
    * 開けたら true。開けなければ理由を伝えて false を返し、今の状態は変えない。
    * restore は自動保存から戻すときの、そのタブの id(自動保存のキー)・並び・見出し
    */
-  async openProjectBytes(bytes: Uint8Array, name: string | null, handle: FileSystemFileHandle | null, dirty = false, restore?: { tabId: string; order: number; name: string }): Promise<boolean> {
+  async openProjectBytes(bytes: Uint8Array, name: string | null, target: SaveTarget | null, dirty = false, restore?: { tabId: string; order: number; name: string }): Promise<boolean> {
     setBusy(true);
     try {
       const { project } = await deserializeProject(bytes, { decodeFallback: browserDecodeGray });
-      if (!(await this.loadProject(project, { fileName: name ?? restore?.name ?? null, handle, dirty, tabId: restore?.tabId, order: restore?.order }))) return false;
+      if (!(await this.loadProject(project, { fileName: name ?? restore?.name ?? null, target, dirty, tabId: restore?.tabId, order: restore?.order }))) return false;
       if (name) toast(`「${name}」を開きました。`, 'success');
       return true;
     } catch (e) {
       toast(e instanceof Error ? e.message : 'プロジェクトを開けませんでした。', 'error', 6000);
       return false;
     } finally { setBusy(false); }
+  }
+
+  /**
+   * 埋め込みモードで、クエリで受け取ったファイルをサーバーから取って開く(Issue #146、src/app/embed.ts)。
+   * 保存先はサーバー(既存の .pukupop は save へ PUT、画像から作るときは最初だけ create へ POST)。
+   * 取れなければ例外を投げ、開けなければ(理由は知らせて)false を返す
+   */
+  async openEmbedded(o: EmbedOpen): Promise<boolean> {
+    return this.whileOpening(async () => {
+      setBusy(true);
+      let got: Awaited<ReturnType<typeof fetchForOpen>>;
+      const page = location.href;
+      try { got = await fetchForOpen(o.kind === 'project' ? o.src : o.image, page); } finally { setBusy(false); }
+      if (o.kind === 'project') return this.openProjectBytes(got.bytes, o.name, new ServerTarget(o.name, { url: o.save, etag: got.etag }, page));
+      const target = new ServerTarget(`${o.name.replace(/\.[^.]+$/, '') || 'untitled'}${FILE_EXTENSION}`, { create: o.create }, page);
+      return this.openImage(new File([got.bytes as BlobPart], o.name, { type: got.type }), target);
+    });
   }
 
   /* ---------- 保存 ---------- */
@@ -842,31 +870,50 @@ export class App extends Emitter<AppEvents> {
 
   suggestedName(tab: Tab = this.tab): string { return suggestedName(tab); }
 
+  /**
+   * 今のタブを保存する。保存先があればそこへ上書きし、無いとき・saveAs のときは保存先を選ぶ(選べないブラウザではダウンロード)。
+   * 埋め込みモードでは、名前を付けて保存は使わない(保存先はサーバーだけ)
+   */
   async save(saveAs = false): Promise<boolean> {
-    if (!this.doc) return false;
+    if (!this.doc || (saveAs && this.embedded)) return false;
     // 保存先を選んでいる間にタブを切り替えても、このタブに書き戻す
     const tab = this.tab;
+    // 保存の最中にもう一度押しても、二重に書かない(通信の遅いサーバーで、新規が2つできたり自分の保存が衝突になったりしないように)
+    if (tab.saving) { toast('保存しています。終わるまでお待ちください。', 'info'); return false; }
+    tab.saving = true;
+    try { return await this.saveNow(tab, saveAs); } finally { tab.saving = false; }
+  }
+
+  private async saveNow(tab: Tab, saveAs: boolean): Promise<boolean> {
     // 書き込みを待つ間に変更されたら、その変更は保存されていないので「未保存」のまま残す
     const thumb = await this.thumbnail();
     const revision = tab.revision;
     const bytes = serializeProject(tab.project, { thumbnail: thumb });
     const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
     try {
-      const h = await saveFile(blob, this.suggestedName(tab), PROJECT_TYPES, saveAs ? null : tab.fileHandle);
-      if (h === undefined) return false;
-      tab.fileHandle = h;
-      if (h) tab.fileName = h.name; else tab.fileName ??= this.suggestedName(tab);
+      let target: SaveTarget | null;
+      const current = saveAs ? null : tab.target;
+      if (current) {
+        if (!(await this.writeTarget(current, blob))) return false;
+        target = current;
+      } else {
+        const h = await saveFile(blob, this.suggestedName(tab), PROJECT_TYPES);
+        if (h === undefined) return false;
+        target = h ? fileTarget(h) : null;
+      }
+      tab.target = target;
+      if (target) tab.fileName = target.name; else tab.fileName ??= this.suggestedName(tab);
       tab.lastSaved = new Date();
       tab.sample = false; // 保存したら、次に開いたファイルで置き換えない
       tab.autosaveError = null; tab.autosaveQuota = false; // ファイルに保存できたので、自動保存の失敗の案内は消す
       const settled = tab.revision === revision;
       if (settled) tab.dirty = false;
-      this.autosaver.afterFileSave(tab, settled);
+      if (!this.embedded) this.autosaver.afterFileSave(tab, settled);
       this.emit('file', undefined);
       this.emit('tabs', undefined);
-      toast(h ? `「${h.name}」に保存しました。` : `「${tab.fileName}」をダウンロードしました。`, 'success');
-      void this.remember('project', tab.fileName ?? this.suggestedName(tab), bytes.byteLength, h, () => bytes, thumb);
-      void requestPersistOnce();
+      toast(target ? `「${target.name}」に保存しました。` : `「${tab.fileName}」をダウンロードしました。`, 'success');
+      if (target?.kind !== 'server') void this.remember('project', tab.fileName ?? this.suggestedName(tab), bytes.byteLength, target?.handle, () => bytes, thumb);
+      if (!this.embedded) void requestPersistOnce();
       return true;
     } catch (e) {
       toast(`保存できませんでした: ${e instanceof Error ? e.message : e}`, 'error', 6000);
@@ -874,8 +921,29 @@ export class App extends Emitter<AppEvents> {
     }
   }
 
+  /**
+   * 保存先へ上書きする。サーバーの保存先が開いたあと(前に保存したあと)に別の所で上書きされていたら、
+   * 上書きするかやめるかを選んでもらう。やめたら false
+   */
+  private async writeTarget(target: SaveTarget, blob: Blob): Promise<boolean> {
+    try {
+      await target.write(blob);
+      return true;
+    } catch (e) {
+      if (!(e instanceof SaveConflictError)) throw e;
+      const r = await ask({
+        title: `「${target.name}」は別の所で上書きされています`,
+        body: '開いたあと(前に保存したあと)に、ほかの人かほかの画面がこのファイルを上書きしました。このまま上書きすると、その変更は失われます。',
+        yes: '上書きする', no: 'やめる',
+      });
+      if (!r.ok) return false;
+      await target.write(blob, { force: true });
+      return true;
+    }
+  }
+
   /** そのタブの自動保存を予約する。裏に回ったタブも中身は変わらないので、予約どおりに保存する(app/autosave.ts) */
-  private scheduleAutosave(tab: Tab = this.tab): void { this.autosaver.schedule(tab); }
+  private scheduleAutosave(tab: Tab = this.tab): void { if (!this.embedded) this.autosaver.schedule(tab); }
 
   /* ---------- 塗り ---------- */
 
@@ -1249,7 +1317,6 @@ export class App extends Emitter<AppEvents> {
   /** ループ再生中に、見る視点を再生の基準の視点(撮影カメラ。記録の初めの視点)へ戻す。再生は続ける */
   resetPlayView(): void { this.playback.resetView(); }
 
-  togglePlay(): void { if (this.takeState === 'playing') this.stopTake(); else this.playTake(); }
 
   /* ---------- キーフレームから動きを作る ---------- */
 
@@ -1274,7 +1341,7 @@ export class App extends Emitter<AppEvents> {
 
   /**
    * キーフレームの動きを再生できるか(2つ以上で1周が短すぎず、止まっているとき)。
-   * 手で記録した操作があるときは、黙ってキーフレームの記録に入れ替えないよう使えなくする(右パネルの「再生」で入れ替える)
+   * 手で記録した操作があるときは、黙ってキーフレームの記録に入れ替えないよう使えなくする(キーフレームの「この並びで作る」で入れ替える)
    */
   get canPlayKeys(): boolean { return this.keys.canPlay; }
 

@@ -37,7 +37,7 @@ const PREF = 'playBarIdle';
 const takeSecondsOf = (total: number) => Math.max(TAKE_STEP_MULTIPLE, Math.round(total / PHYSICS_DT / TAKE_STEP_MULTIPLE) * TAKE_STEP_MULTIPLE) * PHYSICS_DT;
 
 export function bindPlayBar(app: App): void {
-  const { playBar: bar, playStart: start, playStop: stop, playPause: pause, playTime: time, playTrack: track, playKeys: keys, playLoop: loop, playCam: cam, playBarShow: toggle } = ui;
+  const { playBar: bar, playSrc: srcEl, playStart: start, playStop: stop, playPause: pause, playTime: time, playTrack: track, playKeys: keys, playLoop: loop, playCam: cam, playBarShow: toggle } = ui;
   const fill = track.querySelector<HTMLElement>('.play-fill')!, head = track.querySelector<HTMLElement>('.play-head')!;
   cam.querySelector('.play-cam-icon')!.innerHTML = icon('keySet');
   stop.innerHTML = ICON_STOP;
@@ -214,7 +214,15 @@ export function bindPlayBar(app: App): void {
     if (pause.dataset.icon !== String(paused)) { pause.dataset.icon = String(paused); pause.innerHTML = paused ? ICON_PLAY : ICON_PAUSE; }
     // 名前は「一時停止」のまま、押されているかで状態を伝える
     setAttr(pause, 'aria-pressed', String(paused));
-    setText(time, rec ? `● ${fmt(pos)} / ${fmt(len)}秒` : `${fmt(pos)} / ${fmt(len)}秒`);
+    // 今の動きの作り方の印(止まっている間はキーフレームの一覧から出すときだけなので、いつもキーフレーム)
+    const src = rec ? 'rec' : idle || app.project.take?.keys ? 'key' : 'rec';
+    if (srcEl.dataset.src !== src) {
+      srcEl.dataset.src = src;
+      srcEl.querySelector('.play-src-mark')!.textContent = src === 'key' ? '◆' : '●';
+      srcEl.querySelector('.play-src-name')!.textContent = src === 'key' ? 'キーフレーム' : '記録';
+      srcEl.title = src === 'key' ? 'キーフレームで作った動き' : '記録した操作';
+    }
+    setText(time, `${fmt(pos)} / ${fmt(len)}秒`);
     const p = len > 0 ? Math.min(1, pos / len) : 0;
     fill.style.width = `${p * 100}%`;
     head.style.left = `${p * 100}%`;

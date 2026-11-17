@@ -100,7 +100,7 @@ export class KeyframeEditor {
 
   /**
    * キーフレームの動きを再生できるか(2つ以上で1周が短すぎず、止まっているとき)。
-   * 手で記録した操作があるときは、黙ってキーフレームの記録に入れ替えないよう使えなくする(右パネルの「再生」で入れ替える)
+   * 手で記録した操作があるときは、黙ってキーフレームの記録に入れ替えないよう使えなくする(キーフレームの「この並びで作る」で入れ替える)
    */
   get canPlay(): boolean {
     const h = this.host, n = h.keyDraft.length, total = h.keyDraft.reduce((a, k) => a + k.seconds, 0), take = h.project.take;
@@ -115,10 +115,13 @@ export class KeyframeEditor {
     else this.makeTake();
   }
 
-  /** キーフレームを順に通ってくり返す記録を作り(今の記録と入れ替え、アンドゥできる)、ループ再生する */
+  /** キーフレームを順に通ってくり返す記録を作り(今の記録と入れ替え、アンドゥできる)、ループ再生する。一覧が今の動きと同じなら、作り直さずに再生する */
   makeTake(): void {
     const h = this.host;
     if (!h.doc || h.takeState === 'recording') return;
+    // 一覧が今の動きと同じなら作り直さない(アンドゥに積まず、未保存にもしない)
+    const cur = h.project.take;
+    if (cur?.keys && JSON.stringify(cur.keys) === JSON.stringify(normalizeKeys(h.keyDraft))) { h.playTake(); return; }
     const take = takeFromKeys(h.keyDraft, h.project.camera.fov);
     if (!take) return;
     h.execute(new SetTake('キーフレームから動きを作る', h.project.take, take));

@@ -49,6 +49,10 @@ paths:
 - `src/storage/persist.ts` が `navigator.storage.persist()` を頼む。頼むのは最初の自動保存の成功かファイルの保存のあとで、ページを開いている間に1回だけ。起動直後には頼まない。
 - 断られた日時は prefs の `storagePersistDeniedAt`(ミリ秒。通ったら `null`)。30 日は頼み直さない。
 
+## 埋め込みモードではブラウザに残さない
+
+埋め込みモード(Issue #146)は、埋め込む側のアプリのオリジンで動く。自動保存(IndexedDB `popstage`)・最近開いたファイル(`popstage-recent`)・保存領域の永続化の頼み・service worker を使わず、埋め込む側のオリジンに残さない(`App.embedded` で止める)。設定(localStorage `popstage.prefs.v1`)だけはふつうに使う(`packages/editor/README.md` に書いてある)。ブラウザに残すものを足すときは、埋め込みモードで止めるかを決め、変えたら README も直す。
+
 ## どこに覚えるか
 
 - ファイル(`.pukupop`)に入れるのは `Project` の中身だけ。

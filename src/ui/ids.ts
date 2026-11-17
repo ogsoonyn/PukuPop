@@ -5,15 +5,15 @@
  */
 export const UI_IDS = {
   // スマホの上のバー
-  mTop: 'header', mTitle: 'button', mPlay: 'button', mAuto: 'button',
-  // メニューバー・ツールオプション
-  docTabs: 'div', toolMenu: 'ul',
+  mTop: 'header', mBack: 'button', mTitle: 'button', mPlay: 'button', mAuto: 'button',
+  // メニューバー・ツールオプション(embedBack は埋め込みモードの戻るボタン。ui/embedSession.ts)
+  embedBack: 'button', docTabs: 'div', toolMenu: 'ul',
   brushSize: 'input', brushSizeO: 'output', brushStrength: 'input', brushStrengthO: 'output',
   brushHardness: 'input', brushHardnessO: 'output', brushPressure: 'select', toolHint: 'span',
   tInflKind: 'select', tInflProfile: 'select', tInflSoft: 'input', tInflSoftO: 'output', tInflAngle: 'input', tInflAngleO: 'output', tInflBlend: 'select',
   // ツールバー・3Dビュー
   toolNav: 'nav', stage: 'div', view: 'canvas', multiView: 'div', dropHint: 'div', keyPath: 'div', inflateFrame: 'div', takeCam: 'button',
-  playBar: 'div', playStart: 'button', playStop: 'button', playPause: 'button', playTime: 'span', playTrack: 'div', playKeys: 'div', playLoop: 'span', playCam: 'button', mFine: 'button', busy: 'div', viewBar: 'div', viewFav: 'select', uiRestore: 'button', panelToggle: 'button', sidePanel: 'aside',
+  playBar: 'div', playStart: 'button', playStop: 'button', playPause: 'button', playSrc: 'span', playTime: 'span', playTrack: 'div', playKeys: 'div', playLoop: 'span', playCam: 'button', mFine: 'button', busy: 'div', viewBar: 'div', viewFav: 'select', uiRestore: 'button', panelToggle: 'button', sidePanel: 'aside',
   // レイヤー一覧
   layerCount: 'span', layerList: 'ul',
   layerSelBar: 'div', layerSelText: 'span', layerSelAll: 'button', layerSelOne: 'button', layerSelDone: 'button',
@@ -24,7 +24,7 @@ export const UI_IDS = {
   pSwing: 'input', pPreset: 'select', pPresetDesc: 'p', physDetails: 'details', physSummary: 'span', pMotion: 'select', motionParams: 'div',
   pHard: 'input', pHardO: 'output', pMass: 'input', pMassO: 'output', pDamp: 'input', pDampO: 'output', pWeight: 'input', pWeightO: 'output',
   pAuto: 'input', pPeriod: 'input', pPeriodO: 'output', pAutoStr: 'input', pAutoStrO: 'output',
-  takeInfo: 'span', takeRec: 'button', takePlay: 'button', takeClear: 'button',
+  animBox: 'section', recSection: 'section', takeInfo: 'span', takeRec: 'button', takePlay: 'button', takeClear: 'button',
   keySection: 'section', keyCount: 'span', keyPathShow: 'input', keyGhostShow: 'input', playBarShow: 'input', keyAdd: 'button', keyList: 'ol', keyMake: 'button', keyTotal: 'span',
   favCount: 'span', favAdd: 'button', favEmpty: 'p', favList: 'ol',
   vOverlayOff: 'input', vOverlaySel: 'input', vOverlayAll: 'input', vAutoOverlay: 'input', vAutoOverlayOff: 'input', setPopMax: 'input', vFade: 'input', vFlat: 'input', vPause: 'input', vMulti: 'input', vGrid: 'input',
