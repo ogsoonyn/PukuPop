@@ -51,9 +51,11 @@ export function jpegOrientation(b: Uint8Array): number {
   if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return 1;
   let p = 2;
   while (p + 4 <= b.length) {
-    if (b[p] !== 0xff) return 1;
+    // 寸法の読み方(imageHeaderSize)と同じく、マーカーの間の余計なバイトや詰め物は読み飛ばす
+    if (b[p] !== 0xff) { p++; continue; }
     const m = b[p + 1];
     if (m === 0xff) { p++; continue; }
+    if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { p += 2; continue; }
     // 画像データ(SOS)・終わり(EOI)より後ろに EXIF は無い
     if (m === 0xda || m === 0xd9) return 1;
     const len = (b[p + 2] << 8) | b[p + 3];
@@ -80,7 +82,12 @@ function tiffOrientation(b: Uint8Array, t: number, end: number): number {
   for (let i = 0; i < n; i++) {
     const e = ifd + 2 + i * 12;
     if (e + 12 > end) return 1;
-    if (u16(e) === 0x0112) { const v = u16(e + 8); return v >= 1 && v <= 8 ? v : 1; }
+    // 向きは SHORT(型 3)が1個。ほかの型で書かれたものは向きとして使わない
+    if (u16(e) === 0x0112) {
+      if (u16(e + 2) !== 3 || u32(e + 4) !== 1) return 1;
+      const v = u16(e + 8);
+      return v >= 1 && v <= 8 ? v : 1;
+    }
   }
   return 1;
 }
