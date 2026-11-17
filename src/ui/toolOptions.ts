@@ -3,7 +3,8 @@
  *   ブラシ・消しゴム・ぼかし: ブラシのサイズ・強さ・硬さ・筆圧(data-brush-opt)
  *   膨らみ: 次に範囲を描くときの形・断面・縁のなだらかさ・角度・ウェイトの重ね方(data-inflate-opt)。描いたあとのプレビュー中は、
  *           下のパネルと同じ値を変える。次に描くときの設定はブラウザに覚える(適用したときの設定も覚え、キャンセルした分は覚えない)。
- *           仕上げのぼかしとレイヤーの重ね方は、描いたあとのパネルにだけ置く(ぼかしは同じく覚える)
+ *           仕上げのぼかし・角の丸み・辺のふくらみ・レイヤーの重ね方・四隅を動かすは、描いたあとのパネルにだけ置く
+ *           (ぼかし・丸み・ふくらみは同じく覚える。四隅のずれは範囲ごとのもので覚えない)
  *   そのほか(つかむ・揺らす・視点・移動): 設定は無く、操作のヒントだけ
  * スマホでは、ブラシの設定はシートの「ツール」タブへ移す(ui/mobile.ts)。
  */
@@ -23,7 +24,7 @@ export function bindToolOptions(app: App): void {
   /* ---------- 膨らみの既定値 ---------- */
 
   const KEY = 'inflateDefaults';
-  const save = () => { const s = app.inflateSettings; prefs.set(KEY, { shape: s.shape, profile: s.profile, softness: s.softness, angle: s.angle, blend: s.blend, blur: s.blur }); };
+  const save = () => { const s = app.inflateSettings; prefs.set(KEY, { shape: s.shape, profile: s.profile, softness: s.softness, angle: s.angle, blend: s.blend, blur: s.blur, round: s.round, bulge: s.bulge }); };
   // 覚えている設定を戻す(値は選べるものだけ)
   {
     const v = prefs.get<Partial<InflateSettings>>(KEY) ?? {};
@@ -32,10 +33,13 @@ export function bindToolOptions(app: App): void {
     const blend = pick(v.blend, ['max', 'add', 'replace'] as const);
     const softness = typeof v.softness === 'number' && v.softness >= 0 && v.softness <= 1 ? v.softness : undefined;
     const blur = typeof v.blur === 'number' && Number.isFinite(v.blur) ? Math.round(Math.max(INFLATE_BLUR.min, Math.min(INFLATE_BLUR.max, v.blur))) : undefined;
+    const frac = (x: unknown, min: number) => (typeof x === 'number' && Number.isFinite(x) ? Math.round(Math.max(min, Math.min(1, x)) * 100) / 100 : undefined);
+    const round = frac(v.round, 0), bulge = frac(v.bulge, -1);
     const angle = typeof v.angle === 'number' && Number.isFinite(v.angle) ? Math.round(Math.max(INFLATE_ANGLE.min, Math.min(INFLATE_ANGLE.max, v.angle))) : undefined;
     app.inflateSettings = {
       ...app.inflateSettings, ...(shape && { shape }), ...(profile && { profile }), ...(blend && { blend }),
       ...(softness !== undefined && { softness }), ...(angle !== undefined && { angle }), ...(blur !== undefined && { blur }),
+      ...(round !== undefined && { round }), ...(bulge !== undefined && { bulge }),
     };
   }
   /** プレビューへの反映は1フレームに1回にまとめる(大きな画像でも滑らかに動かせるよう) */

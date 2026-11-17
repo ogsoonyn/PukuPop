@@ -5,7 +5,8 @@
  * 形の向きの軸: u は傾ける前の「右」、v は傾ける前の「上」。
  */
 
-export interface Area { x: number; y: number; w: number; h: number }
+/** warp は「形を崩す」の四隅のずれ(paint/shapeWarp.ts)。大きさ・位置を変えても引き継ぐ */
+export interface Area { x: number; y: number; w: number; h: number; warp?: readonly number[] | null }
 export interface Pt { x: number; y: number }
 
 /** 大きさを変えるハンドルの位置。su・sv は u・v の向きの -1 / 0 / 1(角は両方 ±1、辺は片方が 0) */
@@ -71,7 +72,7 @@ export function resizeArea(a: Area, angleDeg: number, h: Handle, start: Pt, p: P
   const cu = o.fromCenter || !h.su ? 0 : h.su * (w - a.w) / 2;
   const cv = o.fromCenter || !h.sv ? 0 : h.sv * (hh - a.h) / 2;
   const { u, v } = axes(angleDeg);
-  return { x: a.x + u.x * cu + v.x * cv, y: a.y + u.y * cu + v.y * cv, w, h: hh };
+  return { x: a.x + u.x * cu + v.x * cv, y: a.y + u.y * cu + v.y * cv, w, h: hh, ...(a.warp !== undefined && { warp: a.warp }) };
 }
 
 /**
@@ -81,7 +82,7 @@ export function roundArea(r: Area, angleDeg: number, h: Handle, fromCenter = fal
   const w = Math.max(MIN_SIZE, Math.round(r.w)), hh = Math.max(MIN_SIZE, Math.round(r.h));
   const cu = fromCenter || !h.su ? 0 : h.su * (w - r.w) / 2, cv = fromCenter || !h.sv ? 0 : h.sv * (hh - r.h) / 2;
   const { u, v } = axes(angleDeg);
-  return { x: r.x + u.x * cu + v.x * cv, y: r.y + u.y * cu + v.y * cv, w, h: hh };
+  return { x: r.x + u.x * cu + v.x * cv, y: r.y + u.y * cu + v.y * cv, w, h: hh, ...(r.warp !== undefined && { warp: r.warp }) };
 }
 
 /** 範囲を start から p へ動かした分だけ移す */

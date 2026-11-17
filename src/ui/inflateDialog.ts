@@ -15,6 +15,7 @@ export function bindInflateDialog(app: App): void {
   const soft = ui.inflSoft, softN = ui.inflSoftN;
   const angle = ui.inflAngle, angleN = ui.inflAngleN;
   const blur = ui.inflBlur, blurN = ui.inflBlurN;
+  const round = ui.inflRound, roundN = ui.inflRoundN, bulge = ui.inflBulge, bulgeN = ui.inflBulgeN;
   const blend = ui.inflBlend, layerBlend = ui.inflLayerBlend;
   for (const b of BLEND_ORDER) layerBlend.add(new Option(BLENDS[b].label, b));
   const profiles = [...document.querySelectorAll<HTMLInputElement>('input[name=inflProfile]')];
@@ -27,7 +28,10 @@ export function bindInflateDialog(app: App): void {
   const flush = () => { const q = queued; queued = {}; app.updateInflate(q); };
   /** 大きな画像でも滑らかに動かせるよう、プレビューは1フレームに1回だけ計算する */
   const update = (patch: InflatePatch) => {
-    queued = { settings: { ...queued.settings, ...patch.settings }, area: { ...queued.area, ...patch.area }, layerBlend: patch.layerBlend ?? queued.layerBlend };
+    queued = {
+      settings: { ...queued.settings, ...patch.settings }, area: { ...queued.area, ...patch.area },
+      layerBlend: patch.layerBlend ?? queued.layerBlend, cornerEdit: patch.cornerEdit ?? queued.cornerEdit,
+    };
     if (scheduled) return;
     scheduled = true;
     requestAnimationFrame(() => { scheduled = false; flush(); });
@@ -48,14 +52,24 @@ export function bindInflateDialog(app: App): void {
   const blurOf = (v: string) => clampInt(v, INFLATE_BLUR.min, INFLATE_BLUR.max);
   blur.addEventListener('input', () => { blurN.value = blur.value; update({ settings: { blur: blurOf(blur.value) } }); });
   blurN.addEventListener('input', () => { if (blurN.value === '') return; blur.value = String(blurOf(blurN.value)); update({ settings: { blur: blurOf(blurN.value) } }); });
+  // 角の丸み(0〜100%)・辺のふくらみ(-100〜100%)。数値の欄は打っている途中の '-' を待つ
+  const pair = (r: HTMLInputElement, n: HTMLInputElement, min: number, max: number, key: 'round' | 'bulge') => {
+    r.addEventListener('input', () => { n.value = r.value; update({ settings: { [key]: clampInt(r.value, min, max) / 100 } }); });
+    n.addEventListener('input', () => { if (n.value === '' || n.value === '-') return; const v = clampInt(n.value, min, max); r.value = String(v); update({ settings: { [key]: v / 100 } }); });
+    r.addEventListener('dblclick', () => { r.value = n.value = '0'; update({ settings: { [key]: 0 } }); });
+  };
+  pair(round, roundN, 0, 100, 'round');
+  pair(bulge, bulgeN, -100, 100, 'bulge');
+  ui.inflCorner.addEventListener('change', () => update({ cornerEdit: ui.inflCorner.checked }));
+  ui.inflWarpReset.addEventListener('click', () => update({ area: { warp: null } }));
   blend.addEventListener('change', () => update({ settings: { blend: blend.value as InflateBlend } }));
   layerBlend.addEventListener('change', () => update({ layerBlend: layerBlend.value as BlendMode }));
   for (const r of profiles) r.addEventListener('change', () => { if (r.checked) update({ settings: { profile: r.value as InflateProfile } }); });
-  for (const el of [w, h, heightN, softN, angleN, blurN]) el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } });
+  for (const el of [w, h, heightN, softN, angleN, blurN, roundN, bulgeN]) el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } });
 
   function finish(apply: boolean): void {
     if (!app.previewingInflate) return;
-    if (scheduled || queued.settings || queued.area || queued.layerBlend) flush(); // まだ反映していない入力があれば、先に反映してから確定する
+    if (scheduled || queued.settings || queued.area || queued.layerBlend || queued.cornerEdit !== undefined) flush(); // まだ反映していない入力があれば、先に反映してから確定する
     app.endInflate(apply);
   }
   ui.inflApply.addEventListener('click', () => finish(true));
@@ -77,6 +91,12 @@ export function bindInflateDialog(app: App): void {
     set(soft, String(Math.round(st.softness * 100))); set(softN, String(Math.round(st.softness * 100)));
     set(angle, String(st.angle)); set(angleN, String(st.angle));
     set(blur, String(st.blur)); set(blurN, String(st.blur));
+    const pct = (v: number) => String(Math.round(v * 100));
+    set(round, pct(st.round)); set(roundN, pct(st.round)); set(bulge, pct(st.bulge)); set(bulgeN, pct(st.bulge));
+    // 角の丸み・辺のふくらみは矩形とカマボコだけに効く
+    ui.inflRoundRow.hidden = ui.inflBulgeRow.hidden = st.shape === 'ellipse';
+    ui.inflCorner.checked = s.cornerEdit;
+    ui.inflWarpReset.disabled = !s.area.warp || s.area.warp.every(v => v === 0);
     set(blend, st.blend);
     set(layerBlend, s.layerBlend);
     for (const r of profiles) r.checked = r.value === st.profile;

@@ -217,7 +217,7 @@ describe('プレビュー中にレイヤーの重ね方を変える', () => {
     const layer = doc.layers[0]; layer.pop = pop; layer.blend = blend;
     let active = layer.id;
     const host = {
-      store, history, inflateSettings: { shape: 'ellipse' as const, height: null, softness: 1, angle: 0, profile: 'dome' as const, blend: 'max' as const, blur: 0 },
+      store, history, inflateSettings: { shape: 'ellipse' as const, height: null, softness: 1, angle: 0, profile: 'dome' as const, blend: 'max' as const, blur: 0, round: 0, bulge: 0 },
       setActiveLayer: (id: string) => { active = id; }, ended: () => {},
     };
     const p = new InflatePreview(host);

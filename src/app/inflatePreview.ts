@@ -11,11 +11,16 @@
 import { BLENDS, createLayer, LIMITS, type Store, type Document, type Layer, type BlendMode } from '../model/project';
 import { Batch, InsertLayer, PatchLayer, WeightEdit, diffTiles } from '../commands/commands';
 import type { History } from '../commands/history';
+import { isFlatWarp, type Warp } from '../paint/shapeWarp';
 import { inflateShape, INFLATE_KINDS, type InflateKind, type InflateProfile, type InflateBlend } from '../paint/inflate';
 import { toast } from '../ui/dom';
 
-/** 「膨らませる」の範囲。中心と幅・縦は元画像のピクセル単位(中心が原点、y は上向き) */
-export interface InflateArea { x: number; y: number; w: number; h: number }
+/**
+ * 「膨らませる」の範囲。中心と幅・縦は元画像のピクセル単位(中心が原点、y は上向き)。
+ * warp は「形を崩す」の四隅のずれ(paint/shapeWarp.ts。形の軸で半径を 1 とした座標で、x は形の右、y は形の下)。
+ * 大きさ・位置・角度を変えても、崩した形ごと変わる。範囲を描き直すと無くなる(null)
+ */
+export interface InflateArea { x: number; y: number; w: number; h: number; warp?: Warp | null }
 export interface InflateSettings {
   shape: InflateKind;
   /** 頂上の高さ(元画像のピクセル)。null はレイヤーのポップ量と同じ */
@@ -28,11 +33,17 @@ export interface InflateSettings {
   blend: InflateBlend;
   /** 仕上げのぼかしの半径(元画像のピクセル)。0 でぼかさない */
   blur: number;
+  /** 角の丸み 0〜1(矩形・カマボコ) */
+  round: number;
+  /** 辺のふくらみ -1〜1(矩形・カマボコ。マイナスで内へ反らせる) */
+  bulge: number;
 }
 /** 形の傾きの範囲(度) */
 export const INFLATE_ANGLE = { min: -90, max: 90 };
 /** 仕上げのぼかしの半径の範囲(元画像のピクセル) */
 export const INFLATE_BLUR = { min: 0, max: 100 };
+/** 四隅を動かせる範囲(正規化した座標で、崩す前の位置からのずれ) */
+export const WARP_MAX = 1.5;
 export interface InflateState {
   /** 範囲を描いたレイヤー */
   readonly layerId: string;
@@ -46,10 +57,12 @@ export interface InflateState {
   readonly limited: boolean;
   /** 膨らませる先のレイヤー(新しいレイヤーに作るならそのレイヤー)の重ね方 */
   readonly layerBlend: BlendMode;
+  /** 枠の四隅を1つずつ動かす(パネルの「四隅を動かす」) */
+  readonly cornerEdit: boolean;
 }
 
 /** プレビュー中に変えられるもの */
-export interface InflatePatch { area?: Partial<InflateArea>; settings?: Partial<InflateSettings>; layerBlend?: BlendMode }
+export interface InflatePatch { area?: Partial<InflateArea>; settings?: Partial<InflateSettings>; layerBlend?: BlendMode; cornerEdit?: boolean }
 
 export interface InflateHost {
   readonly store: Store;
@@ -74,6 +87,7 @@ interface InflateSession {
   sourceBlend: BlendMode;
   /** パネルで選んだ重ね方。選んでいなければ null(同じレイヤーなら今の重ね方、新しいレイヤーなら加算) */
   layerBlend: BlendMode | null;
+  cornerEdit: boolean;
 }
 
 /** 膨らませる先のレイヤーに当てる重ね方 */
@@ -88,7 +102,7 @@ export class InflatePreview {
 
   get state(): InflateState | null {
     const s = this.session; if (!s) return null;
-    return { layerId: s.layerId, area: s.area, settings: s.settings, sourcePop: s.sourcePop, limited: s.limited, layerBlend: targetBlend(s), newLayer: s.newLayer && { name: s.newLayer.name, pop: s.newLayer.pop } };
+    return { layerId: s.layerId, area: s.area, settings: s.settings, sourcePop: s.sourcePop, limited: s.limited, layerBlend: targetBlend(s), cornerEdit: s.cornerEdit, newLayer: s.newLayer && { name: s.newLayer.name, pop: s.newLayer.pop } };
   }
 
   /** プレビューで仮に入れているレイヤーの id(入れていなければ undefined) */
@@ -103,7 +117,7 @@ export class InflatePreview {
       // 前回の高さは引き継ぐが、このレイヤーのポップ量は超えない(いきなり新しいレイヤーに作らない)
       settings: { ...st, height: layer.pop > 0 ? Math.min(st.height ?? layer.pop, layer.pop) : (st.height ?? LIMITS.pop.def) },
       sourcePop: layer.pop, newLayer: null, newName: nextInflateLayerName(doc), limited: false,
-      sourceBlend: layer.blend, layerBlend: null,
+      sourceBlend: layer.blend, layerBlend: null, cornerEdit: false,
     };
     this.render();
   }
@@ -112,6 +126,7 @@ export class InflatePreview {
     const s = this.session; if (!s) return;
     if (patch.area) s.area = { ...s.area, ...patch.area };
     if (patch.layerBlend) s.layerBlend = patch.layerBlend;
+    if (patch.cornerEdit !== undefined) s.cornerEdit = patch.cornerEdit;
     if (patch.settings) s.settings = { ...s.settings, ...patch.settings, height: patch.settings.height ?? s.settings.height };
     this.render();
   }
@@ -171,7 +186,7 @@ export class InflatePreview {
     const level = target.pop > 0 ? Math.min(1, st.height / target.pop) : 0;
     inflateShape(wm, base, {
       kind: st.shape, cx: (a.x / doc.image.width + 0.5) * wm.width, cy: (0.5 - a.y / doc.image.height) * wm.height, rx: a.w / 2 * kx, ry: a.h / 2 * ky,
-      angle: st.angle * Math.PI / 180,
+      angle: st.angle * Math.PI / 180, warp: a.warp, round: st.round, bulge: st.bulge,
     }, { level, softness: st.softness, profile: st.profile, blend: st.blend, blur: st.blur * kx });
     store.weightsChanged(target.id, wm.fullRect, false);
   }
@@ -193,7 +208,7 @@ export class InflatePreview {
     this.session = null;
     const st = s.settings;
     h.inflateSettings = { ...st }; // 次に描くときも同じ設定で始める
-    const shape = `${INFLATE_KINDS[st.shape]} ${Math.round(s.area.w)}×${Math.round(s.area.h)}px${st.angle ? `・${st.angle}°` : ''}${st.blur ? `・ぼかし ${st.blur}px` : ''}`;
+    const shape = `${INFLATE_KINDS[st.shape]} ${Math.round(s.area.w)}×${Math.round(s.area.h)}px${st.angle ? `・${st.angle}°` : ''}${st.blur ? `・ぼかし ${st.blur}px` : ''}${!isFlatWarp(s.area.warp) || (st.shape !== 'ellipse' && (st.round || st.bulge)) ? '・崩す' : ''}`;
     if (newLayer && !newLayer.weights.data.some(v => v > 0)) {
       // 範囲がすべて画像の外などで何も膨らまなかったときは、空のレイヤーを残さない
       this.session = s;
