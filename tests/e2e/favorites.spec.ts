@@ -150,6 +150,7 @@ test('お気に入り: 残したあとに消したレイヤーは飛ばして適
   await app(page, a => a.endBlurPreview(false, 0));
   await expect(page.locator('#favAdd')).toBeEnabled();
   await expect(rows(page).first().locator('[data-act=apply]')).toBeEnabled();
+  await expect(rows(page).first().locator('[data-act=name]')).toBeEnabled();
 });
 
 test('お気に入り: 保存したファイルを開き直しても残っている', async ({ page }) => {
