@@ -43,7 +43,7 @@ export const UI_IDS = {
   blurDialog: 'dialog', blurTitle: 'h3', blurTarget: 'p', blurRadius: 'input', blurRadiusN: 'input', blurCancel: 'button', blurApply: 'button',
   // 膨らませる
   inflateDialog: 'dialog', inflTitle: 'h3', inflTarget: 'p', inflKind: 'select', inflW: 'input', inflH: 'input', inflHeight: 'input', inflHeightN: 'input',
-  inflSoft: 'input', inflSoftN: 'input', inflAngle: 'input', inflAngleN: 'input', inflBlur: 'input', inflBlurN: 'input', inflBlend: 'select', inflLayerBlend: 'select', inflNote: 'p', inflCancel: 'button', inflApply: 'button',
+  inflSoft: 'input', inflSoftN: 'input', inflAngle: 'input', inflAngleN: 'input', inflBlur: 'input', inflBlurN: 'input', inflBlend: 'select', inflLayerBlend: 'select', inflNewLayer: 'input', inflNote: 'p', inflCancel: 'button', inflApply: 'button',
   // 確認・数値入力
   askDialog: 'dialog', askTitle: 'h3', askBody: 'p', askInputWrap: 'div', askInputLabel: 'span', askInput: 'input', askNo: 'button', askYes: 'button',
   // 設定

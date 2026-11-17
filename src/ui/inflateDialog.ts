@@ -50,6 +50,9 @@ export function bindInflateDialog(app: App): void {
   blurN.addEventListener('input', () => { if (blurN.value === '') return; blur.value = String(blurOf(blurN.value)); update({ settings: { blur: blurOf(blurN.value) } }); });
   blend.addEventListener('change', () => update({ settings: { blend: blend.value as InflateBlend } }));
   layerBlend.addEventListener('change', () => update({ layerBlend: layerBlend.value as BlendMode }));
+  ui.inflNewLayer.addEventListener('change', () => update({ settings: { newLayer: ui.inflNewLayer.checked } }));
+  // 右パネルで重ね方を変えたときも、パネルの表示を合わせる
+  app.store.on('layer', ({ keys }) => { if (app.previewingInflate && keys.includes('blend')) fill(); });
   for (const r of profiles) r.addEventListener('change', () => { if (r.checked) update({ settings: { profile: r.value as InflateProfile } }); });
   for (const el of [w, h, heightN, softN, angleN, blurN]) el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } });
 
@@ -79,13 +82,17 @@ export function bindInflateDialog(app: App): void {
     set(blur, String(st.blur)); set(blurN, String(st.blur));
     set(blend, st.blend);
     set(layerBlend, s.layerBlend);
+    ui.inflNewLayer.checked = st.newLayer;
     for (const r of profiles) r.checked = r.value === st.profile;
     // 高さ = ウェイト × ポップ量。このレイヤーのポップ量を超えるときは、新しいレイヤーに作ることを知らせる
     const note = ui.inflNote, pop = s.sourcePop;
+    const over = st.height > pop;
     note.textContent = s.newLayer
-      ? `高さがこのレイヤーのポップ量(${pop}px)を超えるので、新しいレイヤー「${s.newLayer.name}」(ポップ量 ${s.newLayer.pop}px)に作ります。このレイヤーは変わりません。`
+      ? `${over ? `高さがこのレイヤーのポップ量(${pop}px)を超えるので` : '「新しいレイヤーに作る」がオンなので'}、新しいレイヤー「${s.newLayer.name}」(ポップ量 ${s.newLayer.pop}px)に作ります。このレイヤーは変わりません。`
       : s.limited
-        ? `高さがこのレイヤーのポップ量(${pop}px)を超えますが、レイヤーが上限の ${LIMITS.maxLayers} 枚なので新しいレイヤーを作れません。${pop}px で止まります。`
+        ? over
+          ? `高さがこのレイヤーのポップ量(${pop}px)を超えますが、レイヤーが上限の ${LIMITS.maxLayers} 枚なので新しいレイヤーを作れません。${pop}px で止まります。`
+          : `レイヤーが上限の ${LIMITS.maxLayers} 枚なので新しいレイヤーを作れません。このレイヤーに重ねます。`
         : `頂上は ${st.height}px(ポップ量 ${pop}px の ${pop > 0 ? Math.round(st.height / pop * 100) : 0}%)。右ドラッグで視点を回して確かめられます。`;
     note.classList.toggle('text-warning', !!s.newLayer || s.limited);
   }

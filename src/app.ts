@@ -147,7 +147,7 @@ export class App extends Emitter<AppEvents> {
   shake: Vec3 = { x: 0, y: 0, z: 0 };
   brush: BrushOptions = { size: 64, strength: 0.3, hardness: 0, pressure: 'strength' };
   /** 前回の「膨らませる」の設定(次に範囲を描いたときの初期値) */
-  inflateSettings: InflateSettings = { shape: 'ellipse', height: null, softness: 1, angle: 0, profile: 'dome', blend: 'max', blur: 0 };
+  inflateSettings: InflateSettings = { shape: 'ellipse', height: null, softness: 1, angle: 0, profile: 'dome', blend: 'max', blur: 0, newLayer: false };
   get imageCanvas(): HTMLCanvasElement | null { return this.tab.imageCanvas; }
   /** 表示用の画像の一辺の上限 */
   private get displaySize(): number { return Math.min(4096, this.stage.maxTextureSize); }
