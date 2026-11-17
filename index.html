@@ -587,8 +587,8 @@
       <select id="inflBlend" class="select select-sm w-40"><option value="max">重ねる(高い方)</option><option value="add">足す</option><option value="replace">置き換える</option></select></div>
     <p id="inflBlendHelp" class="help-text" hidden>今回の膨らみを、レイヤーの今のウェイトとどう重ねるかです。重ねる: 高い方を残します。足す: 足し合わせます。置き換える: 範囲の中を今回の膨らみにします。</p>
     <div class="prop2"><span class="prop-name">レイヤーの重ね方<button type="button" class="help-btn" data-help="inflLayerBlendHelp"></button></span>
-      <select id="inflLayerBlend" class="select select-sm w-40"></select></div>
-    <p id="inflLayerBlendHelp" class="help-text" hidden>膨らませる先のレイヤーが、ほかのレイヤーとどう重なるかです(右パネルのレイヤーの「重ね方」と同じ)。新しいレイヤーに作るときは、そのレイヤーに効きます。適用すると膨らみと一緒に1手になり、キャンセルすると元に戻ります。</p>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1"><select id="inflLayerBlend" class="select select-sm w-32"></select><label class="flex items-center gap-1.5 text-sm cursor-pointer"><input id="inflNewLayer" type="checkbox" class="checkbox checkbox-sm"> 新しいレイヤーに作る</label></div></div>
+    <p id="inflLayerBlendHelp" class="help-text" hidden>膨らませる先のレイヤーが、ほかのレイヤーとどう重なるかです(右パネルのレイヤーの「重ね方」と同じ)。同じレイヤーに作るときは、その場でそのレイヤーの重ね方を変えます(キャンセルしても残ります)。新しいレイヤーに作るときは、そのレイヤーに効きます。「新しいレイヤーに作る」をオンにすると、高さがポップ量以下でも新しいレイヤーに作ります(オフなら、高さがポップ量を超えたときだけ)。</p>
   </div>
   <p id="inflNote" class="text-xs opacity-80 pt-3 leading-snug"></p>
   <div class="flex justify-end gap-2 mt-3">

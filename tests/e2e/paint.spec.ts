@@ -1,6 +1,6 @@
 /** E2E: 塗る・ぼかす・膨らませる・重ね方 */
 import { test, expect } from '@playwright/test';
-import { watchGlErrors, boot, weightSum, dragOnStage, nextFrames } from './helpers';
+import { watchGlErrors, boot, weightSum, dragOnStage, nextFrames, openTab } from './helpers';
 
 watchGlErrors();
 
@@ -243,45 +243,49 @@ test('膨らませる: 高さがポップ量を超えると新しいレイヤー
   await expect(page.locator('#pPopN')).toHaveValue('140');
 });
 
-test('膨らませる: パネルでカマボコ・仕上げのぼかし・レイヤーの重ね方を選べる。重ね方は膨らみと1手で、キャンセルで戻る', async ({ page }) => {
+test('膨らませる: パネルでカマボコ・仕上げのぼかし・レイヤーの重ね方・新しいレイヤーに作るを選べる', async ({ page }) => {
   await boot(page);
   const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
   await app(a => { a.weightOp('全消去', (wm: any) => wm.clear()); a.resetView(); });
   await page.locator('#view').focus();
   await page.keyboard.press('i');
-  // ツールオプションの欄にもカマボコを選べる(ぼかしとレイヤーの重ね方は出さない)
+  // ツールオプションの欄にもカマボコを選べる(ぼかし・レイヤーの重ね方・新しいレイヤーに作るは出さない)
   await expect(page.locator('#tInflKind option[value=kamaboko]')).toHaveCount(1);
   await dragOnStage(page, [0.4, 0.35], [0.6, 0.65]);
   await expect(page.locator('#inflateDialog')).toHaveJSProperty('open', true);
-  expect(await app(a => a.activeLayer.blend)).toBe('add');
-  const before = await app(a => a.history.undoLabel as string);
   await expect(page.locator('#inflLayerBlend')).toHaveValue('add');
-  // 右パネルの重ね方は、プレビュー中は触れない
-  await expect(page.locator('#pBlend')).toBeDisabled();
+  await expect(page.locator('#inflNewLayer')).not.toBeChecked();
 
   await page.locator('#inflKind').selectOption('kamaboko');
   await page.locator('#inflBlurN').fill('8');
+  await expect.poll(() => app(a => [a.inflateState.settings.shape, a.inflateState.settings.blur])).toEqual(['kamaboko', 8]);
+  // 同じレイヤーの重ね方は、右パネルと同じくその場で変わる(別の1手)。右パネルで変えてもパネルに映る
   await page.locator('#inflLayerBlend').selectOption('max');
-  await expect.poll(() => app(a => [a.inflateState.settings.shape, a.inflateState.settings.blur, a.activeLayer.blend])).toEqual(['kamaboko', 8, 'max']);
-  expect(await app(a => a.history.undoLabel)).toBe(before); // プレビュー中は記録しない
-  await page.locator('#inflApply').click();
-  expect(await app(a => a.history.undoLabel)).toMatch(/^膨らませる\(カマボコ \d+×\d+px・ぼかし 8px・高さ \d+px\)$/);
-  expect(await app(a => [a.activeLayer.blend, a.activeLayer.weights.max() > 0])).toEqual(['max', true]);
+  await expect.poll(() => app(a => [a.activeLayer.blend, a.history.undoLabel])).toEqual(['max', '重ね方']);
+  await openTab(page, 'layer');
   await expect(page.locator('#pBlend')).toBeEnabled();
-  await expect(page.locator('#pBlend')).toHaveValue('max');
-  // 1手で戻すと、膨らみも重ね方も戻る
+  await page.locator('#pBlend').selectOption('add');
+  await expect(page.locator('#inflLayerBlend')).toHaveValue('add');
+
+  // 新しいレイヤーに作る: 高さがポップ量以下でも新しいレイヤーに作る
+  await page.locator('#inflNewLayer').check();
+  await expect.poll(() => app(a => a.doc.layers.length)).toBe(2);
+  await expect(page.locator('#inflNote')).toContainText('「新しいレイヤーに作る」がオンなので、新しいレイヤー「膨らみ1」');
+  await page.locator('#inflLayerBlend').selectOption('max');
+  await page.locator('#inflApply').click();
+  expect(await app(a => a.history.undoLabel)).toMatch(/^膨らませる\(カマボコ \d+×\d+px・ぼかし 8px・高さ \d+px・新しいレイヤー「膨らみ1」\)$/);
+  expect(await app(a => a.doc.layers.map((l: any) => l.blend))).toEqual(['add', 'max']);
   await page.locator('#view').focus();
   await page.keyboard.press('Control+z');
-  expect(await app(a => [a.activeLayer.blend, a.activeLayer.weights.max()])).toEqual(['add', 0]);
+  expect(await app(a => a.doc.layers.length)).toBe(1);
 
-  // キャンセルすると重ね方も元に戻る。次に描くときも、形とぼかしは前回の適用の値で始まる
+  // 次に描くときも、形・ぼかし・新しいレイヤーに作るは前回の適用の値で始まる
   await dragOnStage(page, [0.4, 0.35], [0.6, 0.65]);
   await expect(page.locator('#inflKind')).toHaveValue('kamaboko');
   await expect(page.locator('#inflBlurN')).toHaveValue('8');
-  await page.locator('#inflLayerBlend').selectOption('max');
-  await expect.poll(() => app(a => a.activeLayer.blend)).toBe('max');
+  await expect(page.locator('#inflNewLayer')).toBeChecked();
   await page.locator('#inflCancel').click();
-  expect(await app(a => [a.activeLayer.blend, a.history.canUndo])).toEqual(['add', true]);
+  expect(await app(a => a.doc.layers.length)).toBe(1);
 });
 
 test('膨らませる: レイヤーが上限の8枚なら新しいレイヤーは作らず、ポップ量の高さで止める', async ({ page }) => {

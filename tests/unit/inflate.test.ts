@@ -211,66 +211,65 @@ describe('ポップ量のスライダーの目盛り', () => {
   });
 });
 
-describe('プレビュー中にレイヤーの重ね方を変える', () => {
+describe('プレビュー中にレイヤーの重ね方を変える・新しいレイヤーに作る', () => {
   const setup = (pop = 300, blend: 'add' | 'max' = 'add') => {
     const store = makeStore(), history = new History(store), doc = store.doc!;
     const layer = doc.layers[0]; layer.pop = pop; layer.blend = blend;
-    let active = layer.id;
     const host = {
-      store, history, inflateSettings: { shape: 'ellipse' as const, height: null, softness: 1, angle: 0, profile: 'dome' as const, blend: 'max' as const, blur: 0, round: 0, bulge: 0 },
-      setActiveLayer: (id: string) => { active = id; }, ended: () => {},
+      store, history, inflateSettings: { shape: 'ellipse' as const, height: null, softness: 1, angle: 0, profile: 'dome' as const, blend: 'max' as const, blur: 0, newLayer: false, round: 0, bulge: 0 },
+      setActiveLayer: () => {}, ended: () => {},
     };
     const p = new InflatePreview(host);
     p.begin(layer, doc, { x: 0, y: 0, w: 80, h: 60 });
-    return { store, history, doc, layer, p, active: () => active };
+    return { store, history, doc, layer, p };
   };
 
-  it('同じレイヤー: その場で当たり、適用で膨らみと一緒に1手になり、戻すと重ね方も戻る', () => {
+  it('同じレイヤー: 右パネルと同じくその場で別の1手として変わり、キャンセルしても残る', () => {
     const { history, layer, p } = setup();
     expect(p.state!.layerBlend).toBe('add');
     p.update({ layerBlend: 'max' });
     expect(layer.blend).toBe('max');
-    p.end(true);
+    expect(history.undoLabel).toBe('重ね方');
+    p.end(false);
     expect(layer.blend).toBe('max');
-    expect(layer.weights.max()).toBeGreaterThan(0);
     history.undo();
     expect(layer.blend).toBe('add');
-    expect(layer.weights.max()).toBe(0);
-    history.redo();
-    expect(layer.blend).toBe('max');
   });
 
-  it('元のレイヤーが最大でも、選ばなければ新しいレイヤーは加算で作る', () => {
-    const { doc, p } = setup(100, 'max');
-    p.update({ settings: { height: 80 } });
-    expect(p.state!.layerBlend).toBe('max');
+  it('新しいレイヤーに作るときは、そのレイヤーに当て(選ばなければ加算)、元のレイヤーは変えない。適用でレイヤーごと1手', () => {
+    const { doc, layer, p, history } = setup(100, 'max');
     p.update({ settings: { height: 300 } });
     expect(p.state!.layerBlend).toBe('add');
     expect(doc.layers.map(l => l.blend)).toEqual(['max', 'add']);
-  });
-
-  it('キャンセルすると重ね方も元に戻る', () => {
-    const { layer, p } = setup();
     p.update({ layerBlend: 'max' });
-    p.end(false);
-    expect(layer.blend).toBe('add');
-  });
-
-  it('新しいレイヤーに作るときは、そのレイヤーに当たり、元のレイヤーは元の重ね方のまま', () => {
-    const { doc, layer, p, history } = setup(100);
-    p.update({ settings: { height: 300 }, layerBlend: 'max' });
-    expect(p.state!.newLayer).not.toBeNull();
-    expect(layer.blend).toBe('add');
     expect(doc.layers[1].blend).toBe('max');
-    // 高さを戻して同じレイヤーに作るようにすると、元のレイヤーに当たる
-    p.update({ settings: { height: 80 } });
-    expect(doc.layers.length).toBe(1);
-    expect(layer.blend).toBe('max');
-    p.update({ settings: { height: 300 } });
+    expect(history.canUndo).toBe(false);
     p.end(true);
-    expect(doc.layers.map(l => l.blend)).toEqual(['add', 'max']);
+    expect(doc.layers.map(l => l.blend)).toEqual(['max', 'max']);
     history.undo();
     expect(doc.layers.length).toBe(1);
-    expect(layer.blend).toBe('add');
+    expect(layer.blend).toBe('max');
+  });
+
+  it('「新しいレイヤーに作る」: 高さがポップ量以下でも新しいレイヤーに作り、オフに戻すと同じレイヤーに戻る', () => {
+    const { doc, layer, p } = setup(300);
+    p.update({ settings: { height: 120 } });
+    expect(doc.layers.length).toBe(1);
+    p.update({ settings: { newLayer: true } });
+    expect(doc.layers.length).toBe(2);
+    expect(p.state!.newLayer).toEqual({ name: '膨らみ1', pop: 120 });
+    expect(layer.weights.max()).toBe(0); // 元のレイヤーは触らない
+    p.update({ settings: { newLayer: false } });
+    expect(doc.layers.length).toBe(1);
+    expect(layer.weights.max()).toBeGreaterThan(0);
+  });
+
+  it('「新しいレイヤーに作る」でもレイヤーが上限なら、同じレイヤーに重ねる', () => {
+    const { doc, layer, p } = setup(300);
+    while (doc.layers.length < LIMITS.maxLayers) doc.layers.push(createLayer(doc, `L${doc.layers.length}`));
+    p.update({ settings: { height: 120, newLayer: true } });
+    expect(doc.layers.length).toBe(LIMITS.maxLayers);
+    expect(p.state!.limited).toBe(true);
+    expect(layer.weights.max()).toBeGreaterThan(0);
   });
 });

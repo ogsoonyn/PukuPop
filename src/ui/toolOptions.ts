@@ -3,8 +3,8 @@
  *   ブラシ・消しゴム・ぼかし: ブラシのサイズ・強さ・硬さ・筆圧(data-brush-opt)
  *   膨らみ: 次に範囲を描くときの形・断面・縁のなだらかさ・角度・ウェイトの重ね方(data-inflate-opt)。描いたあとのプレビュー中は、
  *           下のパネルと同じ値を変える。次に描くときの設定はブラウザに覚える(適用したときの設定も覚え、キャンセルした分は覚えない)。
- *           仕上げのぼかし・角の丸み・辺のふくらみ・レイヤーの重ね方・四隅を動かすは、描いたあとのパネルにだけ置く
- *           (ぼかし・丸み・ふくらみは同じく覚える。四隅のずれは範囲ごとのもので覚えない)
+ *           仕上げのぼかし・角の丸み・辺のふくらみ・レイヤーの重ね方・新しいレイヤーに作る・四隅を動かすは、描いたあとのパネルにだけ置く
+ *           (ぼかし・丸み・ふくらみ・新しいレイヤーに作るは同じく覚える。四隅のずれは範囲ごとのもので覚えない)
  *   そのほか(つかむ・揺らす・視点・移動): 設定は無く、操作のヒントだけ
  * スマホでは、ブラシの設定はシートの「ツール」タブへ移す(ui/mobile.ts)。
  */
@@ -24,7 +24,7 @@ export function bindToolOptions(app: App): void {
   /* ---------- 膨らみの既定値 ---------- */
 
   const KEY = 'inflateDefaults';
-  const save = () => { const s = app.inflateSettings; prefs.set(KEY, { shape: s.shape, profile: s.profile, softness: s.softness, angle: s.angle, blend: s.blend, blur: s.blur, round: s.round, bulge: s.bulge }); };
+  const save = () => { const s = app.inflateSettings; prefs.set(KEY, { shape: s.shape, profile: s.profile, softness: s.softness, angle: s.angle, blend: s.blend, blur: s.blur, newLayer: s.newLayer, round: s.round, bulge: s.bulge }); };
   // 覚えている設定を戻す(値は選べるものだけ)
   {
     const v = prefs.get<Partial<InflateSettings>>(KEY) ?? {};
@@ -38,7 +38,7 @@ export function bindToolOptions(app: App): void {
     const angle = typeof v.angle === 'number' && Number.isFinite(v.angle) ? Math.round(Math.max(INFLATE_ANGLE.min, Math.min(INFLATE_ANGLE.max, v.angle))) : undefined;
     app.inflateSettings = {
       ...app.inflateSettings, ...(shape && { shape }), ...(profile && { profile }), ...(blend && { blend }),
-      ...(softness !== undefined && { softness }), ...(angle !== undefined && { angle }), ...(blur !== undefined && { blur }),
+      ...(softness !== undefined && { softness }), ...(angle !== undefined && { angle }), ...(blur !== undefined && { blur }), ...(typeof v.newLayer === 'boolean' && { newLayer: v.newLayer }),
       ...(round !== undefined && { round }), ...(bulge !== undefined && { bulge }),
     };
   }
