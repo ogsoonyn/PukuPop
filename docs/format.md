@@ -244,7 +244,16 @@ with zipfile.ZipFile("sample.pukupop") as z:
         raise ValueError("知らない版です")
     image = project["documents"][0]["image"]
     data = z.read(image["path"])  # 元画像のファイル(PNG / JPEG / WebP)
-    print(image["mime"], image["width"], image["height"], len(data))
+    # 種類は mime ではなく中身の先頭のバイトで見分ける
+    if data[:4] == b"\x89PNG":
+        kind = "png"
+    elif data[:2] == b"\xff\xd8":
+        kind = "jpeg"
+    elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        kind = "webp"
+    else:
+        kind = None
+    print(kind, image["width"], image["height"], len(data))
 ```
 
 ## ウェイトマップ(`weights/doc-N-layer-M.png`)
@@ -359,7 +368,7 @@ weightHeight = max(1, round(height * s))
 
 ## 検査する側への注意
 
-`.pukupop` は利用者が持ち込むファイルなので、信用できないものとして扱ってください。編集アプリと Player の読み方と、サーバー側で検査するときに勧める確かめを挙げます。編集アプリと Player が確かめていないこと(下の `image.width`・`mime`・名前など)は、検査する側で確かめてください。
+`.pukupop` は利用者が持ち込むファイルなので、信用できないものとして扱ってください。編集アプリと Player の読み方と、サーバー側で検査するときに勧める確かめを挙げます。編集アプリと Player が確かめていないこと(下の `image.width`・名前など)は、検査する側で確かめてください。
 
 - **展開する前にサイズを確かめる。** 上の「読むときの上限」を、ZIP に書かれた宣言サイズ(圧縮後と展開後の大きい方)で確かめてから展開します。宣言サイズは偽れるので、展開するときも、出力が宣言サイズ(上限)を超えたら止めるようにしてください。
 - **必要なエントリだけを、名前で探して展開する。** まず `project.json` だけを展開し、そこに書かれたパスと、決まった名前(`thumbnail.png`、`motion/take.json`)のエントリだけを展開します。ZIP の中の名前をそのままファイルシステムのパスに使わないでください(`../` などを含む名前で、展開先の外に書かれることがあります)。

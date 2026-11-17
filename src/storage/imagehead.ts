@@ -6,11 +6,11 @@
 /** 扱う画像の種類と、そのとき使う拡張子 */
 export const IMAGE_TYPES: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 
-/** 先頭のバイトから画像の種類(PNG / JPEG / WebP)を決める。分からなければ null */
+/** 先頭のバイトから画像の種類(PNG / JPEG / WebP)を決める。印の確かめ方は imageHeaderSize とそろえる。分からなければ null */
 export function sniffImageMime(b: Uint8Array): string | null {
-  if (b[0] === 0x89 && b[1] === 0x50) return 'image/png';
-  if (b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg';
-  if (b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+  if (b.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+  if (b.length >= 2 && b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg';
+  if (b.length >= 12 && String.fromCharCode(b[0], b[1], b[2], b[3]) === 'RIFF' && String.fromCharCode(b[8], b[9], b[10], b[11]) === 'WEBP') return 'image/webp';
   return null;
 }
 

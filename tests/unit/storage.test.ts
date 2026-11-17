@@ -325,7 +325,9 @@ describe('.pukupop', () => {
     expect(p.documents[0].image).toMatchObject({ mime: 'image/png', ext: 'png' });
     const back = unzipSync(serializeProject(p));
     expect(Object.keys(back).filter(k => k.startsWith('images/'))).toEqual(['images/doc-0.png']);
-    expect((await load({}, jpeg)).documents[0].image).toMatchObject({ mime: 'image/jpeg', ext: 'jpg' });
+    const pj = await load({ mime: 'image/png' }, jpeg);
+    expect(pj.documents[0].image).toMatchObject({ mime: 'image/jpeg', ext: 'jpg' });
+    expect(Object.keys(unzipSync(serializeProject(pj))).filter(k => k.startsWith('images/'))).toEqual(['images/doc-0.jpg']);
     // 中身から分からなければ mime から。知らない mime(プロトタイプの名前も)・無いときは PNG
     expect((await load({ mime: 'image/webp' }, new Uint8Array([1]))).documents[0].image).toMatchObject({ mime: 'image/webp', ext: 'webp' });
     for (const mime of ['image/gif', 'constructor', 3, undefined]) {
@@ -377,6 +379,9 @@ describe('画像のヘッダ', () => {
     expect(sniffImageMime(jpegOf(3, 2, 1))).toBe('image/jpeg');
     expect(sniffImageMime(webpOf('VP8L', 3, 2))).toBe('image/webp');
     expect(sniffImageMime(new Uint8Array([1, 2, 3]))).toBeNull();
+    // 印の一部だけが合うものは見分けない(RIFF の無い WEBP、2バイトだけの PNG の印)
+    expect(sniffImageMime(new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]))).toBeNull();
+    expect(sniffImageMime(new Uint8Array([0x89, 0x50, 0, 0]))).toBeNull();
     for (const kind of ['VP8 ', 'VP8L', 'VP8X'] as const) expect(imageHeaderSize(webpOf(kind, 300, 200))).toEqual({ width: 300, height: 200 });
   });
 
