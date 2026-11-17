@@ -63,7 +63,7 @@ npm run check:editor-pack  # .tgz を空のプロジェクトに入れ、.zip �
 
 - `model` / `commands` / `paint` / `physics` / `storage` は DOM と three.js を参照しない。ブラウザ無しで単体テストできるようにするため。
 - `playback` は `model` / `physics` と、Stage の要るメソッドだけのインターフェース(`src/playback/stageApi.ts`)だけを参照し、`App`・アンドゥ・タブ・DOM(`src/ui`)・`prefs`・自動保存に依存しない。再生専用の部品(Issue #127)と共有するため。外の世界(今のプロジェクト・状態が変わったことの知らせ)は引数・関数・フックで受ける。
-- `src/player` は `model`・`physics`・`stage`・`storage/popstage`(と zip・png)・`playback` と、`model` から辿れる `src/util/emitter.ts` と、DOM の部品でない `src/ui/imageio.ts` だけを使う。`App`・`src/app`・`commands`(アンドゥ)・`export`・`src/ui` の画面の部品・CSS・`prefs` / 自動保存 / 最近開いたファイル / 永続化は使わない(入口から辿れるものは `tests/unit/player.test.ts` が確かめる)。あとでライブラリとして出すため。
+- `src/player` は `model`・`physics`・`stage`・`storage/popstage`(と zip・png・imagehead)・`playback` と、`model` から辿れる `src/util/emitter.ts` と、DOM の部品でない `src/ui/imageio.ts` だけを使う。`App`・`src/app`・`commands`(アンドゥ)・`export`・`src/ui` の画面の部品・CSS・`prefs` / 自動保存 / 最近開いたファイル / 永続化は使わない(入口から辿れるものは `tests/unit/player.test.ts` が確かめる)。あとでライブラリとして出すため。
 - `src/player` は渡されたキャンバスの外に触らない。`window` / `document` に受け口を付けず(ポインタはキャンバスで受けて `setPointerCapture`)、キャンバスの親要素のクラス・スタイルを変えず(背景は WebGL の消去の色だけ)、service worker・IndexedDB・localStorage を使わない。console へは失敗のときだけ出す。モジュールを読んだだけで `window` に受け口を付けるファイル(`src/ui/fine.ts` など)も import しない。大きさを追う `ResizeObserver` はキャンバスの要素だけを見るので約束の範囲(`window` の `resize` は使わない。通知の中では大きさを当てず次のフレームに回し(埋め込み先の `window` に ResizeObserver のループのエラーを出さないため)、変えるのは描画バッファの大きさだけで、CSS の大きさは書かない)。
 - Player の API の決まり: `dispose()` したキャンバスは使い回さない(使えないキャンバス・ほかの Player が使っているキャンバスは `PlayerError` の `canvas-unusable` で断る。自分が `dispose()` したキャンバスは覚えておき、three.js を呼ぶ前に断る)。キャンバスの大きさは埋め込み先が CSS で決める(CSS で決めていないキャンバスでは、大きさが変わり続けないよう倍率を掛けずに描く)。大きさは既定で自動で追い(`autoResize`)、`resize()` は引数なしで測り直すだけ。`signal` で読み込みを取り消せ、失敗は `code` 付きの `PlayerError`。`createPlayer` は WebGL を作ってから返すまで await を挟まない(取り消し・読み込みの失敗でキャンバスを使えなくしないため)。返すオブジェクトは API だけにし、中身は確認用のページだけが `src/player/player.ts` の `inspect`(入口からは出さない)で見る。
 - `src/app` の部品は `App` の型を import せず、要る分だけの小さなインターフェースで受ける。
@@ -95,7 +95,7 @@ npm run check:editor-pack  # .tgz を空のプロジェクトに入れ、.zip �
 - 実装は `.claude/worktrees/<名前>` の git worktree で行う(node_modules は親から解決される)。
 - 自分で立てる Vite はポート 5175〜5179 にし、`cacheDir` を分ける。設定ファイルは `vite.<名前>.config.ts` / `playwright.<名前>.config.ts`、キャッシュは `.vite-<名前>/` という名前にする(`.gitignore` で追跡外になる)。`vite.player.config.ts` は Player のライブラリのビルドの設定で追跡しているので、作業用の名前に使わない(`<名前>` を `player` にしない)。
 - E2E に既定の `playwright.config.ts` は使わない(ポート 5174 のサーバーを使い回す設定のため)。自分の Playwright の設定は既定の設定を広げて作り(`{ ...base, ... }`)、`webServer: undefined` にし、`use.baseURL` を自分で立てたポートにする。`workers` と `grepInvert` は上書きしない(手元では Playwright の既定の並列数で流す。並列で流すと 5173 が重くなることがある。クラウドでは既定の設定が 1 にする)。
-- 作業中は、変えた機能の spec だけを流す。全件の E2E は最後に1回だけ流す。
+- E2E は、変更が効く範囲の spec だけを流す(作業中も、PR の前も)。全件は時間がかかるので、多くの機能が通る部品(`src/app.ts` の中心・描画(`src/stage`)・入力・物理・保存形式・画面の部品の共通の所など)を変えたときと、頼まれたときだけ流す。PR には流した spec と、全件を流さなかったことを書く。
 - クラウド環境では、E2E は自動で 1 並列になり、`@local` の付いたテストは外れる(`.claude/rules/testing.md`)。外れたテストに関わる変更は、手元で流すよう報告に書く。
 - Playwright のブラウザはダウンロードしない(`npx playwright install` をしない)。インストール済みの Chrome を使う。
 - Windows では、バックグラウンドのコマンドを TaskStop で止めても vite の node 子プロセスが残る。残すとワークツリーを削除できない。PowerShell で `Get-NetTCPConnection -LocalPort <port> -State Listen | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force }` のようにポートから止める。

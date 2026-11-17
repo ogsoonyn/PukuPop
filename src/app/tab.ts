@@ -4,7 +4,6 @@
  */
 import { defaultOrthoView, type OrthoView, type Project } from '../model/project';
 import { emptyHistory, shrinkHistory, type HistoryState } from '../commands/history';
-import type { KeyFrame } from '../physics/take';
 import { FILE_EXTENSION, type PngCacheEntry } from '../storage/popstage';
 import type { SaveTarget } from './saveTarget';
 
@@ -49,7 +48,6 @@ export interface Tab {
   autosaveTimer: number;
   activeLayerId: string | null;
   selectedLayerIds: Set<string>;
-  keyDraft: KeyFrame[];
   multiOrtho: OrthoView;
   /** 表示用にデコードした画像。裏に回すと捨て(メモリのため)、表に出すときにデコードし直す */
   imageCanvas: HTMLCanvasElement | null;
@@ -69,8 +67,6 @@ export function createTab(project: Project, init: Partial<Pick<Tab, 'id' | 'orde
     target: init.target ?? null, fileName: init.fileName ?? null, dirty: init.dirty ?? false, saving: false, revision: 0,
     lastSaved: null, lastAutosave: null, autosaveError: null, autosaveQuota: false, autosaving: Promise.resolve(), autosaveTimer: 0,
     activeLayerId: null, selectedLayerIds: new Set(),
-    // 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れて始める
-    keyDraft: project.take?.keys ? structuredClone([...project.take.keys]) : [],
     multiOrtho: defaultOrthoView(), imageCanvas: null, pngCache: new Map(), centers: new Map(),
   };
 }
