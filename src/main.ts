@@ -127,7 +127,7 @@ const exportDialog = bindExportDialog(app);
 const blurDialog = bindBlurDialog(app);
 const recentDialog = bindRecentDialog(app);
 bindInflateDialog(app);
-bindFloatPanels([{ dialog: ui.blurDialog, handle: ui.blurTitle }, { dialog: ui.inflateDialog, handle: ui.inflTitle }]);
+bindFloatPanels([{ dialog: ui.blurDialog, handle: ui.blurTitle }, { dialog: ui.inflateDialog, handle: ui.inflHead }]);
 bindToolOptions(app);
 
 /* ---------- ファイルを開く ---------- */

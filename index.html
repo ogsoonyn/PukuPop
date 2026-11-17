@@ -156,19 +156,16 @@
   <label class="flex items-center gap-2" data-brush-opt>硬さ
     <input id="brushHardness" type="range" min="0" max="100" value="0" class="range range-xs w-24">
     <output id="brushHardnessO" class="w-10 tabular-nums"></output></label>
-  <!-- 膨らみの既定値(次に範囲を描くときの設定。描いたあとは下のパネルと同じ値を変える)。ui/toolOptions.ts -->
-  <label class="flex items-center gap-2" data-inflate-opt hidden>形
-    <select id="tInflKind" class="select select-xs w-24"><option value="ellipse">楕円</option><option value="rect">矩形</option><option value="kamaboko">カマボコ</option></select></label>
-  <label class="flex items-center gap-2" data-inflate-opt hidden>断面
-    <select id="tInflProfile" class="select select-xs w-28"><option value="dome">ドーム</option><option value="cushion">クッション</option><option value="cone">直線</option></select></label>
-  <label class="flex items-center gap-2" data-inflate-opt hidden>縁のなだらかさ
-    <input id="tInflSoft" type="range" min="0" max="100" value="100" class="range range-xs w-24">
-    <output id="tInflSoftO" class="w-10 tabular-nums"></output></label>
-  <label class="flex items-center gap-2" data-inflate-opt hidden title="形の傾き。正で時計回り">角度
-    <input id="tInflAngle" type="range" min="-90" max="90" step="1" value="0" class="range range-xs w-16">
-    <output id="tInflAngleO" class="w-10 tabular-nums"></output></label>
+  <!-- 膨らみ(ui/toolOptions.ts)。範囲を描いたあとのパネルをたたんだとき(高さだけ残る)に触れなくなるもののうち、重ね方2つと四隅の操作を置く。
+       ウェイトの重ね方は、描く前は次に描くときの設定。レイヤーの重ね方・四隅は範囲ごとなので、描くまで押せない(data-inflate-range)。
+       形・断面・角度など、描く前に決めるだけのものは置かない(.claude/rules/ui.md) -->
   <label class="flex items-center gap-2" data-inflate-opt hidden title="今回の膨らみを、レイヤーの今のウェイトとどう重ねるか">ウェイトの重ね方
     <select id="tInflBlend" class="select select-xs w-32"><option value="max">重ねる(高い方)</option><option value="add">足す</option><option value="replace">置き換える</option></select></label>
+  <label class="flex items-center gap-2" data-inflate-opt data-inflate-range hidden title="膨らませる先のレイヤーが、ほかのレイヤーとどう重なるか">レイヤーの重ね方
+    <select id="tInflLayerBlend" class="select select-xs w-24"></select></label>
+  <div class="flex items-center gap-2" data-inflate-opt data-inflate-range hidden>
+    <label class="flex items-center gap-2 cursor-pointer" title="枠の角の点を1つずつドラッグして、台形やゆがんだ四角にする"><input id="tInflCorner" type="checkbox" class="toggle toggle-xs"> 四隅を動かす</label>
+    <button id="tInflWarpReset" type="button" class="btn btn-xs">四角に戻す</button></div>
   <span id="toolHint" class="tool-hint hidden md:flex flex-1 min-w-0"></span>
   <!-- よく使う操作(アニメーションの再生・停止、自動で揺らす)と、全画面表示・設定。メニューバーはタブに幅を使うので、この欄の右端に置く。
        絵は ui/icons.ts から入れる(ui/actions.ts。再生は再生中に停止の絵に、自動で揺らすは入っている間 aria-pressed に) -->
@@ -550,9 +547,13 @@
 
 <!-- 膨らませる。視点を回して確かめられるよう、ほかの操作を止めないダイアログとして開く(show) -->
 <dialog id="inflateDialog" class="float-panel bg-base-100 text-base-content rounded-box shadow-2xl border border-base-300 p-4">
-  <h3 id="inflTitle" class="font-bold text-lg">範囲を膨らませる</h3>
+  <!-- 見出し(つかんで動かす)と、たたむボタン。たたむと高さと適用・キャンセルだけにする(ui/inflateDialog.ts) -->
+  <div id="inflHead" class="flex items-center gap-2">
+    <h3 id="inflTitle" class="font-bold text-lg flex-1 min-w-0">範囲を膨らませる</h3>
+    <button id="inflCompact" type="button" class="btn btn-ghost btn-xs btn-square" aria-pressed="false"></button>
+  </div>
   <p id="inflTarget" class="text-sm opacity-70 pt-1 pb-3"></p>
-  <div class="flex flex-col gap-2">
+  <div id="inflRows" class="flex flex-col gap-2">
     <div class="prop2"><span class="prop-name">形<button type="button" class="help-btn" data-help="inflKindHelp"></button></span>
       <select id="inflKind" class="select select-sm w-40"><option value="ellipse">楕円</option><option value="rect">矩形</option><option value="kamaboko">カマボコ</option></select></div>
     <p id="inflKindHelp" class="help-text" hidden>楕円・矩形は、縁のどこからも中へ向かって盛り上がります。カマボコは、上下の辺からだけ盛り上がって横に稜線ができ、左右の端は切り立ちます。縦にしたいときは角度を 90° にします。</p>
@@ -561,7 +562,7 @@
     <div class="prop2"><span class="prop-name">角度<button type="button" class="help-btn" data-help="inflAngleHelp"></button></span>
       <div class="flex items-center gap-2"><input id="inflAngle" type="range" min="-90" max="90" step="1" class="range range-sm range-primary flex-1"><input id="inflAngleN" type="number" min="-90" max="90" class="input input-sm w-20 text-right"> °</div></div>
     <p id="inflAngleHelp" class="help-text" hidden>形を傾けます。正の値で時計回り、負の値で反時計回りです。傾けたまま範囲を描き直すと、ドラッグの始点と終点が傾いた形の対角の角になります。</p>
-    <div class="prop2"><span>高さ</span>
+    <div id="inflHeightRow" class="prop2"><span>高さ</span>
       <div class="flex items-center gap-2"><input id="inflHeight" type="range" min="0" max="1000" class="range range-sm range-primary flex-1"><input id="inflHeightN" type="number" min="0" max="1500" class="input input-sm w-20 text-right"> px</div></div>
     <div class="prop2"><span class="prop-name">縁のなだらかさ<button type="button" class="help-btn" data-help="inflSoftHelp"></button></span>
       <div class="flex items-center gap-2"><input id="inflSoft" type="range" min="0" max="100" class="range range-sm range-primary flex-1"><input id="inflSoftN" type="number" min="0" max="100" class="input input-sm w-20 text-right"> %</div></div>

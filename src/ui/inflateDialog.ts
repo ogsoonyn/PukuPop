@@ -1,12 +1,16 @@
 /**
  * 「膨らませる」のパネル。膨らみツールで範囲を描くと開き、数値を変えるとその場でプレビューする。
  * 視点を回して形を確かめられるよう、ほかの操作を止めないダイアログ(show)にする。適用で1手として記録する。
+ * 見出しのボタンでたたむと、高さと適用・キャンセルだけにする(高さは枠でも上の欄でも変えられないため)。たたんだかはブラウザに覚え、
+ * 次に範囲を描いたときもそのまま出す。スマホではシートの中に入るので、たたまない。
  */
 import { INFLATE_ANGLE, INFLATE_BLUR, type App, type InflatePatch, type InflateSettings } from '../app';
 import type { InflateProfile, InflateBlend } from '../paint/inflate';
 import { BLENDS, BLEND_ORDER, LIMITS, type BlendMode } from '../model/project';
 import { popSliderRange, popToSlider, sliderToPop } from './popSlider';
 import { ui } from './ids';
+import { icon } from './icons';
+import { prefs } from '../storage/prefs';
 
 export function bindInflateDialog(app: App): void {
   const dlg = ui.inflateDialog;
@@ -20,6 +24,23 @@ export function bindInflateDialog(app: App): void {
   for (const b of BLEND_ORDER) layerBlend.add(new Option(BLENDS[b].label, b));
   const profiles = [...document.querySelectorAll<HTMLInputElement>('input[name=inflProfile]')];
   let queued: InflatePatch = {}, scheduled = false;
+
+  /* ---------- たたむ ---------- */
+  const COMPACT_KEY = 'inflatePanelCompact';
+  const setCompact = (on: boolean) => {
+    dlg.classList.toggle('compact', on);
+    const btn = ui.inflCompact, label = on ? 'パネルを広げる' : 'パネルをたたむ';
+    btn.innerHTML = icon(on ? 'panelExpand' : 'panelShrink', 'w-4 h-4');
+    btn.setAttribute('aria-pressed', String(on));
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+  };
+  setCompact(prefs.get<boolean>(COMPACT_KEY) === true);
+  ui.inflCompact.addEventListener('click', () => {
+    const on = !dlg.classList.contains('compact');
+    setCompact(on);
+    prefs.set(COMPACT_KEY, on);
+  });
 
   /** 高さのスライダーの右端。最大値の設定より高い高さで始めたときは、その値まで広げる(触っただけで一気に下がらないように) */
   let startHeight = 0;

@@ -51,6 +51,9 @@ export const ICONS = {
   favorite: '<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
   // お気に入りを今の状態で上書きする(下向きの矢印を受け皿へ)
   favSet: '<path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 20h14"/>',
+  // 膨らませるパネルをたたむ・広げる
+  panelShrink: '<path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/>',
+  panelExpand: '<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

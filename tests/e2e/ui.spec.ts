@@ -759,32 +759,49 @@ test('左のツールバー: 背景を透過は、入・切をボタン・メニ
   expect(await app(a => a.bgColor)).toBe('#224466');
 });
 
-test('ツールオプションの欄は選択中のツールの設定だけを出す。膨らみは描く前に形や断面を選べる', async ({ page }) => {
+test('ツールオプションの欄は選択中のツールの設定だけを出す。膨らみは重ね方と四隅の操作を出す', async ({ page }) => {
   await boot(page);
   const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
   await page.locator('#view').focus();
   // ブラシ: ブラシの設定だけ
   await page.keyboard.press('b');
   await expect(page.locator('#brushSize')).toBeVisible();
-  await expect(page.locator('#tInflProfile')).toBeHidden();
+  await expect(page.locator('#tInflBlend')).toBeHidden();
   // つかむ: 設定は無く、ヒントだけ
   await page.keyboard.press('g');
   await expect(page.locator('#brushSize')).toBeHidden();
-  await expect(page.locator('#tInflProfile')).toBeHidden();
+  await expect(page.locator('#tInflBlend')).toBeHidden();
   await expect(page.locator('#toolHint')).toContainText('引っ張って');
   await expect(page.locator('#toolHint .mh-mouse[aria-label=左ドラッグ]')).toHaveCount(1);
-  // 膨らみ: 次に描くときの設定を選び、描くとその設定で始まる
+  // 膨らみ: 形・断面などの描く前に決めるだけのものは出さない。ウェイトの重ね方は次に描くときの設定、
+  // レイヤーの重ね方・四隅は範囲ごとなので描くまで押せない(レイヤーの重ね方は今のレイヤーのものを見せる)
   await page.keyboard.press('i');
-  await expect(page.locator('#tInflProfile')).toBeVisible();
-  await page.locator('#tInflProfile').selectOption('cushion');
-  await page.locator('#tInflKind').selectOption('rect');
+  await expect(page.locator('#tInflBlend')).toBeVisible();
+  await expect(page.locator('[data-inflate-opt]:visible')).toHaveCount(3);
+  await expect(page.locator('#tInflLayerBlend')).toBeDisabled();
+  await expect(page.locator('#tInflLayerBlend')).toHaveValue(await app(a => a.activeLayer.blend));
+  await expect(page.locator('#tInflCorner')).toBeDisabled();
+  await expect(page.locator('#tInflWarpReset')).toBeDisabled();
+  await page.locator('#tInflBlend').selectOption('add');
   await page.locator('#view').focus();
   await dragOnStage(page, [0.4, 0.4], [0.6, 0.6]);
-  expect(await app(a => [a.inflateState.settings.profile, a.inflateState.settings.shape])).toEqual(['cushion', 'rect']);
-  await expect(page.locator('input[name=inflProfile][value=cushion]')).toBeChecked();
-  // プレビュー中に上の欄を変えると、下のパネルにも映る
-  await page.locator('#tInflBlend').selectOption('add');
+  expect(await app(a => a.inflateState.settings.blend)).toBe('add');
   await expect(page.locator('#inflBlend')).toHaveValue('add');
+  // プレビュー中は押せ、上の欄とパネルが同じ値を変える
+  await expect(page.locator('#tInflLayerBlend')).toBeEnabled();
+  await page.locator('#tInflLayerBlend').selectOption('max');
+  await expect(page.locator('#inflLayerBlend')).toHaveValue('max');
+  expect(await app(a => a.inflateState.layerBlend)).toBe('max');
+  await page.locator('#inflLayerBlend').selectOption('add');
+  await expect(page.locator('#tInflLayerBlend')).toHaveValue('add');
+  await page.locator('#tInflCorner').check();
+  await expect(page.locator('#inflCorner')).toBeChecked();
+  expect(await app(a => a.inflateState.cornerEdit)).toBe(true);
+  await app(a => a.updateInflate({ area: { warp: [10, 0, 0, 0, 0, 0, 0, 0] } }));
+  await expect(page.locator('#tInflWarpReset')).toBeEnabled();
+  await page.locator('#tInflWarpReset').click();
+  await expect.poll(() => app(a => a.inflateState.area.warp)).toBeFalsy();
+  await expect(page.locator('#tInflWarpReset')).toBeDisabled();
   await page.locator('#inflCancel').click();
 });
 
@@ -847,31 +864,31 @@ test('fps・頂点数は ?debug のときだけ出す。キーフレームの上
 
 test('膨らみの既定値は覚える。プレビュー中に変えてキャンセルした値は覚えず、適用した値は覚える', async ({ page }) => {
   await boot(page);
-  const profile = () => page.evaluate(() => (window as any).popstage.inflateSettings.profile);
+  const blend = () => page.evaluate(() => (window as any).popstage.inflateSettings.blend);
   await page.locator('#view').focus();
   await page.keyboard.press('i');
-  await page.locator('#tInflProfile').selectOption('cushion');
+  await page.locator('#tInflBlend').selectOption('add');
   await page.waitForTimeout(400); // 書き込みは間引いている
   await page.reload();
   await page.waitForFunction(() => (window as any).popstage?.doc);
-  expect(await profile()).toBe('cushion');
+  expect(await blend()).toBe('add');
   // プレビュー中に変えてキャンセル: 覚えない
   await page.locator('#view').focus();
   await page.keyboard.press('i');
   await dragOnStage(page, [0.4, 0.4], [0.6, 0.6]);
-  await page.locator('input[name=inflProfile][value=cone]').check();
+  await page.locator('#inflBlend').selectOption('replace');
   await page.locator('#inflCancel').click();
-  expect(await profile()).toBe('cushion');
-  await expect(page.locator('#tInflProfile')).toHaveValue('cushion');
+  expect(await blend()).toBe('add');
+  await expect(page.locator('#tInflBlend')).toHaveValue('add');
   // プレビュー中に変えて適用: 覚える
   await page.locator('#view').focus();
   await dragOnStage(page, [0.4, 0.4], [0.6, 0.6]);
-  await page.locator('input[name=inflProfile][value=cone]').check();
+  await page.locator('#inflBlend').selectOption('replace');
   await page.locator('#inflApply').click();
   await page.waitForTimeout(400);
   await page.reload();
   await page.waitForFunction(() => (window as any).popstage?.doc);
-  expect(await profile()).toBe('cone');
+  expect(await blend()).toBe('replace');
 });
 
 test('膨らませる・ぼかすのパネルは右下に出て、見出しをつかんで動かせる。位置は覚え、ダブルクリックで右下に戻る', async ({ page }) => {
