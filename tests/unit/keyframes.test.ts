@@ -31,23 +31,21 @@ function setup(keys: KeyFrame[] = [], take: Take | null = null) {
 }
 
 describe('キーフレームの下書きの編集(KeyframeEditor)', () => {
-  it('sync: 記録がキーフレームから作ったものなら下書きに入れ、reset なら空にし、どちらでもなければ何もしない', () => {
+  it('sync: 記録がキーフレームから作ったものなら下書きに入れ、記録した操作に入れ替わったときは下書きを残す(Issue #145)', () => {
     const e = setup([key(9)], takeFromKeys([key(0), key(1)], 40));
     e.ed.sync();
     expect(e.host.keyDraft.map(k => k.view.yaw)).toEqual([0, 1]);
     expect(e.host.keyDraft).not.toBe(e.project.take!.keys); // 写しを入れる
     expect(e.log).toEqual(['draft']);
-    // 記録がキーフレームから作ったものなら reset でもそちらを入れる
+    // 同じ並びなら入れ直さず、知らせも出さない(未保存にしない)
     e.log.length = 0;
-    e.host.keyDraft = [key(5)];
-    e.ed.sync(true);
-    expect(e.host.keyDraft).toHaveLength(2);
-    expect(e.log).toEqual(['draft']);
+    e.ed.sync();
+    expect(e.log).toEqual([]);
 
     const noKeys = setup([key(9)], { samples: takeFromKeys([key(0), key(1)], 40)!.samples });
-    noKeys.ed.sync(true);
-    expect(noKeys.host.keyDraft).toEqual([]);
-    expect(noKeys.log).toEqual(['draft']);
+    noKeys.ed.sync();
+    expect(noKeys.host.keyDraft.map(k => k.view.yaw)).toEqual([9]); // そのまま
+    expect(noKeys.log).toEqual([]);
 
     const none = setup([key(9)], null);
     none.ed.sync();

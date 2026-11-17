@@ -1,5 +1,5 @@
 /**
- * キーフレームの下書きの編集(編集アプリだけの機能)。下書きは画面だけの状態で、作業ごとに Tab に置く(App の keyDraft)。
+ * キーフレームの下書きの編集(編集アプリだけの機能)。下書きはプロジェクト(project.keyframes。App の keyDraft)に置き、ファイルにも保存する。
  * 下書きの編集はアンドゥに積まず、記録を作るとき(makeTake)に1手として積む。作った記録の再生は src/playback/loopPlayback.ts。
  * App とは KeyframeHost の分だけでつながる。
  */
@@ -10,7 +10,7 @@ import type { Command } from '../commands/history';
 import type { TakeState } from './recording';
 
 export interface KeyframeHost {
-  /** 表に出ているタブの下書き */
+  /** 表に出ているタブの下書き(project.keyframes) */
   keyDraft: KeyFrame[];
   readonly project: Project;
   readonly doc: Document | undefined;
@@ -22,7 +22,7 @@ export interface KeyframeHost {
   cutView(): void;
   /** アンドゥに1手として積んで実行する */
   execute(cmd: Command): void;
-  /** 下書きが変わった */
+  /** 下書きが変わった(未保存にする) */
   draftChanged(): void;
   /** 視点を動かした */
   viewChanged(): void;
@@ -31,12 +31,14 @@ export interface KeyframeHost {
 export class KeyframeEditor {
   constructor(private readonly host: KeyframeHost) {}
 
-  /** 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れる。reset なら、そうでなくても下書きを空にする */
-  sync(reset = false): void {
+  /**
+   * 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れる(記録が差し替わったとき)。
+   * 記録した操作に入れ替わったときは下書きを残す(Issue #145)
+   */
+  sync(): void {
     const h = this.host, k = h.project.take?.keys;
-    if (k) h.keyDraft = structuredClone([...k]);
-    else if (reset) h.keyDraft = [];
-    else return;
+    if (!k || JSON.stringify(k) === JSON.stringify(h.keyDraft)) return;
+    h.keyDraft = structuredClone([...k]);
     h.draftChanged();
   }
 

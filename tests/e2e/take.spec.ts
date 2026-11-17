@@ -326,3 +326,29 @@ test('アニメーションの箱: 動きは1つで、記録とキーフレー�
   await expect(info).toHaveText('なし');
   await expect(rec).not.toHaveClass(/\bon\b/);
 });
+
+test('キーフレーム: 記録で動きを入れ替えて保存しても、開き直すとキーフレームの一覧が残っている。一覧を変えると未保存になる(Issue #145)', async ({ page }) => {
+  await boot(page);
+  await page.locator('#pTabs [data-ptab=anim]').click();
+  const rows = page.locator('#keyList > li.key-row:not(.key-back)');
+  await app(page, a => { a.project.camera.yaw = 0; a.addKey(); a.project.camera.yaw = 0.6; a.addKey(); });
+  await expect(rows).toHaveCount(2);
+  await page.locator('#keyMake').click();
+  await app(page, a => a.stopTake());
+  // 記録した操作で動きを入れ替える
+  await recordTake(page);
+  expect(await app(page, a => [!!a.project.take, !!a.project.take.keys, a.keyDraft.length])).toEqual([true, false, 2]);
+  const r = await app(page, async a => {
+    const bytes = a.serialize(await a.thumbnail());
+    await a.loadSample();
+    await a.openProjectBytes(bytes, 'rec.pukupop', null);
+    return { rec: !!a.project.take && !a.project.take.keys, yaws: a.keyDraft.map((k: any) => k.view.yaw), dirty: a.dirty };
+  });
+  expect(r).toEqual({ rec: true, yaws: [0, 0.6], dirty: false });
+  await expect(rows).toHaveCount(2);
+  await expect(page.locator('#takeInfo')).toHaveText(/^● 記録 /);
+  // 一覧を変えると未保存になる(ファイルに入るため)
+  await rows.nth(1).locator('[data-act=del]').click();
+  await expect(rows).toHaveCount(1);
+  expect(await app(page, a => a.dirty)).toBe(true);
+});

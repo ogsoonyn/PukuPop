@@ -155,6 +155,33 @@ describe('.pukupop', () => {
     expect(b.favorites[0].camera.roll).toBe(0);
   });
 
+  it('キーフレームの一覧を、記録と別に保存して戻す。項目の無い古いファイルは記録のキーフレームで補う(Issue #145)', async () => {
+    const key = (yaw: number, seconds = 1) => ({ view: { yaw, pitch: 0, roll: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } }, seconds, mode: 'smooth' as const });
+    const p = makeProject();
+    // 記録で入れ替えた後: 記録はキーフレームを持たないが、一覧は残っている
+    p.take = { samples: takeFromKeys([key(0), key(1)], p.camera.fov)!.samples };
+    p.keyframes = [key(0.1, 2), key(0.2), key(0.3, 9)];
+    const { project: q } = await deserializeProject(serializeProject(p));
+    expect(q.take!.keys).toBeUndefined();
+    expect(q.keyframes.map(k => [k.view.yaw, k.seconds])).toEqual([[0.1, 2], [0.2, 1], [0.3, 5]]); // 秒数は範囲に丸める
+    // 1つだけでも残す。空にした一覧は、記録のキーフレームで補わない
+    p.keyframes = [key(0.5)];
+    expect((await deserializeProject(serializeProject(p))).project.keyframes.map(k => k.view.yaw)).toEqual([0.5]);
+    p.take = takeFromKeys([key(0), key(1)], p.camera.fov);
+    p.keyframes = [];
+    expect((await deserializeProject(serializeProject(p))).project.keyframes).toEqual([]);
+    // 項目の無い古いファイル: 記録がキーフレームから作ったものなら、そのキーフレーム。そうでなければ空
+    const files = unzipSync(serializeProject(p));
+    const json = JSON.parse(strFromU8(files['project.json']));
+    delete json.project.keyframes;
+    files['project.json'] = strToU8(JSON.stringify(json));
+    const old = (await deserializeProject(zipSync(files))).project;
+    expect(old.keyframes.map(k => k.view.yaw)).toEqual([0, 1]);
+    expect(old.keyframes).not.toBe(old.take!.keys); // 写しを持つ(一覧を編集しても記録は変わらない)
+    delete files['motion/take.json'];
+    expect((await deserializeProject(zipSync(files))).project.keyframes).toEqual([]);
+  });
+
   it('3面図の自由角度の視点を保存して戻す。古いファイルや不正な値では初めの視点・範囲内にする', async () => {
     const p = makeProject();
     p.multiCamera = { fov: 30, yaw: -1.2, pitch: 0.3, roll: 0, zoom: 2.5, target: { x: 12, y: -4, z: 7 } };
