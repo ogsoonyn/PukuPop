@@ -24,7 +24,7 @@ test('Tab で UI を隠して3Dビューを画面いっぱいにし、もう一�
   await page.keyboard.press('Escape');
   await expect(page.locator('html')).not.toHaveClass(/ui-hidden/);
 
-  // ツールオプションの欄の右端のボタンで隠し、マウスを動かすと出る右上のバーの「UIを戻す」で戻す
+  // ツールオプションの欄の右端のボタンで全画面表示にし、マウスを動かすと出る右上のバーの「全画面を解除」で戻す
   await page.locator('#toolOptions [data-cmd=toggleUi]').click();
   await expect(page.locator('html')).toHaveClass(/ui-hidden/);
   const restore = page.locator('#uiRestore');
@@ -203,10 +203,10 @@ test.describe('スマホ', () => {
   const { defaultBrowserType: _, ...pixel } = devices['Pixel 7'];
   test.use({ ...pixel, deviceScaleFactor: 1 });
 
-  test('「…」メニューから隠すと上下のバーとシートが消え、右上の「UIを戻す」で戻る', async ({ page }) => {
+  test('「…」メニューから全画面表示にすると上下のバーとシートが消え、右上の「全画面を解除」で戻る', async ({ page }) => {
     await boot(page);
     await page.locator('#mTop [aria-label=メニュー]').click();
-    await page.locator('#mTop [data-cmd=toggleUi]').click();
+    await page.locator('#mTop .dropdown [data-cmd=toggleUi]').click();
     await expect(page.locator('html')).toHaveClass(/ui-hidden/);
     for (const s of ['#mTop', '#mTools', '#mSheet', '#mFine']) await expect(page.locator(s)).toBeHidden();
     const vp = page.viewportSize()!;
@@ -215,5 +215,17 @@ test.describe('スマホ', () => {
     await page.locator('#uiRestore').click();
     await expect(page.locator('html')).not.toHaveClass(/ui-hidden/);
     await expect(page.locator('#mTools')).toBeVisible();
+  });
+
+  test('上のバーの全画面表示のボタン(再生・自動で揺らすの隣)をワンタッチで押せる', async ({ page }) => {
+    await boot(page);
+    const full = page.locator('#mFull');
+    await expect(full).toBeVisible();
+    await expect(page.locator('#mAuto + #mFull')).toHaveCount(1);
+    await full.click();
+    await expect(page.locator('html')).toHaveClass(/ui-hidden/);
+    await page.locator('#uiRestore').click();
+    await expect(page.locator('html')).not.toHaveClass(/ui-hidden/);
+    await expect(full).toBeVisible();
   });
 });

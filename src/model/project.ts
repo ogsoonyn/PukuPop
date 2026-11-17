@@ -264,7 +264,7 @@ export interface Project {
   /** 操作の記録(ループ再生・書き出し用)。無ければ null */
   take: Take | null;
   /**
-   * キーフレームの一覧(下書き)。「この並びで作る」で take を作る元で、take を記録で入れ替えても残る(Issue #145)。
+   * キーフレームの一覧(下書き)。「登録する」で take を作る元で、take を記録で入れ替えても残る(Issue #145)。
    * 編集はアンドゥに積まない(src/app/keyframes.ts)。take がキーフレームから作ったものに変わったら、そのキーフレームに合わせる
    */
   keyframes: KeyFrame[];

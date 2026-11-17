@@ -4,6 +4,7 @@ import { profileAt, inflateShape, type InflateParams } from '../../src/paint/inf
 import { diffTiles, WeightEdit, InsertLayer } from '../../src/commands/commands';
 import { Store, createDocument, createProject, createLayer, LIMITS } from '../../src/model/project';
 import { History } from '../../src/commands/history';
+import { InflatePreview } from '../../src/app/inflatePreview';
 import { clampPopMax, popSliderRange, popToSlider, sliderToPop, POP_MAX_SETTING } from '../../src/ui/popSlider';
 
 const params = (p: Partial<InflateParams> = {}): InflateParams => ({ level: 1, softness: 1, profile: 'dome', blend: 'max', ...p });
@@ -75,6 +76,62 @@ describe('図形で膨らませる', () => {
     expect(at(b, 8, 8)).toBe(255);
     const c = make(); inflateShape(c, c.data.slice(), shape, params({ level: 0.4, softness: 0, blend: 'replace' }));
     expect(at(c, 8, 8)).toBe(102);
+  });
+
+  it('カマボコ: 上下の辺からだけ盛り上がり、横に稜線ができて、左右の端は切り立つ', () => {
+    const wm = new WeightMap(64, 64);
+    inflateShape(wm, wm.data.slice(), { kind: 'kamaboko', cx: 32, cy: 32, rx: 20, ry: 10 }, params({ profile: 'cone' }));
+    // 稜線(中心の行)は左右の端のすぐ内側まで頂上の高さ
+    expect(at(wm, 32, 32)).toBeGreaterThan(240);
+    expect(at(wm, 13, 32)).toBeGreaterThan(240);
+    expect(at(wm, 11, 32)).toBe(0); // 端の外
+    // 上下へは辺に向かって下がる(縁から 5px で半分)
+    expect(at(wm, 32, 27)).toBeGreaterThan(100);
+    expect(at(wm, 32, 27)).toBeLessThan(160);
+    expect(at(wm, 13, 27)).toBe(at(wm, 32, 27)); // 端の近くでも同じ断面(寄棟にならない)
+    // 角度 90° で稜線が縦になる
+    const v = new WeightMap(64, 64);
+    inflateShape(v, v.data.slice(), { kind: 'kamaboko', cx: 32, cy: 32, rx: 20, ry: 10, angle: Math.PI / 2 }, params({ profile: 'cone' }));
+    expect(at(v, 32, 13)).toBeGreaterThan(240);
+    expect(at(v, 13, 32)).toBe(0);
+  });
+
+  it('仕上げのぼかし: 今回の膨らみだけをぼかし、縁は外へにじむ。前のウェイトはぼかさない', () => {
+    const shape = { kind: 'rect' as const, cx: 32, cy: 32, rx: 10, ry: 10 };
+    const sharp = new WeightMap(64, 64);
+    inflateShape(sharp, sharp.data.slice(), shape, params({ softness: 0 }));
+    const soft = new WeightMap(64, 64);
+    // 前のウェイト: 左上の隅に1点だけ(ぼかすと消えるはずの点)
+    soft.data[0] = 255;
+    const r = inflateShape(soft, soft.data.slice(), shape, params({ softness: 0, blur: 6 }));
+    expect(at(sharp, 32, 32)).toBe(255);
+    expect(at(soft, 32, 32)).toBeGreaterThan(240); // 中心はほぼそのまま
+    expect(at(sharp, 21, 32)).toBe(0);
+    expect(at(soft, 21, 32)).toBeGreaterThan(0); // 形の外へにじむ
+    expect(at(soft, 23, 32)).toBeLessThan(at(sharp, 23, 32)); // 縁の内側は下がる
+    expect(at(soft, 0, 0)).toBe(255); // 前のウェイトは元のまま
+    expect(r!.w).toBeGreaterThan(20); // 書いた矩形はにじむ幅まで広がる
+    // 0 はぼかさない
+    const zero = new WeightMap(64, 64);
+    inflateShape(zero, zero.data.slice(), shape, params({ softness: 0, blur: 0 }));
+    expect(zero.data).toEqual(sharp.data);
+  });
+
+  it('仕上げのぼかしと置き換える: にじみが届かない所は前のウェイトのまま。形のまわりに溝を作らない', () => {
+    const wm = new WeightMap(64, 64); wm.data.fill(100);
+    inflateShape(wm, wm.data.slice(), { kind: 'rect', cx: 32, cy: 32, rx: 6, ry: 6 }, params({ softness: 0, blur: 4, blend: 'replace' }));
+    expect(at(wm, 2, 2)).toBe(100);
+    expect(at(wm, 32, 32)).toBeGreaterThan(200);
+    // 形の外へ中心から外向きにたどると、前のウェイト(100)を下回らない
+    for (let x = 32; x < 64; x++) expect(at(wm, x, 32)).toBeGreaterThanOrEqual(99);
+  });
+
+  it('カマボコの左右の端は 1px でなめらかに落ちる(傾けてもギザギザにしない)', () => {
+    const wm = new WeightMap(64, 64);
+    inflateShape(wm, wm.data.slice(), { kind: 'kamaboko', cx: 32, cy: 32, rx: 19.7, ry: 10 }, params({ softness: 0 }));
+    const edge = at(wm, 51, 32); // 端(32 + 19.7)のかかる画素は途中の値
+    expect(edge).toBeGreaterThan(0); expect(edge).toBeLessThan(255);
+    expect(at(wm, 50, 32)).toBe(255);
   });
 
   it('1手として元に戻せる', () => {
@@ -151,5 +208,68 @@ describe('ポップ量のスライダーの目盛り', () => {
         expect(popToSlider(sliderToPop(s, max), max)).toBe(s);
       }
     }
+  });
+});
+
+describe('プレビュー中にレイヤーの重ね方を変える・新しいレイヤーに作る', () => {
+  const setup = (pop = 300, blend: 'add' | 'max' = 'add') => {
+    const store = makeStore(), history = new History(store), doc = store.doc!;
+    const layer = doc.layers[0]; layer.pop = pop; layer.blend = blend;
+    const host = {
+      store, history, inflateSettings: { shape: 'ellipse' as const, height: null, softness: 1, angle: 0, profile: 'dome' as const, blend: 'max' as const, blur: 0, newLayer: false, round: 0, bulge: 0 },
+      setActiveLayer: () => {}, ended: () => {},
+    };
+    const p = new InflatePreview(host);
+    p.begin(layer, doc, { x: 0, y: 0, w: 80, h: 60 });
+    return { store, history, doc, layer, p };
+  };
+
+  it('同じレイヤー: 右パネルと同じくその場で別の1手として変わり、キャンセルしても残る', () => {
+    const { history, layer, p } = setup();
+    expect(p.state!.layerBlend).toBe('add');
+    p.update({ layerBlend: 'max' });
+    expect(layer.blend).toBe('max');
+    expect(history.undoLabel).toBe('重ね方');
+    p.end(false);
+    expect(layer.blend).toBe('max');
+    history.undo();
+    expect(layer.blend).toBe('add');
+  });
+
+  it('新しいレイヤーに作るときは、そのレイヤーに当て(選ばなければ加算)、元のレイヤーは変えない。適用でレイヤーごと1手', () => {
+    const { doc, layer, p, history } = setup(100, 'max');
+    p.update({ settings: { height: 300 } });
+    expect(p.state!.layerBlend).toBe('add');
+    expect(doc.layers.map(l => l.blend)).toEqual(['max', 'add']);
+    p.update({ layerBlend: 'max' });
+    expect(doc.layers[1].blend).toBe('max');
+    expect(history.canUndo).toBe(false);
+    p.end(true);
+    expect(doc.layers.map(l => l.blend)).toEqual(['max', 'max']);
+    history.undo();
+    expect(doc.layers.length).toBe(1);
+    expect(layer.blend).toBe('max');
+  });
+
+  it('「新しいレイヤーに作る」: 高さがポップ量以下でも新しいレイヤーに作り、オフに戻すと同じレイヤーに戻る', () => {
+    const { doc, layer, p } = setup(300);
+    p.update({ settings: { height: 120 } });
+    expect(doc.layers.length).toBe(1);
+    p.update({ settings: { newLayer: true } });
+    expect(doc.layers.length).toBe(2);
+    expect(p.state!.newLayer).toEqual({ name: '膨らみ1', pop: 120 });
+    expect(layer.weights.max()).toBe(0); // 元のレイヤーは触らない
+    p.update({ settings: { newLayer: false } });
+    expect(doc.layers.length).toBe(1);
+    expect(layer.weights.max()).toBeGreaterThan(0);
+  });
+
+  it('「新しいレイヤーに作る」でもレイヤーが上限なら、同じレイヤーに重ねる', () => {
+    const { doc, layer, p } = setup(300);
+    while (doc.layers.length < LIMITS.maxLayers) doc.layers.push(createLayer(doc, `L${doc.layers.length}`));
+    p.update({ settings: { height: 120, newLayer: true } });
+    expect(doc.layers.length).toBe(LIMITS.maxLayers);
+    expect(p.state!.limited).toBe(true);
+    expect(layer.weights.max()).toBeGreaterThan(0);
   });
 });

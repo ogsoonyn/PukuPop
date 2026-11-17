@@ -29,6 +29,8 @@
   <!-- アニメーションの再生・停止(左のツールバーと同じコマンド。アイコンは再生中に停止へ変わる。ui/actions.ts) -->
   <button id="mPlay" class="m-icon" data-cmd="toggleKeyPlay" aria-label="アニメーションを再生"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
   <button id="mAuto" class="m-icon" aria-label="自動で揺らす" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg></button>
+  <!-- 全画面表示(PC のツールオプションの欄の右端と同じコマンド。ワンタッチで押せるよう、再生・自動で揺らすの隣に置く) -->
+  <button id="mFull" class="m-icon" data-cmd="toggleUi" aria-label="全画面表示"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg></button>
   <div class="dropdown dropdown-end">
     <div tabindex="0" role="button" class="m-icon" aria-label="メニュー"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></div>
     <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-50 w-60 p-2 shadow-lg">
@@ -37,7 +39,7 @@
       <li><button data-cmd="save">保存</button></li>
       <li><button data-cmd="export">書き出し…</button></li>
       <li><button data-cmd="sample">サンプルを開く</button></li>
-      <li><button data-cmd="toggleUi">UIを隠す</button></li>
+      <li><button data-cmd="toggleUi">全画面表示</button></li>
       <li><button data-cmd="settings">設定…</button></li>
       <li><button data-cmd="help">操作方法</button></li>
       <li><button data-cmd="about">PukuPop について</button></li>
@@ -49,7 +51,6 @@
 <header class="flex items-center gap-1 px-2 h-10 bg-base-100 border-b border-base-300 shrink-0" id="menubar">
   <!-- 埋め込みモードで、埋め込み元へ戻る(戻り先を受け取ったときだけ出す。ui/embedSession.ts) -->
   <button id="embedBack" type="button" class="btn btn-ghost btn-sm gap-1" hidden><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>戻る</button>
-  <span class="font-bold px-2 select-none">PukuPop</span>
   <div class="dropdown">
     <div tabindex="0" role="button" class="btn btn-ghost btn-sm">ファイル</div>
     <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-30 w-72 p-2 shadow-lg">
@@ -98,7 +99,7 @@
       <li><button data-cmd="resetView">視点リセット(正面)</button></li>
       <li><button data-cmd="resetRotation">回転だけリセット</button></li>
       <li><button data-cmd="togglePanel">右パネル <span data-check="panel" class="ml-auto"></span></button></li>
-      <li><button data-cmd="toggleUi">UIを隠す</button></li>
+      <li><button data-cmd="toggleUi">全画面表示</button></li>
     </ul>
   </div>
   <div class="dropdown">
@@ -155,27 +156,24 @@
   <label class="flex items-center gap-2" data-brush-opt>硬さ
     <input id="brushHardness" type="range" min="0" max="100" value="0" class="range range-xs w-24">
     <output id="brushHardnessO" class="w-10 tabular-nums"></output></label>
-  <!-- 膨らみの既定値(次に範囲を描くときの設定。描いたあとは下のパネルと同じ値を変える)。ui/toolOptions.ts -->
-  <label class="flex items-center gap-2" data-inflate-opt hidden>形
-    <select id="tInflKind" class="select select-xs w-20"><option value="ellipse">楕円</option><option value="rect">矩形</option></select></label>
-  <label class="flex items-center gap-2" data-inflate-opt hidden>断面
-    <select id="tInflProfile" class="select select-xs w-28"><option value="dome">ドーム</option><option value="cushion">クッション</option><option value="cone">直線</option></select></label>
-  <label class="flex items-center gap-2" data-inflate-opt hidden>縁のなだらかさ
-    <input id="tInflSoft" type="range" min="0" max="100" value="100" class="range range-xs w-24">
-    <output id="tInflSoftO" class="w-10 tabular-nums"></output></label>
-  <label class="flex items-center gap-2" data-inflate-opt hidden title="形の傾き。正で時計回り">角度
-    <input id="tInflAngle" type="range" min="-90" max="90" step="1" value="0" class="range range-xs w-16">
-    <output id="tInflAngleO" class="w-10 tabular-nums"></output></label>
-  <label class="flex items-center gap-2" data-inflate-opt hidden>重ね方
+  <!-- 膨らみ(ui/toolOptions.ts)。範囲を描いたあとのパネルをたたんだとき(高さだけ残る)に触れなくなるもののうち、重ね方2つと四隅の操作を置く。
+       ウェイトの重ね方は、描く前は次に描くときの設定。レイヤーの重ね方・四隅は範囲ごとなので、描くまで押せない(data-inflate-range)。
+       形・断面・角度など、描く前に決めるだけのものは置かない(.claude/rules/ui.md) -->
+  <label class="flex items-center gap-2" data-inflate-opt hidden title="今回の膨らみを、レイヤーの今のウェイトとどう重ねるか">ウェイトの重ね方
     <select id="tInflBlend" class="select select-xs w-32"><option value="max">重ねる(高い方)</option><option value="add">足す</option><option value="replace">置き換える</option></select></label>
+  <label class="flex items-center gap-2" data-inflate-opt data-inflate-range hidden title="膨らませる先のレイヤーが、ほかのレイヤーとどう重なるか">レイヤーの重ね方
+    <select id="tInflLayerBlend" class="select select-xs w-24"></select></label>
+  <div class="flex items-center gap-2" data-inflate-opt data-inflate-range hidden>
+    <label class="flex items-center gap-2 cursor-pointer" title="枠の角の点を1つずつドラッグして、台形やゆがんだ四角にする"><input id="tInflCorner" type="checkbox" class="toggle toggle-xs"> 四隅を動かす</label>
+    <button id="tInflWarpReset" type="button" class="btn btn-xs">四角に戻す</button></div>
   <span id="toolHint" class="tool-hint hidden md:flex flex-1 min-w-0"></span>
-  <!-- よく使う操作(アニメーションの再生・停止、自動で揺らす)と、UIを隠す・設定。メニューバーはタブに幅を使うので、この欄の右端に置く。
+  <!-- よく使う操作(アニメーションの再生・停止、自動で揺らす)と、全画面表示・設定。メニューバーはタブに幅を使うので、この欄の右端に置く。
        絵は ui/icons.ts から入れる(ui/actions.ts。再生は再生中に停止の絵に、自動で揺らすは入っている間 aria-pressed に) -->
   <div id="quickActs" class="ml-auto flex items-center gap-1 shrink-0">
     <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleKeyPlay" aria-label="アニメーションを再生"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
     <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleAutoSwing" data-pressed="autoSwing" data-icon="autoSwing" aria-label="自動で揺らす" aria-pressed="false"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
     <span class="quick-sep" aria-hidden="true"></span>
-    <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleUi" aria-label="UIを隠す"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg></button>
+    <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleUi" aria-label="全画面表示"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg></button>
     <button class="btn btn-ghost btn-xs btn-square" data-cmd="settings" aria-label="設定"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
   </div>
 </div>
@@ -351,11 +349,11 @@
                 <label class="flex items-center gap-1 whitespace-nowrap" title="各フレームの画像を半透明で重ねる"><input id="keyGhostShow" type="checkbox" class="checkbox checkbox-xs"> ゴースト</label>
                 <label class="flex items-center gap-1 whitespace-nowrap" title="止まっている間も、3Dビューの下に再生のバーを出す(再生中・記録中はいつも出る)"><input id="playBarShow" type="checkbox" class="checkbox checkbox-xs"> シークバー</label>
               </div>
-              <p id="keyHelp" class="help-text" hidden>視点(回転・ズーム・画像の位置)を順に通り、最後から最初へ戻ってくり返す動きを作ります。画像の位置が動くと揺れます。フレームの間の秒数は、次のフレームまでの時間です(最後の後の ↩ は、最初へ戻るまでの時間)。「通り方」は、そのフレームを、なめらか(止まらず通り抜ける)か、弾む(勢いよく着いて止まり、揺れる)かを選びます。行の左端の点をドラッグすると順番を入れ替えられます(間の秒数は場所に残ります)。点を選んで ↑↓ キーでも動かせます。「この並びで作る」を押すと、この並びの動きが上のアニメーションの動きになり、再生が始まります(元に戻せます)。今の動きがキーフレームで作ったものなら、一覧を直したあと上の「再生」を押しても作り直します。「経路」をオンにすると、1番のフレームの視点をカメラとして止めたまま画像のほうが動くとみなし、各フレームで画像が来る所を枠で、順番を番号で、画像の中心の動きを矢印と秒数で3Dビューに重ねます。1番の視点から見ると、そのカメラで映る並びになります。視点を動かすと横や上からも見られます。番号の形は通り方で、丸がなめらか、ひし形が弾むです。番号を押すとその視点へ移ります。「ゴースト」をオンにすると、同じ所に画像を半透明で重ねます。どちらも記録中・再生中は消えます。「シークバー」をオンにすると、フレームが2つ以上(1周 0.5 秒以上)ある間は、このタブを開いていれば止まっていても3Dビューの下に再生のバーが出ます(記録した操作が入っているときは出ません)。バーを押すと、その時刻で一時停止した状態から再生が始まり(一覧が今の動きと違えば作り直します)、▶ で続きから流れます。各フレームの番号を押すとその時刻へ移ります(キーボードでは PageUp・PageDown)。</p>
+              <p id="keyHelp" class="help-text" hidden>視点(回転・ズーム・画像の位置)を順に通り、最後から最初へ戻ってくり返す動きを作ります。画像の位置が動くと揺れます。フレームの間の秒数は、次のフレームまでの時間です(最後の後の ↩ は、最初へ戻るまでの時間)。「通り方」は、そのフレームを、なめらか(止まらず通り抜ける)か、弾む(勢いよく着いて止まり、揺れる)かを選びます。行の左端の点をドラッグすると順番を入れ替えられます(間の秒数は場所に残ります)。点を選んで ↑↓ キーでも動かせます。「登録する」を押すと、この並びの動きを上のアニメーションの動きとして登録し、再生が始まります(元に戻せます)。今の動きがキーフレームで作ったものなら、一覧を直したあと上の「再生」を押しても作り直します。「経路」をオンにすると、1番のフレームの視点をカメラとして止めたまま画像のほうが動くとみなし、各フレームで画像が来る所を枠で、順番を番号で、画像の中心の動きを矢印と秒数で3Dビューに重ねます。1番の視点から見ると、そのカメラで映る並びになります。視点を動かすと横や上からも見られます。番号の形は通り方で、丸がなめらか、ひし形が弾むです。番号を押すとその視点へ移ります。「ゴースト」をオンにすると、同じ所に画像を半透明で重ねます。どちらも記録中・再生中は消えます。「シークバー」をオンにすると、フレームが2つ以上(1周 0.5 秒以上)ある間は、このタブを開いていれば止まっていても3Dビューの下に再生のバーが出ます(記録した操作が入っているときは出ません)。バーを押すと、その時刻で一時停止した状態から再生が始まり(一覧が今の動きと違えば作り直します)、▶ で続きから流れます。各フレームの番号を押すとその時刻へ移ります(キーボードでは PageUp・PageDown)。</p>
               <div class="key-row key-head text-xs opacity-60" aria-hidden="true"><span></span><span>#</span><span>通り方</span><span></span><span></span></div>
               <ol id="keyList" class="flex flex-col gap-1" aria-label="キーフレーム一覧"></ol>
               <div class="flex flex-wrap items-center gap-2">
-                <button id="keyMake" type="button" class="btn btn-sm" title="この並びの動きを作ってアニメーションの動きにし、再生する(元に戻せる)">この並びで作る</button>
+                <button id="keyMake" type="button" class="btn btn-sm" title="この並びの動きをアニメーションの動きとして登録し、再生する(元に戻せる)">登録する</button>
                 <span id="keyTotal" class="text-xs opacity-70 tabular-nums"></span>
               </div>
             </section>
@@ -549,17 +547,22 @@
 
 <!-- 膨らませる。視点を回して確かめられるよう、ほかの操作を止めないダイアログとして開く(show) -->
 <dialog id="inflateDialog" class="float-panel bg-base-100 text-base-content rounded-box shadow-2xl border border-base-300 p-4">
-  <h3 id="inflTitle" class="font-bold text-lg">範囲を膨らませる</h3>
+  <!-- 見出し(つかんで動かす)と、たたむボタン。たたむと高さと適用・キャンセルだけにする(ui/inflateDialog.ts) -->
+  <div id="inflHead" class="flex items-center gap-2">
+    <h3 id="inflTitle" class="font-bold text-lg flex-1 min-w-0">範囲を膨らませる</h3>
+    <button id="inflCompact" type="button" class="btn btn-ghost btn-xs btn-square" aria-pressed="false"></button>
+  </div>
   <p id="inflTarget" class="text-sm opacity-70 pt-1 pb-3"></p>
-  <div class="flex flex-col gap-2">
-    <div class="prop2"><span>形</span>
-      <select id="inflKind" class="select select-sm w-40"><option value="ellipse">楕円</option><option value="rect">矩形</option></select></div>
+  <div id="inflRows" class="flex flex-col gap-2">
+    <div class="prop2"><span class="prop-name">形<button type="button" class="help-btn" data-help="inflKindHelp"></button></span>
+      <select id="inflKind" class="select select-sm w-40"><option value="ellipse">楕円</option><option value="rect">矩形</option><option value="kamaboko">カマボコ</option></select></div>
+    <p id="inflKindHelp" class="help-text" hidden>楕円・矩形は、縁のどこからも中へ向かって盛り上がります。カマボコは、上下の辺からだけ盛り上がって横に稜線ができ、左右の端は切り立ちます。縦にしたいときは角度を 90° にします。</p>
     <div class="prop2"><span>大きさ</span>
       <div class="flex items-center gap-1">幅 <input id="inflW" type="number" min="2" max="8192" class="input input-sm w-20 text-right"> × 縦 <input id="inflH" type="number" min="2" max="8192" class="input input-sm w-20 text-right"> px</div></div>
     <div class="prop2"><span class="prop-name">角度<button type="button" class="help-btn" data-help="inflAngleHelp"></button></span>
       <div class="flex items-center gap-2"><input id="inflAngle" type="range" min="-90" max="90" step="1" class="range range-sm range-primary flex-1"><input id="inflAngleN" type="number" min="-90" max="90" class="input input-sm w-20 text-right"> °</div></div>
     <p id="inflAngleHelp" class="help-text" hidden>形を傾けます。正の値で時計回り、負の値で反時計回りです。傾けたまま範囲を描き直すと、ドラッグの始点と終点が傾いた形の対角の角になります。</p>
-    <div class="prop2"><span>高さ</span>
+    <div id="inflHeightRow" class="prop2"><span>高さ</span>
       <div class="flex items-center gap-2"><input id="inflHeight" type="range" min="0" max="1000" class="range range-sm range-primary flex-1"><input id="inflHeightN" type="number" min="0" max="1500" class="input input-sm w-20 text-right"> px</div></div>
     <div class="prop2"><span class="prop-name">縁のなだらかさ<button type="button" class="help-btn" data-help="inflSoftHelp"></button></span>
       <div class="flex items-center gap-2"><input id="inflSoft" type="range" min="0" max="100" class="range range-sm range-primary flex-1"><input id="inflSoftN" type="number" min="0" max="100" class="input input-sm w-20 text-right"> %</div></div>
@@ -571,8 +574,22 @@
         <input class="join-item btn btn-sm" type="radio" name="inflProfile" value="cone" aria-label="直線" title="まっすぐな斜面(台形・円すい)">
       </div></div>
     <p id="inflProfileHelp" class="help-text" hidden>ドーム: 断面が円弧で、丸く膨らみます。クッション: 縁も頂上もなめらかです。直線: まっすぐな斜面(台形・円すい)です。</p>
-    <div class="prop2"><span>重ね方</span>
+    <div class="prop2"><span class="prop-name">形を崩す<button type="button" class="help-btn" data-help="inflWarpHelp"></button></span>
+      <div class="flex items-center gap-3"><label class="flex items-center gap-2 cursor-pointer"><input id="inflCorner" type="checkbox" class="toggle toggle-sm"> 四隅を動かす</label><button id="inflWarpReset" type="button" class="btn btn-xs">四角に戻す</button></div></div>
+    <p id="inflWarpHelp" class="help-text" hidden>「四隅を動かす」をオンにすると、枠の角の丸い点を1つずつドラッグして、台形やゆがんだ四角にできます(楕円・矩形・カマボコのどれにも効きます)。崩したまま大きさ・位置・角度を変えると、崩した形ごと変わります。「四角に戻す」か範囲を描き直すと、四隅のずれが元に戻ります(角の丸み・辺のふくらみはそのまま)。角の丸みと辺のふくらみは、矩形とカマボコで、四隅・4辺を同じだけ変えます。</p>
+    <div id="inflRoundRow" class="prop2"><span>角の丸み</span>
+      <div class="flex items-center gap-2"><input id="inflRound" type="range" min="0" max="100" class="range range-sm range-primary flex-1"><input id="inflRoundN" type="number" min="0" max="100" class="input input-sm w-20 text-right"> %</div></div>
+    <div id="inflBulgeRow" class="prop2"><span>辺のふくらみ</span>
+      <div class="flex items-center gap-2"><input id="inflBulge" type="range" min="-100" max="100" class="range range-sm range-primary flex-1"><input id="inflBulgeN" type="number" min="-100" max="100" class="input input-sm w-20 text-right"> %</div></div>
+    <div class="prop2"><span class="prop-name">仕上げのぼかし<button type="button" class="help-btn" data-help="inflBlurHelp"></button></span>
+      <div class="flex items-center gap-2"><input id="inflBlur" type="range" min="0" max="100" class="range range-sm range-primary flex-1"><input id="inflBlurN" type="number" min="0" max="100" class="input input-sm w-20 text-right"> px</div></div>
+    <p id="inflBlurHelp" class="help-text" hidden>形を当てたあとに、今回の膨らみだけをこの半径でぼかしてから重ねます。0 でぼかしません。前に塗ったウェイトはぼかしません。縁は形の外へ少しにじみます。</p>
+    <div class="prop2"><span class="prop-name">ウェイトの重ね方<button type="button" class="help-btn" data-help="inflBlendHelp"></button></span>
       <select id="inflBlend" class="select select-sm w-40"><option value="max">重ねる(高い方)</option><option value="add">足す</option><option value="replace">置き換える</option></select></div>
+    <p id="inflBlendHelp" class="help-text" hidden>今回の膨らみを、レイヤーの今のウェイトとどう重ねるかです。重ねる: 高い方を残します。足す: 足し合わせます。置き換える: 範囲の中を今回の膨らみにします。</p>
+    <div class="prop2"><span class="prop-name">レイヤーの重ね方<button type="button" class="help-btn" data-help="inflLayerBlendHelp"></button></span>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1"><select id="inflLayerBlend" class="select select-sm w-32"></select><label class="flex items-center gap-1.5 text-sm cursor-pointer"><input id="inflNewLayer" type="checkbox" class="checkbox checkbox-sm"> 新しいレイヤーに作る</label></div></div>
+    <p id="inflLayerBlendHelp" class="help-text" hidden>膨らませる先のレイヤーが、ほかのレイヤーとどう重なるかです(右パネルのレイヤーの「重ね方」と同じ)。同じレイヤーに作るときは、その場でそのレイヤーの重ね方を変えます(キャンセルしても残ります)。新しいレイヤーに作るときは、そのレイヤーに効きます。「新しいレイヤーに作る」をオンにすると、高さがポップ量以下でも新しいレイヤーに作ります(オフなら、高さがポップ量を超えたときだけ)。</p>
   </div>
   <p id="inflNote" class="text-xs opacity-80 pt-3 leading-snug"></p>
   <div class="flex justify-end gap-2 mt-3">
@@ -646,9 +663,9 @@
       <p id="setPopMaxHelp" class="help-text" hidden>ポップ量と「膨らませる」の高さのスライダーの右端です(100〜1500px)。小さくするとスライダーで細かく動かせます。数値の欄には、この値を超えて 1500px まで打てます。</p>
     </section>
     <section id="setHideFullRow" class="flex flex-col gap-2 mt-4">
-      <h4 class="font-bold">UIを隠す</h4>
+      <h4 class="font-bold">全画面表示</h4>
       <div class="toggle-row"><span class="prop-name"><label for="setHideFull">ブラウザも全画面にする</label><button type="button" class="help-btn" data-help="setHideFullHelp"></button></span><input id="setHideFull" type="checkbox" class="toggle toggle-sm"></div>
-      <p id="setHideFullHelp" class="help-text" hidden>「UIを隠す」(Tab)を使ったときに、ブラウザのタブやアドレスバーも隠して画面全体に出します。Esc で全画面をやめると、UIも戻ります。</p>
+      <p id="setHideFullHelp" class="help-text" hidden>「全画面表示」(Tab)を使ったときに、ブラウザのタブやアドレスバーも隠して画面全体に出します。Esc でブラウザの全画面をやめると、全画面表示も終わります。</p>
     </section>
     <section class="flex flex-col gap-2 mt-4">
       <div class="flex items-center gap-2">
@@ -706,14 +723,14 @@
   <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
 
-<!-- UIを隠している間だけ右上に出すバー(ui/hideUi.ts)。アニメーションの再生・停止、自動で揺らす、お気に入り、UIを戻す。
+<!-- UIを隠している間だけ右上に出すバー(ui/hideUi.ts)。アニメーションの再生・停止、自動で揺らす、お気に入り、全画面を解除。
      PC ではマウスを動かすと少しの間だけ出し、スマホでは薄く出したままにする。再生と自動で揺らすの絵は ui/actions.ts が入れる -->
 <div id="viewBar" role="toolbar" aria-label="見ている間の操作">
   <button class="btn btn-ghost btn-sm btn-square" data-cmd="toggleAnimation" aria-label="アニメーションを再生"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
   <button class="btn btn-ghost btn-sm btn-square" data-cmd="toggleAutoSwing" data-pressed="autoSwing" data-icon="autoSwing" aria-label="自動で揺らす" aria-pressed="false"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
   <select id="viewFav" class="select select-sm w-36" aria-label="お気に入りに切り替える" title="お気に入りに切り替える"><option value="">お気に入り</option></select>
   <span class="quick-sep" aria-hidden="true"></span>
-  <button id="uiRestore" type="button" class="btn btn-ghost btn-sm" title="UIを戻す (Tab / Esc)"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4"/><path d="M15 4v5h5"/><path d="M9 20v-5H4"/><path d="M15 20v-5h5"/></svg>UIを戻す</button>
+  <button id="uiRestore" type="button" class="btn btn-ghost btn-sm" title="全画面表示を解除 (Tab / Esc)"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4"/><path d="M15 4v5h5"/><path d="M9 20v-5H4"/><path d="M15 20v-5h5"/></svg>全画面を解除</button>
 </div>
 
 <div id="toasts" class="toast toast-end toast-bottom z-50 mb-8"></div>

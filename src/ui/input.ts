@@ -11,14 +11,14 @@
  *   2本目の指を置くと、1本目で始めた塗り・範囲・つかむは取り消す。2本指タップで戻す、3本指タップでやり直す、
  *   画像の外のダブルタップで視点を戻す
  */
-import type { App } from '../app';
+import { WARP_MAX, type App } from '../app';
 import type { PaintMode } from '../paint/stroke';
 import { fineFactor, wheelFineFactor, wheelDelta, isPinchWheel, FINE, isFineLocked } from './fine';
 import { smoothZoom } from './smoothZoom';
 import { toast } from './dom';
 import { wrapAngle as wrapRad, VIEW_LIMITS, clampViewZoom as clampZoom, orbitCamera, panBy } from '../model/project';
 import { hitFrame, frameCursor, setRotSide, type FrameHit } from './inflateFrame';
-import { moveArea as shiftArea, resizeArea, roundArea, turnBetween, flippedAt, wrapAngle, type Area } from '../paint/areaEdit';
+import { moveArea as shiftArea, resizeArea, roundArea, toLocal, turnBetween, flippedAt, wrapAngle, type Area } from '../paint/areaEdit';
 
 /** 主ビューの拡大率の範囲(ホイール・ピンチ共通。Player と共通なので model/project.ts の VIEW_LIMITS に置く) */
 const ZOOM_MIN = VIEW_LIMITS.zoom.min, ZOOM_MAX = VIEW_LIMITS.zoom.max;
@@ -94,7 +94,7 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
   /** このドラッグで膨らませるのプレビューを始めたか(2本目の指で取り消すときは、始めたプレビューごと捨てる) */
   let areaBegan = false;
   /** プレビュー中の範囲を描き直し始めたときの範囲(2本目の指で描き直しをやめたら、これに戻す) */
-  let areaBefore: { x: number; y: number; w: number; h: number } | null = null;
+  let areaBefore: Area | null = null;
   const touchCenter = () => {
     let x = 0, y = 0;
     for (const p of touches.values()) { x += p.x; y += p.y; }
@@ -352,7 +352,7 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     areaStart = { x: p.x, y: p.y };
     areaBegan = false;
     const prev = app.inflateState?.area;
-    areaBefore = prev ? { x: prev.x, y: prev.y, w: prev.w, h: prev.h } : null;
+    areaBefore = prev ? { x: prev.x, y: prev.y, w: prev.w, h: prev.h, warp: prev.warp ?? null } : null;
     drag.mode = 'area';
     app.holdImage(true);
   }
@@ -384,7 +384,15 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
       app.updateInflate({ settings: { angle } });
     }
     else if (f.hit.kind === 'move') app.updateInflate({ area: shiftArea(f.area, f.start, p) });
-    else {
+    else if (f.hit.kind === 'corner') {
+      // 掴んだ角だけを、動かした分だけずらす(形の軸で、半径を 1 とした座標。y は形の下が正)
+      const s0 = toLocal(f.area, f.angle, f.start), q = toLocal(f.area, f.angle, p);
+      const dx = (q.lu - s0.lu) / (f.area.w / 2), dy = -(q.lv - s0.lv) / (f.area.h / 2);
+      const warp = [...(f.area.warp ?? [0, 0, 0, 0, 0, 0, 0, 0])], i = f.hit.index * 2;
+      const clamp = (v: number) => Math.max(-WARP_MAX, Math.min(WARP_MAX, v));
+      warp[i] = clamp(warp[i] + dx); warp[i + 1] = clamp(warp[i + 1] + dy);
+      app.updateInflate({ area: { warp } });
+    } else {
       const fromCenter = e.altKey || alt, h = f.hit.handle;
       app.updateInflate({ area: roundArea(resizeArea(f.area, f.angle, h, f.start, p, { keepAspect: e.shiftKey, fromCenter }), f.angle, h, fromCenter) });
     }
@@ -401,7 +409,8 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     if (e.shiftKey) w = h = Math.max(w, h);
     if (w < 2 || h < 2) return;
     const hu = Math.sign(lu || 1) * w / 2, hv = Math.sign(lv || 1) * h / 2;
-    const area = { x: areaStart.x + hu * c + hv * n, y: areaStart.y - hu * n + hv * c, w: Math.round(w), h: Math.round(h) };
+    // 描き直すと、四隅を動かして崩した形は四角に戻す
+    const area = { x: areaStart.x + hu * c + hv * n, y: areaStart.y - hu * n + hv * c, w: Math.round(w), h: Math.round(h), warp: null };
     if (app.previewingInflate) app.updateInflate({ area });
     else if (app.beginInflateArea(area)) areaBegan = true;
     else { drag.mode = null; areaStart = null; app.holdImage(false); }

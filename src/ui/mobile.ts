@@ -74,7 +74,7 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
     for (const s of slotEls) move(s.el, pane(s.tab), s.prepend);
     move(ui.inflateDialog, pane('tool'));
     for (const el of document.querySelectorAll('[data-brush-opt]')) move(el, ui.mBrushOpts);
-    // 膨らみの、次に描くときの設定(特に角度はドラッグの向きを変えるので、描く前に見えるようにする)
+    // 膨らみの、次に描くときの設定(ウェイトの重ね方。範囲ごとの項目は描く前は押せないので style.css で隠す)
     for (const el of document.querySelectorAll('[data-inflate-opt]')) move(el, ui.mInflOpts);
     // 3面図は縦長の画面では狭すぎるので使わない。塗りのツールのまま来たら、主のツールにする
     if (app.view.multi) app.setViewOption('multi', false);

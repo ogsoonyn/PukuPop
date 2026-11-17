@@ -1,6 +1,6 @@
 /** E2E: 塗る・ぼかす・膨らませる・重ね方 */
 import { test, expect } from '@playwright/test';
-import { watchGlErrors, boot, weightSum, dragOnStage, nextFrames } from './helpers';
+import { watchGlErrors, boot, weightSum, dragOnStage, nextFrames, openTab } from './helpers';
 
 watchGlErrors();
 
@@ -144,12 +144,9 @@ test('膨らませる: 角度で形を傾けられ、傾けたままドラッグ
   const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
   await app(a => { a.weightOp('全消去', (wm: any) => wm.clear()); a.resetView(); }); // 正面から見て、画面の横を画像の横にそろえる
   await page.keyboard.press('i');
-  // 上のオプション欄で、描く前に角度を決める(次に描くときの設定としてブラウザに覚える)
-  const opt = page.locator('#tInflAngle');
-  await expect(opt).toBeVisible();
-  await opt.fill('45');
-  await expect(page.locator('#tInflAngleO')).toHaveText('45°');
-  expect(await app(a => a.inflateSettings.angle)).toBe(45);
+  // 角度は上の欄に出さない(枠の回転ハンドルとパネルで変える)。前に適用した角度は次に描くときも使う
+  await expect(page.locator('#tInflBlend')).toBeVisible();
+  await app(a => { a.inflateSettings = { ...a.inflateSettings, angle: 45 }; });
 
   // 画面で真横にドラッグすると、45° 傾いた正方形の対角になる(幅と縦がほぼ同じ)
   await dragOnStage(page, [0.4, 0.5], [0.6, 0.5]);
@@ -168,7 +165,6 @@ test('膨らませる: 角度で形を傾けられ、傾けたままドラッグ
   await expect.poll(() => app(a => a.inflateState.settings.angle)).toBe(-30);
   await expect.poll(shapeKey).not.toBe(key0);
   expect(await app(a => a.inflateState.area)).toEqual({ ...area, w: area.w * 2 });
-  await expect(opt).toHaveValue('-30');
 
   await page.locator('#inflApply').click();
   expect(await app(a => a.history.undoLabel)).toMatch(/^膨らませる\(楕円 \d+×\d+px・-30°・高さ \d+px\)$/);
@@ -241,6 +237,49 @@ test('膨らませる: 高さがポップ量を超えると新しいレイヤー
   expect(await app(a => a.history.canUndo)).toBe(false);
   await expect(page.locator('#pPopN')).toBeEnabled();
   await expect(page.locator('#pPopN')).toHaveValue('140');
+});
+
+test('膨らませる: パネルでカマボコ・仕上げのぼかし・レイヤーの重ね方・新しいレイヤーに作るを選べる', async ({ page }) => {
+  await boot(page);
+  const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
+  await app(a => { a.weightOp('全消去', (wm: any) => wm.clear()); a.resetView(); });
+  await page.locator('#view').focus();
+  await page.keyboard.press('i');
+  await dragOnStage(page, [0.4, 0.35], [0.6, 0.65]);
+  await expect(page.locator('#inflateDialog')).toHaveJSProperty('open', true);
+  await expect(page.locator('#inflLayerBlend')).toHaveValue('add');
+  await expect(page.locator('#inflNewLayer')).not.toBeChecked();
+
+  await page.locator('#inflKind').selectOption('kamaboko');
+  await page.locator('#inflBlurN').fill('8');
+  await expect.poll(() => app(a => [a.inflateState.settings.shape, a.inflateState.settings.blur])).toEqual(['kamaboko', 8]);
+  // 同じレイヤーの重ね方は、右パネルと同じくその場で変わる(別の1手)。右パネルで変えてもパネルに映る
+  await page.locator('#inflLayerBlend').selectOption('max');
+  await expect.poll(() => app(a => [a.activeLayer.blend, a.history.undoLabel])).toEqual(['max', '重ね方']);
+  await openTab(page, 'layer');
+  await expect(page.locator('#pBlend')).toBeEnabled();
+  await page.locator('#pBlend').selectOption('add');
+  await expect(page.locator('#inflLayerBlend')).toHaveValue('add');
+
+  // 新しいレイヤーに作る: 高さがポップ量以下でも新しいレイヤーに作る
+  await page.locator('#inflNewLayer').check();
+  await expect.poll(() => app(a => a.doc.layers.length)).toBe(2);
+  await expect(page.locator('#inflNote')).toContainText('「新しいレイヤーに作る」がオンなので、新しいレイヤー「膨らみ1」');
+  await page.locator('#inflLayerBlend').selectOption('max');
+  await page.locator('#inflApply').click();
+  expect(await app(a => a.history.undoLabel)).toMatch(/^膨らませる\(カマボコ \d+×\d+px・ぼかし 8px・高さ \d+px・新しいレイヤー「膨らみ1」\)$/);
+  expect(await app(a => a.doc.layers.map((l: any) => l.blend))).toEqual(['add', 'max']);
+  await page.locator('#view').focus();
+  await page.keyboard.press('Control+z');
+  expect(await app(a => a.doc.layers.length)).toBe(1);
+
+  // 次に描くときも、形・ぼかし・新しいレイヤーに作るは前回の適用の値で始まる
+  await dragOnStage(page, [0.4, 0.35], [0.6, 0.65]);
+  await expect(page.locator('#inflKind')).toHaveValue('kamaboko');
+  await expect(page.locator('#inflBlurN')).toHaveValue('8');
+  await expect(page.locator('#inflNewLayer')).toBeChecked();
+  await page.locator('#inflCancel').click();
+  expect(await app(a => a.doc.layers.length)).toBe(1);
 });
 
 test('膨らませる: レイヤーが上限の8枚なら新しいレイヤーは作らず、ポップ量の高さで止める', async ({ page }) => {
@@ -425,4 +464,35 @@ test('アルファから生成: 不透明な画素を含むメッシュのマス
   expect(r.opaqueCells).toBeGreaterThan(100);
   expect(r.bad).toBe(0);
   expect(r.far).toBe(0);
+});
+
+test('膨らませる: パネルをたたむと高さと適用・キャンセルだけになり、たたんだことを覚える', async ({ page }) => {
+  await boot(page);
+  const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
+  await app(a => { a.weightOp('全消去', (wm: any) => wm.clear()); a.resetView(); });
+  await page.keyboard.press('i');
+  await dragOnStage(page, [0.4, 0.4], [0.6, 0.6]);
+  const dlg = page.locator('#inflateDialog');
+  await expect(dlg).toHaveJSProperty('open', true);
+  const big = (await dlg.boundingBox())!;
+  await page.locator('#inflCompact').click();
+  await expect(page.locator('#inflCompact')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#inflHeightN')).toBeVisible();
+  await expect(page.locator('#inflApply')).toBeVisible();
+  await expect(page.locator('#inflCancel')).toBeVisible();
+  for (const id of ['#inflKind', '#inflW', '#inflAngleN', '#inflSoftN', '#inflBlur', '#inflBlend', '#inflLayerBlend', '#inflTarget']) await expect(page.locator(id)).toBeHidden();
+  const small = (await dlg.boundingBox())!;
+  expect(small.height).toBeLessThan(big.height / 2);
+  // たたんだまま高さを変えて適用できる
+  await page.locator('#inflHeightN').fill('40');
+  await page.locator('#inflApply').click();
+  await expect(dlg).toHaveJSProperty('open', false);
+  // 次に描いたときも、たたんだまま出る。広げると全部の項目に戻る
+  await dragOnStage(page, [0.3, 0.3], [0.5, 0.5]);
+  await expect(dlg).toHaveJSProperty('open', true);
+  await expect(page.locator('#inflKind')).toBeHidden();
+  await page.locator('#inflCompact').click();
+  await expect(page.locator('#inflKind')).toBeVisible();
+  await expect(page.locator('#inflCompact')).toHaveAttribute('aria-pressed', 'false');
+  await page.locator('#inflCancel').click();
 });

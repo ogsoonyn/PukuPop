@@ -133,7 +133,7 @@ function defineActions(app: App, d: ActionDeps) {
     rollLeftFine: { label: '視点を左に少し傾ける', keys: ['Shift+ArrowLeft'], run: () => app.rollBy(-ROLL_FINE), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 1° 傾ける' },
     rollRightFine: { label: '視点を右に少し傾ける', keys: ['Shift+ArrowRight'], run: () => app.rollBy(ROLL_FINE), enabled: () => !!app.doc, duringPreview: true, helpRow: '視点を左・右に 1° 傾ける' },
     toggleUi: {
-      label: 'UIを隠す', helpLabel: 'UIを隠す・戻す', keys: ['Tab'], desc: '3Dビューのほかを隠して、画面いっぱいに見せる。もう一度押すか Esc で戻す',
+      label: '全画面表示', helpLabel: '全画面表示・戻る', keys: ['Tab'], desc: '3Dビューのほかを隠して、画面いっぱいに見せる。もう一度押すか Esc で戻る',
       run: () => app.setUiHidden(!app.uiHidden), duringPreview: true,
       // スマホでは膨らませるのパネルが下のシートの中にあり、隠すと適用・キャンセルを押せなくなる
       enabled: () => !(app.previewing && document.documentElement.classList.contains('mobile')),

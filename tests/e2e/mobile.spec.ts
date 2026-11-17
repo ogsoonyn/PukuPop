@@ -314,6 +314,12 @@ test('「塗って直す」の膨らみで範囲を描くと「ツール」タ�
   await page.locator('[data-mtab="layer"]').click();
   await page.locator('#mPaintMode').click();
   await page.locator('#mTools [data-mtool="inflate"]').click();
+  // 描く前の欄は、ウェイトの重ね方だけ(範囲ごとの項目は描くまで押せないので出さない)。パネルをたたむボタンも出さない
+  const shown = (sel: string) => page.locator(sel).evaluate(el => getComputedStyle(el.closest('[data-inflate-opt]') ?? el).display !== 'none');
+  expect(await shown('#tInflBlend')).toBe(true);
+  expect(await shown('#tInflLayerBlend')).toBe(false);
+  expect(await shown('#tInflCorner')).toBe(false);
+  expect(await shown('#inflCompact')).toBe(false);
   const before = await weightSum(page);
   const [cx, cy] = await viewCenter(page);
   await swipe(cdp, [[cx - 60, cy - 40]], [[cx + 60, cy + 40]]);
