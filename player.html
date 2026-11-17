@@ -29,6 +29,8 @@
   <h1>PukuPop Player の確認用</h1>
   <div class="bar" id="controls">
     <button id="play" type="button">停止</button>
+    <button id="take" type="button">アニメーション</button>
+    <button id="swing" type="button">自動揺れ</button>
     <button id="rebuild" type="button">作り直し</button>
     <label>操作 <select id="interaction"><option value="view">view</option><option value="none">none</option></select></label>
     <label>ファイル <input id="file" type="file" accept=".pukupop,.popstage"></label>
@@ -37,7 +39,7 @@
   <div id="box"><canvas id="c"></canvas></div>
   <p id="state"></p>
   <p id="error"></p>
-  <p>ドラッグで回す。Ctrl+ホイール・ピンチでズーム。.pukupop をドロップしても開ける。</p>
+  <p>左ドラッグで平行移動、右ドラッグ・1本指で回す。Ctrl+ホイール・ピンチでズーム。ダブルクリックで視点を戻す。.pukupop をドロップしても開ける。</p>
 </main>
 <script type="module" src="/src/player/demo.ts"></script>
 </body>

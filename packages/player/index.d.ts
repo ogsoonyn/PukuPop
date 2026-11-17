@@ -31,7 +31,11 @@ export declare class PlayerError extends Error {
   constructor(code: PlayerErrorCode, message: string, options?: { cause?: unknown });
 }
 
-/** キャンバスの上で受ける操作。'none' は何も受けない(受け口を付けない)。'view' はドラッグで回し、Ctrl(⌘)+ホイールとピンチでズームする */
+/**
+ * キャンバスの上で受ける操作。'none' は何も受けない(受け口を付けない)。
+ * 'view' は、マウスの左ドラッグで平行移動・右ドラッグで回す、1本指で回す・2本指で平行移動とピンチのズーム、
+ * Ctrl(⌘)+ホイールでズーム、ダブルクリック・ダブルタップで視点を戻す
+ */
 export type PlayerInteraction = 'none' | 'view';
 
 export interface PlayerOptions {
@@ -95,6 +99,21 @@ export interface Player {
   play(): void;
   /** その姿のまま止める(動画の一時停止と同じ)。止めている間は物理も描画も進めない(視点の操作と大きさの変化では1回描き直す) */
   pause(): void;
+  /**
+   * 記録(info.takeSeconds が 0 より大きいときにある動き)をループ再生する状態か。記録が無ければいつも false。
+   * pause() している間も、記録の再生を止めていなければ true(play() で記録の続きから動く)
+   */
+  readonly takePlaying: boolean;
+  /**
+   * 記録のループ再生を始める・止める。始めると記録の初めから再生する(すでに再生する状態なら何もせず、初めには戻さない)。止めると、その時点の視点のまま、
+   * 自動で揺らす・視点を動かした勢いの揺れだけになる。play()・pause() とは別(pause() している間に始めても、play() するまで動かない)。
+   * 記録が無ければ何もせず false を返す
+   */
+  setTakePlaying(on: boolean): boolean;
+  /** 自動で揺らすが入っているか(初めはファイルの設定) */
+  readonly autoSwing: boolean;
+  /** 自動で揺らすを入れる・切る(ファイルには書き戻さない)。setFavorite を呼ぶと、そのお気に入りの設定に変わる */
+  setAutoSwing(on: boolean): void;
   /**
    * お気に入りの揺れ・動きに切り替える(レイヤーのポップ量・重ね方・揺れ、自動揺らし、記録、画角、視点)。
    * 再生していたときに残したお気に入りなら、記録をループ再生する。動いているか止めているかは変えない。

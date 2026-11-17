@@ -24,8 +24,8 @@ test('設定でツールバーのボタンを1つずつ隠せる。隠しても�
   await boot(page);
   await openSettings(page);
   await expect(page.locator('#settingsDialog')).toBeVisible();
-  // 初めは、開く・保存・書き出しのほかを全部出す
-  await expect(page.locator('#setToolbarList input:not(:checked)')).toHaveCount(3);
+  // 初めは、開く・保存・書き出し・ポップOFF・揺れ停止のほかを全部出す
+  await expect(page.locator('#setToolbarList input:not(:checked)')).toHaveCount(5);
   for (const id of ['brush', 'view', 'pan', 'smoothAll', 'normalize', 'invert']) await box(page, id).uncheck();
   for (const id of ['brush', 'view', 'pan', 'smoothAll']) await expect(nav(page, id)).toBeHidden();
   await expect(nav(page, 'erase')).toBeVisible();
@@ -103,4 +103,41 @@ test('ファイルの操作とツールを全部隠しても、区切りが端�
   await expect(page.locator('#toolNav')).toBeHidden();
   await page.locator('#setToolbarReset').click();
   await expect(page.locator('#toolNav')).toBeVisible();
+});
+
+test('ポップOFF・揺れ停止は、既定では隠し、設定で出せる。押すと切り替わり、入・切を aria-pressed に映す', async ({ page }) => {
+  await boot(page);
+  const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
+  for (const id of ['toggleFlat', 'togglePause']) await expect(nav(page, id)).toBeHidden();
+  await openSettings(page);
+  for (const id of ['toggleFlat', 'togglePause']) { await expect(box(page, id)).not.toBeChecked(); await box(page, id).check(); }
+  await page.keyboard.press('Escape');
+  // 表示のまとまりの、画像を薄くの次に並ぶ
+  const shown = await page.locator('#toolNav .nav-group[aria-label=表示に効く操作] [data-nav]:visible').evaluateAll(els => els.map(e => (e as HTMLElement).dataset.nav));
+  const at = shown.indexOf('toggleFade');
+  expect(shown.slice(at, at + 3)).toEqual(['toggleFade', 'toggleFlat', 'togglePause']);
+  const flat = nav(page, 'toggleFlat'), pause = nav(page, 'togglePause');
+  await expect(flat).toHaveAccessibleName('ポップを一時OFF');
+  await expect(flat).toHaveAttribute('title', /\(F\)/);
+  await expect(flat).toHaveAttribute('aria-pressed', 'false');
+  await flat.click();
+  await expect(flat).toHaveAttribute('aria-pressed', 'true');
+  expect(await app(a => a.view.flat)).toBe(true);
+  // E2E では揺れを一時停止した状態で始まる
+  const paused = await app(a => a.paused);
+  await expect(pause).toHaveAttribute('aria-pressed', String(paused));
+  await pause.click();
+  await expect(pause).toHaveAttribute('aria-pressed', String(!paused));
+  expect(await app(a => a.paused)).toBe(!paused);
+  // キーで切り替えてもボタンに映る
+  await page.locator('#view').focus();
+  await page.keyboard.press('p');
+  await expect(pause).toHaveAttribute('aria-pressed', String(paused));
+  await page.keyboard.press('f');
+  await expect(flat).toHaveAttribute('aria-pressed', 'false');
+  // 出したことを覚えている
+  await page.waitForTimeout(400);
+  await page.goto('/?e2e');
+  await page.waitForFunction(() => (window as any).popstage?.doc);
+  for (const id of ['toggleFlat', 'togglePause']) await expect(nav(page, id)).toBeVisible();
 });

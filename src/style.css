@@ -188,6 +188,9 @@ html.mobile #mTop:not([hidden]) { display: flex !important; }
 .m-icon:active { background: var(--color-base-200); }
 .m-icon:disabled { opacity: .3; }
 #mAuto[aria-pressed="true"] { color: var(--color-primary); }
+/* ツールオプションの欄の右端のよく使う操作。自動で揺らすが入っている間は色を付ける。UIを隠す・設定とは細い線で分ける */
+#quickActs [aria-pressed="true"] { color: var(--color-primary); background: color-mix(in oklab, var(--color-primary) 15%, transparent); }
+.quick-sep { width: 1px; height: 1.1rem; margin-inline: .25rem; background: color-mix(in oklab, var(--color-base-content) 20%, transparent); }
 
 /* 3Dビューは、シートに隠れない所までに縮める(画像がシートの下に入らないように) */
 html.mobile #stageWrap { margin-bottom: var(--m-sheet); }
@@ -356,13 +359,17 @@ html.ui-hidden body > main { padding-bottom: 0; }
 /* 右上の「UIを戻す」に重ねない */
 html.mobile.ui-hidden #toasts { top: calc(env(safe-area-inset-top, 0px) + 3.25rem); }
 html.mobile.ui-hidden[data-mset] #playBar { bottom: calc(env(safe-area-inset-bottom, 0px) + .625rem); }
-/* PC ではマウスを動かしている間だけ、戻すボタンとシークバーを出す(キーボードで触っている間も出す) */
-#uiRestore { display: none; }
-html.ui-hidden #uiRestore { display: inline-flex; position: fixed; top: max(.75rem, env(safe-area-inset-top, 0px)); right: max(.75rem, env(safe-area-inset-right, 0px)); z-index: 45; gap: .375rem; background: color-mix(in oklab, var(--color-base-100) 82%, transparent); backdrop-filter: blur(6px); box-shadow: 0 2px 10px rgb(0 0 0 / .12); }
-html.ui-hidden #uiRestore, html.ui-hidden #playBar { transition: opacity .2s; }
-html.ui-hidden:not(.mobile):not(.ui-peek) #uiRestore:not(:focus-visible),
+/* 右上のバー(再生・自動で揺らす・お気に入り・UIを戻す)。お気に入りが無いファイルでは選ぶ欄を出さない(ui/hideUi.ts が hidden にする) */
+#viewBar { display: none; }
+html.ui-hidden #viewBar { display: flex; align-items: center; gap: .125rem; position: fixed; top: max(.75rem, env(safe-area-inset-top, 0px)); right: max(.75rem, env(safe-area-inset-right, 0px)); z-index: 45; max-width: calc(100vw - 1.5rem); padding: .25rem; border-radius: .75rem; background: color-mix(in oklab, var(--color-base-100) 82%, transparent); backdrop-filter: blur(6px); box-shadow: 0 2px 10px rgb(0 0 0 / .12); }
+#viewBar #uiRestore { gap: .375rem; }
+#viewBar [aria-pressed="true"] { color: var(--color-primary); background: color-mix(in oklab, var(--color-primary) 15%, transparent); }
+#viewFav { min-width: 0; }
+/* PC ではマウスを動かしている間だけ、右上のバーとシークバーを出す(キーボードで触っている間も出す) */
+html.ui-hidden #viewBar, html.ui-hidden #playBar { transition: opacity .2s; }
+html.ui-hidden:not(.mobile):not(.ui-peek) #viewBar:not(:has(:focus-visible)),
 html.ui-hidden:not(.mobile):not(.ui-peek) #playBar:not(:has(:focus-visible)) { opacity: 0; pointer-events: none; }
-html.mobile.ui-hidden #uiRestore { opacity: .75; }
+html.mobile.ui-hidden #viewBar { opacity: .75; }
 
 /* ---------- 右パネルの開閉(ui/sidePanel.ts)。3Dビューの右上に、パネルの絵のボタンを出す(開いても閉じても同じ所) ---------- */
 #panelToggle {

@@ -43,6 +43,10 @@ export const ICONS = {
   keyGhost: '<rect x="3" y="3" width="12" height="12" rx="1.5" stroke-dasharray="2.5 2"/><rect x="9" y="9" width="12" height="12" rx="1.5"/>',
   // 自動で揺らす(波)。スマホの上のバーの #mAuto と同じ形
   autoSwing: '<path d="M3 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/>',
+  // ポップを一時OFF(膨らみを点線にして、平らな線を引く)
+  flat: '<path d="M3 18h18"/><path d="M5 18c0-6 3-10 7-10s7 4 7 10" stroke-dasharray="2.5 2.5"/>',
+  // 揺れを一時停止(波と一時停止の印)
+  pause: '<path d="M2 12c2-4 4-4 6 0s3 3 4 0"/><path d="M16 7v10"/><path d="M21 7v10"/>',
   // お気に入りに追加(星)
   favorite: '<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
   // お気に入りを今の状態で上書きする(下向きの矢印を受け皿へ)

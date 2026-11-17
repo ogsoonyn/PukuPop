@@ -69,9 +69,9 @@ function defineActions(app: App, d: ActionDeps) {
   };
   return {
     // ファイル
-    // プロジェクト(.pukupop)も画像も同じ「開く」で開く(中身で見分ける)。Ctrl+Shift+O は前の「画像を開く」のキー
-    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O', 'Ctrl+Shift+O'], run: d.openProject, enabled: roomForTab, blocked: tabsFull },
-    recent: { label: '最近開いたファイル', run: d.openRecent, enabled: roomForTab, blocked: tabsFull },
+    // プロジェクト(.pukupop)も画像も同じ「開く」で開く(中身で見分ける)。Ctrl+Shift+O は前は「画像を開く」のキーで、今は最近開いたファイル
+    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O'], run: d.openProject, enabled: roomForTab, blocked: tabsFull },
+    recent: { label: '最近開いたファイル', keys: ['Ctrl+Shift+O'], run: d.openRecent, enabled: roomForTab, blocked: tabsFull },
     save: { label: '保存', keys: ['Ctrl+S'], run: () => app.save(false), enabled: () => !!app.doc },
     saveAs: { label: '名前を付けて保存', keys: ['Ctrl+Shift+S'], run: () => app.save(true), enabled: () => !!app.doc },
     export: { label: '書き出し', keys: ['Ctrl+E'], run: d.openExport, enabled: () => !!app.doc },
@@ -154,6 +154,16 @@ function defineActions(app: App, d: ActionDeps) {
       run: () => { if (app.takeState === 'playing') app.stopTake(); else app.playKeys(); },
       enabled: () => (app.takeState === 'playing' && !app.exporting) || app.canPlayKeys,
     },
+    // UIを隠している間の右上のバー(ui/hideUi.ts)の再生ボタン。キーフレームを再生できればそれを、できなければ記録をループ再生する
+    toggleAnimation: {
+      label: 'アニメーションの再生・停止', desc: 'キーフレームの動き(無ければ記録した操作)をループ再生する。再生中は止める',
+      run: () => {
+        if (app.takeState === 'playing') app.stopTake();
+        else if (app.canPlayKeys) app.playKeys();
+        else app.playTake();
+      },
+      enabled: () => !app.exporting && (app.takeState === 'playing' || app.canPlayKeys || (app.takeState === 'idle' && !!app.project.take)),
+    },
     toggleKeyPath: {
       label: 'キーフレームの経路', desc: '各フレームの枠と経路を3Dビューに重ねる',
       run: () => { const on = !app.keyOverlay.path; app.setKeyOverlay('path', on); if (on) d.showKeyFrames(); }, duringPreview: true,
@@ -234,6 +244,9 @@ const NAV_ACTIONS: readonly NavGroup[] = [
     items: [
       { cmd: 'toggleOverlay', icon: 'overlay', text: 'ウェイト', check: 'overlay', name: 'ウェイトの重ね表示' },
       { cmd: 'toggleFade', icon: 'fade', text: '画像を薄く', check: 'fade' },
+      // 見栄えを確かめるときに切り替える。キー(F・P)でも使えるので、既定では隠す(出すと低い画面ではツールバーがスクロールする)
+      { cmd: 'toggleFlat', icon: 'flat', text: 'ポップOFF', check: 'flat', name: 'ポップを一時OFF', defaultHidden: true },
+      { cmd: 'togglePause', icon: 'pause', text: '揺れ停止', check: 'pause', name: '揺れを一時停止', defaultHidden: true },
       { cmd: 'toggleMulti', icon: 'multi', text: '3面図', check: 'multi' },
       { cmd: 'toggleGrid', icon: 'grid', text: 'グリッド', check: 'grid' },
       { cmd: 'toggleTransparent', icon: 'transparent', text: '透過', check: 'transparent', name: '背景を透過' },
@@ -516,10 +529,13 @@ export function bindActions(app: App, deps: ActionDeps): void {
   /** 使えない理由の注意書き(data-blocked にコマンドの名前。メニューやダイアログの中に置き、使えない間だけ出す) */
   const blockedNotes = [...document.querySelectorAll<HTMLElement>('[data-blocked]')];
   for (const el of blockedNotes) if (!table[el.dataset.blocked!]?.blocked) throw new Error(`コマンド「${el.dataset.blocked}」に使えない理由がありません`);
-  // 左のツールバーと、スマホのシートの一番上・上のバー(同じボタンを作っている)
-  const navs = '#toolNav, #mNav, #mTop';
+  // 左のツールバーと、スマホのシートの一番上・上のバーと、PC のツールオプションの欄の右端(同じボタンを作っている)
+  // UIを隠している間の右上のバー(#viewBar)も同じ作り
+  const navs = '#toolNav, #mNav, #mTop, #quickActs, #viewBar';
   const pressables = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-pressed]`)];
-  const keyPlayButtons = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-cmd=toggleKeyPlay]`)];
+  // ツールオプションの欄の右端と、右上のバーのボタンの絵(再生の絵は下の refresh が入れる)
+  for (const b of document.querySelectorAll<HTMLElement>(':is(#quickActs, #viewBar) [data-icon]')) b.querySelector('svg')!.innerHTML = ICONS[b.dataset.icon as IconName];
+  const keyPlayButtons = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) :is([data-cmd=toggleKeyPlay], [data-cmd=toggleAnimation])`)];
   const overlayBadges = [...document.querySelectorAll<HTMLElement>(`:is(${navs}) [data-pressed=overlay] .nav-badge`)];
   /** 'status' でも呼ぶ(0.5 秒ごと)ので、変わったときだけ書く */
   const setText = (el: Element, text: string) => { if (el.textContent !== text) el.textContent = text; };
@@ -563,7 +579,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
       b.querySelector('svg')!.innerHTML = ICONS[playing ? 'stop' : 'play'];
       const l = b.querySelector('.nav-label'); // スマホの上のバーのボタンはアイコンだけ
       if (l) l.textContent = playing ? '停止' : '再生';
-      b.setAttribute('aria-label', playing ? '再生を止める' : 'キーフレームを再生');
+      b.setAttribute('aria-label', playing ? '再生を止める' : b.dataset.cmd === 'toggleAnimation' ? 'アニメーションを再生' : 'キーフレームを再生');
     }
     for (const el of pressables) {
       const v = String(on[el.dataset.pressed as ViewCheck]);
