@@ -33,6 +33,8 @@ export interface Action {
   hidden?: boolean;
   /** 使えないときの理由(ショートカットで押したときに知らせ、ボタンのツールチップに足す)。理由を出すほどでないときは null */
   blocked?: () => string | null;
+  /** 埋め込みモード(App.embedded)では使わない。使えなくし、メニュー・ボタンも隠す(style.css の data-embed-off) */
+  noEmbed?: boolean;
 }
 
 /** 画面の部品のうち、コマンドから開くもの */
@@ -61,7 +63,7 @@ function defineActions(app: App, d: ActionDeps) {
   const tabsFree = () => !app.busy && !pointerHeld;
   // タブが上限なら開く系は使えなくする(ファイルを選んだ後で断るのではなく、選ぶ前に分かるように)
   const roomForTab = () => app.canOpenTab;
-  const tabsFull = () => (app.canOpenTab ? null : TABS_FULL_NOTE);
+  const tabsFull = () => (app.canOpenTab || app.embedded ? null : TABS_FULL_NOTE);
   const animationToggle: Action = {
     label: 'アニメーションの再生・停止', desc: 'アニメーションの動き(キーフレームか記録した操作)をループ再生する。再生中は止める',
     run: () => {
@@ -79,16 +81,16 @@ function defineActions(app: App, d: ActionDeps) {
   return {
     // ファイル
     // プロジェクト(.pukupop)も画像も同じ「開く」で開く(中身で見分ける)。Ctrl+Shift+O は前は「画像を開く」のキーで、今は最近開いたファイル
-    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O'], run: d.openProject, enabled: roomForTab, blocked: tabsFull },
-    recent: { label: '最近開いたファイル', keys: ['Ctrl+Shift+O'], run: d.openRecent, enabled: roomForTab, blocked: tabsFull },
+    open: { label: '開く', desc: 'プロジェクト(.pukupop)か画像を開く', keys: ['Ctrl+O'], run: d.openProject, enabled: roomForTab, blocked: tabsFull, noEmbed: true },
+    recent: { label: '最近開いたファイル', keys: ['Ctrl+Shift+O'], run: d.openRecent, enabled: roomForTab, blocked: tabsFull, noEmbed: true },
     save: { label: '保存', keys: ['Ctrl+S'], run: () => app.save(false), enabled: () => !!app.doc },
-    saveAs: { label: '名前を付けて保存', keys: ['Ctrl+Shift+S'], run: () => app.save(true), enabled: () => !!app.doc },
+    saveAs: { label: '名前を付けて保存', keys: ['Ctrl+Shift+S'], run: () => app.save(true), enabled: () => !!app.doc, noEmbed: true },
     export: { label: '書き出し', keys: ['Ctrl+E'], run: d.openExport, enabled: () => !!app.doc },
-    sample: { label: 'サンプルを開く', run: () => app.whileOpening(() => app.loadSample()), enabled: () => !app.busy && roomForTab(), blocked: tabsFull },
+    sample: { label: 'サンプルを開く', run: () => app.whileOpening(() => app.loadSample()), enabled: () => !app.busy && roomForTab(), blocked: tabsFull, noEmbed: true },
     // タブ。Ctrl+W・Ctrl+Tab はブラウザが使うので Alt と組み合わせる
-    closeTab: { label: 'タブを閉じる', keys: ['Alt+W'], run: () => app.closeTab(), enabled: tabsFree },
-    nextTab: { label: '次のタブ', keys: ['Alt+PageDown'], run: () => app.stepTab(1), enabled: () => app.tabs.length > 1 && tabsFree(), helpRow: '次のタブ・前のタブ' },
-    prevTab: { label: '前のタブ', keys: ['Alt+PageUp'], run: () => app.stepTab(-1), enabled: () => app.tabs.length > 1 && tabsFree(), helpRow: '次のタブ・前のタブ' },
+    closeTab: { label: 'タブを閉じる', keys: ['Alt+W'], run: () => app.closeTab(), enabled: tabsFree, noEmbed: true },
+    nextTab: { label: '次のタブ', keys: ['Alt+PageDown'], run: () => app.stepTab(1), enabled: () => app.tabs.length > 1 && tabsFree(), helpRow: '次のタブ・前のタブ', noEmbed: true },
+    prevTab: { label: '前のタブ', keys: ['Alt+PageUp'], run: () => app.stepTab(-1), enabled: () => app.tabs.length > 1 && tabsFree(), helpRow: '次のタブ・前のタブ', noEmbed: true },
     // 編集
     undo: { label: '元に戻す', keys: ['Ctrl+Z'], run: () => app.history.undo(), enabled: () => app.history.canUndo && !app.stroking },
     redo: { label: 'やり直す', keys: ['Ctrl+Shift+Z', 'Ctrl+Y'], run: () => app.history.redo(), enabled: () => app.history.canRedo && !app.stroking },
@@ -347,7 +349,7 @@ export function bindActions(app: App, deps: ActionDeps): void {
 
   const enabled = (name: string): boolean => {
     const a = table[name];
-    if (!a) return false;
+    if (!a || (a.noEmbed && app.embedded)) return false;
     if (app.previewing && !a.duringPreview) return false;
     return !a.enabled || a.enabled();
   };
@@ -450,6 +452,8 @@ export function bindActions(app: App, deps: ActionDeps): void {
   for (const b of cmdButtons) {
     const name = b.dataset.cmd!, a = table[name];
     if (!a) throw new Error(`コマンド「${name}」がありません`);
+    // 埋め込みモードで使わないコマンドは隠す(メニューの項目は <li> ごと)
+    if (a.noEmbed && app.embedded) (b.parentElement?.localName === 'li' ? b.parentElement : b).setAttribute('data-embed-off', '');
     if (a.keys) {
       b.setAttribute('aria-keyshortcuts', ariaKeys(a.keys));
       const tk = b.querySelector('kbd.tool-key');
@@ -485,11 +489,12 @@ export function bindActions(app: App, deps: ActionDeps): void {
     }));
     const rows = new Map<string, string[]>();
     for (const a of Object.values(table)) {
-      if (!a.keys || a.hidden) continue;
+      if (!a.keys || a.hidden || (a.noEmbed && app.embedded)) continue;
       const row = a.helpRow ?? a.helpLabel ?? a.label;
       rows.set(row, [...(rows.get(row) ?? []), ...a.keys]);
     }
-    for (const h of HELP_ONLY_KEYS) rows.set(h.label, h.keys);
+    // 埋め込みモードでは貼り付けて開かない(main.ts)
+    if (!app.embedded) for (const h of HELP_ONLY_KEYS) rows.set(h.label, h.keys);
     // キーもマウスの操作と同じ書き方(キーの札)で出す
     ui.helpKeys.replaceChildren(...[...rows].flatMap(([label, keys]) => [
       Object.assign(document.createElement('span'), { textContent: label }),

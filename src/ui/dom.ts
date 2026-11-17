@@ -82,13 +82,9 @@ export function setBusy(on: boolean): void {
 /**
  * ファイルを保存する。Chrome 系では保存先を選ぶダイアログを使い、無ければダウンロードにする。
  * 戻り値は保存したハンドル(ダウンロード時は null)。キャンセル時は undefined。
+ * 決まった保存先へ上書きするのは、保存先(app/saveTarget.ts)が受け持つ。
  */
-export async function saveFile(blob: Blob, name: string, types: FilePickerAcceptType[], handle?: FileSystemFileHandle | null): Promise<FileSystemFileHandle | null | undefined> {
-  if (handle) {
-    const w = await handle.createWritable();
-    await w.write(blob); await w.close();
-    return handle;
-  }
+export async function saveFile(blob: Blob, name: string, types: FilePickerAcceptType[]): Promise<FileSystemFileHandle | null | undefined> {
   if (window.showSaveFilePicker) {
     try {
       const h = await retryWithClick(() => window.showSaveFilePicker!({ suggestedName: name, types }), '保存先を選ぶ…');

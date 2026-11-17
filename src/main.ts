@@ -33,6 +33,7 @@ import { QUOTA_MESSAGE } from './storage/persist';
 import { prefs, persistControls } from './storage/prefs';
 import { bindErrorReport, reportError } from './ui/errorReport';
 import { IMAGE_TYPES, isImageFile, isProjectFile, pastedImageFile } from './ui/imageio';
+import { bindEmbed } from './ui/embedSession';
 
 // 画面の要素をまとめて取る(index.html と ui/ids.ts の一覧が合わなければ、ここで止まる)
 initUI();
@@ -50,6 +51,14 @@ const params = new URLSearchParams(location.search);
 const e2e = params.has('e2e');
 /** E2E で自動保存の復元を試すときだけ、?e2e&restore で復元の確認を出す */
 const checkRestore = !e2e || params.has('restore');
+/**
+ * 埋め込みモード(Issue #146、src/app/embed.ts)。埋め込み用のビルド(vite build --mode embed)でだけ有効になる。
+ * 開発用のサーバーでは ?embed でも試せる(公開版のビルドには入らない)
+ */
+const embed = __EMBED__ || (import.meta.env.DEV && params.has('embed'));
+// コマンドの部品を結び付ける前に入れる(埋め込みモードで使わないコマンドを隠すため。ui/actions.ts)
+if (embed) { app.embedded = true; document.documentElement.classList.add('embed'); }
+const embedSession = embed ? bindEmbed(app) : null;
 (window as unknown as { popstage: App }).popstage = app;
 app.onFrameError = reportError;
 
@@ -164,16 +173,18 @@ bindMobileLayout(app);
 // 指で触ったスライダーは、横に引いたときだけ動かす(縦はスクロール。スマホの配置ではいつも)
 bindTouchSliders(() => document.documentElement.classList.contains('mobile'));
 
-/* ---------- ドラッグ&ドロップ ---------- */
+/* ---------- ドラッグ&ドロップ(埋め込みモードでは、クエリで受け取ったファイルだけを開くので開かない) ---------- */
 
 const anyDialogOpen = () => !!document.querySelector('dialog[open]');
 let dragDepth = 0;
 const showDrop = (on: boolean) => { ui.dropHint.classList.toggle('hidden', !on); ui.dropHint.classList.toggle('flex', on); };
-window.addEventListener('dragenter', e => { if (e.dataTransfer?.types.includes('Files')) { dragDepth++; showDrop(true); } });
-window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) showDrop(false); });
+if (!embed) window.addEventListener('dragenter', e => { if (e.dataTransfer?.types.includes('Files')) { dragDepth++; showDrop(true); } });
+if (!embed) window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) showDrop(false); });
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => {
+  // 埋め込みモードでも既定の動き(ブラウザがファイルを開いてページを離れる)は止める
   e.preventDefault(); dragDepth = 0; showDrop(false);
+  if (embed) return;
   const files = [...(e.dataTransfer?.files ?? [])], f = files.find(f => isImageFile(f) || isProjectFile(f));
   // ダイアログ(確認・書き出しなど)の表示中は、裏で別のファイルを開かない
   if (f && anyDialogOpen()) { toast('ダイアログを閉じてから、もう一度ドロップしてください。', 'warning'); return; }
@@ -190,7 +201,7 @@ window.addEventListener('drop', e => {
 
 // コピーした画像(スクリーンショットなど)を Ctrl+V で新しいタブに開く。ボタンは置かない(クリップボードの読み取りに許可の確認が出るため)
 window.addEventListener('paste', e => {
-  if (isTyping(e)) return;
+  if (embed || isTyping(e)) return;
   const f = [...(e.clipboardData?.files ?? [])].find(f => f.type in IMAGE_TYPES);
   if (!f) return;
   e.preventDefault();
@@ -227,7 +238,7 @@ app.on('view', refreshStatus);
 app.on('file', refreshTitle);
 app.on('tabs', refreshTitle);
 
-window.addEventListener('beforeunload', e => { if (app.anyDirty) e.preventDefault(); });
+window.addEventListener('beforeunload', e => { if (app.anyDirty && !embedSession?.leaving) e.preventDefault(); });
 new ResizeObserver(() => { app.stage.resize(); multiView.layout(); }).observe(canvas);
 // 大きさが変わらずに devicePixelRatio だけ変わる(モニターの移動など)ときも描画の倍率を読み直す。倍率ごとに登録し直す
 const watchPixelRatio = (): void => {
@@ -241,6 +252,8 @@ watchPixelRatio();
 async function boot(): Promise<void> {
   app.stage.resize();
   app.start();
+  // 埋め込みモードは、サンプル・自動保存からの復元の代わりに、クエリで受け取ったファイルを開く
+  if (embedSession) { await embedSession.open(); if (e2e) app.setPaused(true); return; }
   if (checkRestore && await restoreAutosaves()) return;
   await app.loadSample();
   if (e2e) app.setPaused(true);
@@ -291,6 +304,7 @@ void boot();
 
 /* ---------- ホーム画面に追加したとき、電波がなくても起動できるようにする ---------- */
 // 開発中(vite dev)と E2E では入れない。キャッシュが古い画面を返して確認の邪魔になるため
-if (import.meta.env.PROD && !e2e && 'serviceWorker' in navigator) {
+// 埋め込みモードでも入れない(埋め込む側のオリジンに service worker を残さない)
+if (import.meta.env.PROD && !e2e && !embed && 'serviceWorker' in navigator) {
   addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(e => console.warn('service worker を登録できませんでした', e)); });
 }

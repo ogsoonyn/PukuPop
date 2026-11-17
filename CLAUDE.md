@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 README は使う人向けに書き、開発者向けの詳細(テスト、公開の仕組み、構成など)は書かない。開発者向けの詳細は、ここと `.claude/rules/` に書く。機能の一覧は README の「主な機能」を見る。
 
-`docs/` は、使う人向けの README とも、エージェント向けの `.claude/` とも別の、`.pukupop` を自分のプログラムで読む開発者向けの文書を置く(今は保存形式の `docs/format.md` だけ)。保存形式(`src/storage/popstage.ts`・`project.json` に入る型・記録の形・上限)を変えたら、`docs/format.md` も直す(版・上限・パスの名前は `tests/unit/formatDoc.test.ts` が実装と突き合わせる)。
+`docs/` は、使う人向けの README とも、エージェント向けの `.claude/` とも別の、`.pukupop` を自分のプログラムで読む・PukuPop を自分のアプリに埋め込む開発者向けの文書を置く(保存形式の `docs/format.md` と、編集画面を埋め込むときの保存の口の `docs/embed.md`)。保存形式(`src/storage/popstage.ts`・`project.json` に入る型・記録の形・上限)を変えたら、`docs/format.md` も直す(版・上限・パスの名前は `tests/unit/formatDoc.test.ts` が実装と突き合わせる)。
 
 ## 開発の手がかり
 
@@ -30,6 +30,19 @@ npm run check:player-pack  # .tgz を OS の一時ディレクトリの空のプ
 - 型定義は手書き(`packages/player/index.d.ts`。内部の型・`inspect` を載せない)。実装と食い違うと、`npm run typecheck` が `tests/types/player-dts.ts` で、入口の名前の一覧の食い違いは `tests/unit/playerDts.test.ts` が見つける。Player の API を変えたら、d.ts・README・型のコメントを一緒に直す。
 - CI(`ci.yml`)も Player のビルド・確かめ・npm pack・空のプロジェクトでの確かめまで流す。ビルドした1本がブラウザで動くことは `tests/e2e/playerDist.spec.ts`(確認用のページに `?dist`)が見る。
 
+埋め込み用の編集画面(pukupop-editor、Issue #146)のビルドと配布は次のとおり。編集アプリそのものを `vite build --mode embed` でビルドし、埋め込みモード(`src/app/embed.ts`)を有効にしたもの。
+
+```sh
+npm run build:editor       # dist-editor/app/ に出し(vite.config.ts の --mode embed)、package.json・README・ライセンスを dist-editor/ にそろえる
+npm run check:editor       # ビルドの確かめ(相対パスの参照・sw.js が無い・埋め込みの口が入っている。dist/ があれば公開版に入っていないことも)
+npm run pack:editor        # 直下に pukupop-editor-<版>.tgz(npm pack)と .zip(同じ中身。静的ファイルを置くだけのサーバー向け)を作る
+npm run check:editor-pack  # .tgz を空のプロジェクトに入れ、.zip と中身が同じことを確かめる
+```
+
+- 配り方は Player と同じ(`editor-v<版>` のタグ → `.github/workflows/release-editor.yml` が `.tgz` と `.zip` を添付する。同じタグは差し替えない。タグの確かめは Player と共有の `scripts/release-tag-check.mjs`)。
+- 版の元は `packages/editor/package.json` の `version` だけ。上げたら `packages/editor/README.md` の入れ方の URL も直す(`tests/unit/editorPackage.test.ts` が確かめる)。埋め込みのクエリ・サーバーとのやりとりを変えたら、README の表と `docs/embed.md` も直す。
+- 埋め込みモードは、ビルドの `__EMBED__`(`--mode embed` のときだけ true)で有効になる。公開版のビルドには入らない(`check:editor` が見る)。開発用のサーバーでは `?embed` でも試せる(`tests/e2e/embed.spec.ts`)。ビルドしたものをサブパスに置いて動くことは `tests/e2e/embedDist.spec.ts` が見る。
+
 | ディレクトリ | 役割 |
 | --- | --- |
 | `src/model` | ドキュメントモデル(Project / Document / Layer)、ウェイトマップ、変更通知 |
@@ -41,10 +54,11 @@ npm run check:player-pack  # .tgz を OS の一時ディレクトリの空のプ
 | `src/export` | フレーム単位の書き出し |
 | `src/playback` | 再生のつなぎ(物理の結果を Stage へ当てる、記録のループ再生)。編集アプリと再生専用の部品で共有する |
 | `src/ui` | 画面の部品(入力、パネル、ダイアログ、3面図) |
-| `src/app` | 編集アプリだけの部品(タブ、自動保存、記録を取る側、キーフレームの下書き、膨らませる・全体ぼかしのプレビュー、新しい画像の既定) |
+| `src/app` | 編集アプリだけの部品(タブ、保存先(ファイル・サーバー)、埋め込みモードのクエリとサーバーとのやりとり、自動保存、記録を取る側、キーフレームの下書き、膨らませる・全体ぼかしのプレビュー、新しい画像の既定) |
 | `src/player` | 埋め込み用の再生専用の部品(Player、Issue #127)。`index.ts` が入口。リポジトリの直下の `player.html` と `src/player/demo.ts` は、開発用のサーバーで開く確認用のページ(`/player.html`。本番のビルドには入らない。`?e2e` で自動の読み込みを止める) |
 | `packages/player` | Player のライブラリの配布物の元: `package.json`(名前 `pukupop-player`・版の元)、埋め込み先の開発者向けの `README.md`、手書きの型定義 `index.d.ts` |
-| `scripts` | アイコンの生成と、Player のライブラリのスクリプト(`player-*.mjs`: 配布物をそろえる・ビルドの確かめ・npm pack・空のプロジェクトでの確かめ・リリースのタグの確かめ) |
+| `packages/editor` | 埋め込み用の編集画面の配布物の元: `package.json`(名前 `pukupop-editor`・版の元)、埋め込む側の開発者向けの `README.md` |
+| `scripts` | アイコンの生成と、Player のライブラリ(`player-*.mjs`)・埋め込み用の編集画面(`editor-*.mjs`)のスクリプト(配布物をそろえる・ビルドの確かめ・npm pack・空のプロジェクトでの確かめ・リリースのタグの確かめ)、同梱したパッケージのライセンスの表記を出す Vite のプラグイン(`third-party-licenses.ts`) |
 | `src/app.ts` | 各モジュールをつなぐ本体。画面の部品と E2E(`window.popstage`)が使う公開面を持ち、中身は `src/playback`・`src/app` へ委ねる |
 
 - `model` / `commands` / `paint` / `physics` / `storage` は DOM と three.js を参照しない。ブラウザ無しで単体テストできるようにするため。
@@ -53,10 +67,12 @@ npm run check:player-pack  # .tgz を OS の一時ディレクトリの空のプ
 - `src/player` は渡されたキャンバスの外に触らない。`window` / `document` に受け口を付けず(ポインタはキャンバスで受けて `setPointerCapture`)、キャンバスの親要素のクラス・スタイルを変えず(背景は WebGL の消去の色だけ)、service worker・IndexedDB・localStorage を使わない。console へは失敗のときだけ出す。モジュールを読んだだけで `window` に受け口を付けるファイル(`src/ui/fine.ts` など)も import しない。大きさを追う `ResizeObserver` はキャンバスの要素だけを見るので約束の範囲(`window` の `resize` は使わない。通知の中では大きさを当てず次のフレームに回し(埋め込み先の `window` に ResizeObserver のループのエラーを出さないため)、変えるのは描画バッファの大きさだけで、CSS の大きさは書かない)。
 - Player の API の決まり: `dispose()` したキャンバスは使い回さない(使えないキャンバス・ほかの Player が使っているキャンバスは `PlayerError` の `canvas-unusable` で断る。自分が `dispose()` したキャンバスは覚えておき、three.js を呼ぶ前に断る)。キャンバスの大きさは埋め込み先が CSS で決める(CSS で決めていないキャンバスでは、大きさが変わり続けないよう倍率を掛けずに描く)。大きさは既定で自動で追い(`autoResize`)、`resize()` は引数なしで測り直すだけ。`signal` で読み込みを取り消せ、失敗は `code` 付きの `PlayerError`。`createPlayer` は WebGL を作ってから返すまで await を挟まない(取り消し・読み込みの失敗でキャンバスを使えなくしないため)。返すオブジェクトは API だけにし、中身は確認用のページだけが `src/player/player.ts` の `inspect`(入口からは出さない)で見る。
 - `src/app` の部品は `App` の型を import せず、要る分だけの小さなインターフェースで受ける。
-- `develop` / `main` 向けの PR と `develop` への push では、GitHub Actions(`.github/workflows/ci.yml`)が型検査・単体テスト・ビルドを流す。E2E は流れない。
+- タブの保存先は `SaveTarget`(`src/app/saveTarget.ts`。ファイルの場所か、埋め込みモードのサーバー)。「保存」は保存先へ上書きし、保存先が無いとき・名前を付けて保存は選ぶ画面(かダウンロード)にする。同じファイルのタブの判定も `SaveTarget.isSame` で行う。
+- 埋め込みモード(`App.embedded`、Issue #146)では、クエリで受け取ったファイル1つだけを開く。サンプル・自動保存(と復元)・最近開いたファイル・保存領域の永続化・service worker・タブを増やす・閉じる・ほかのファイルを開く(メニュー・ドロップ・貼り付け)・名前を付けて保存を使わない。使わないコマンドは `actions.ts` の表の `noEmbed`。クエリとサーバーから受け取る URL は同じオリジンだけにする(`src/app/embed.ts`。外すと保存した中身が外へ出る)。
+- `develop` / `main` 向けの PR と `develop` への push では、GitHub Actions(`.github/workflows/ci.yml`)が型検査・単体テスト・ビルド(Player・埋め込み用の編集画面の配布物まで)を流す。E2E は流れない。
 - `main` へ push すると、GitHub Actions(`.github/workflows/deploy-pages.yml`)がテストとビルドを行い、GitHub Pages へ公開する(リポジトリを作り直したときは、Settings → Pages で Source を「GitHub Actions」にする)。ビルド結果は相対パスで参照し合う(`base: './'`)。
 - アプリアイコンは `scripts/icon-art.mjs` の SVG から作る。絵を変えたら `node scripts/make-icons.mjs` で `public/icons/` を作り直す。
-- service worker は `public/sw.js`。本番ビルドのときだけ登録する(`?e2e` 付きのときも登録しない)。
+- service worker は `public/sw.js`。本番ビルドのときだけ登録する(`?e2e` 付きのとき・埋め込みモードでは登録しない。埋め込み用の配布物には `sw.js` を入れない)。
 
 ## やりとり
 
@@ -69,7 +85,7 @@ npm run check:player-pack  # .tgz を OS の一時ディレクトリの空のプ
 - 実装が済んだら別のエージェントにレビューさせる。PR 前のレビューの指摘は、その PR の中で直す。直したら `develop` 向けの PR を作り、報告する。許可があれば、 `gh pr merge --merge` でマージする。
 - 頼まれたレビューで見つけた課題と、作業の範囲の外で見つけた課題は Issue に立てる。`develop` にマージして直った Issue は、PR の番号をコメントに書いて閉じてよい。
 - `main` へは `develop` からのリリース PR(タイトルは「リリース: …」)だけを、頼まれたときに作る。`main` への push はそのまま GitHub Pages への公開になる。
-- Player のリリースも頼まれたときだけ行う。`packages/player/package.json` の版(と README の URL)を上げた変更を `develop` → `main` のリリース PR で入れたあと、`main` のそのコミットに `player-v<版>` のタグを打って push する(`git tag player-v0.1.0 <main のコミット>` → `git push origin player-v0.1.0`)。タグは1つずつ push する(`git push --tags` などでまとめて push しない。GitHub は一度に3つを超えるタグの push ではワークフローを動かさない)。タグが `main` の履歴に無い・版が食い違う・形が違うと、ワークフローはリリースを作らずに失敗する。
+- Player・埋め込み用の編集画面のリリースも頼まれたときだけ行う(編集画面はタグが `editor-v<版>`、版の元が `packages/editor/package.json` で、手順は Player と同じ)。`packages/player/package.json` の版(と README の URL)を上げた変更を `develop` → `main` のリリース PR で入れたあと、`main` のそのコミットに `player-v<版>` のタグを打って push する(`git tag player-v0.1.0 <main のコミット>` → `git push origin player-v0.1.0`)。タグは1つずつ push する(`git push --tags` などでまとめて push しない。GitHub は一度に3つを超えるタグの push ではワークフローを動かさない)。タグが `main` の履歴に無い・版が食い違う・形が違うと、ワークフローはリリースを作らずに失敗する。
 - PR の本文には、変えたこと、動きが変わるところ、確認したこと(テストの件数と、落ちたテストとその理由)を書く。
 
 ## 手元の動作確認を乱さない

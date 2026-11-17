@@ -5,9 +5,9 @@
  */
 export const UI_IDS = {
   // スマホの上のバー
-  mTop: 'header', mTitle: 'button', mPlay: 'button', mAuto: 'button',
-  // メニューバー・ツールオプション
-  docTabs: 'div', toolMenu: 'ul',
+  mTop: 'header', mBack: 'button', mTitle: 'button', mPlay: 'button', mAuto: 'button',
+  // メニューバー・ツールオプション(embedBack は埋め込みモードの戻るボタン。ui/embedSession.ts)
+  embedBack: 'button', docTabs: 'div', toolMenu: 'ul',
   brushSize: 'input', brushSizeO: 'output', brushStrength: 'input', brushStrengthO: 'output',
   brushHardness: 'input', brushHardnessO: 'output', brushPressure: 'select', toolHint: 'span',
   tInflKind: 'select', tInflProfile: 'select', tInflSoft: 'input', tInflSoftO: 'output', tInflAngle: 'input', tInflAngleO: 'output', tInflBlend: 'select',

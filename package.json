@@ -16,7 +16,11 @@
     "build:player": "vite build --config vite.player.config.ts && node scripts/player-package.mjs",
     "check:player": "node scripts/player-check-build.mjs",
     "pack:player": "node scripts/player-pack.mjs",
-    "check:player-pack": "node scripts/player-check-pack.mjs"
+    "check:player-pack": "node scripts/player-check-pack.mjs",
+    "build:editor": "tsc --noEmit && vite build --mode embed && node scripts/editor-package.mjs",
+    "check:editor": "node scripts/editor-check-build.mjs",
+    "pack:editor": "node scripts/editor-pack.mjs",
+    "check:editor-pack": "node scripts/editor-check-pack.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",

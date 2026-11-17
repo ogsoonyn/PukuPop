@@ -3,6 +3,8 @@ import tailwindcss from '@tailwindcss/vite';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pkg from './package.json' with { type: 'json' };
+import editorPkg from './packages/editor/package.json' with { type: 'json' };
+import { thirdPartyLicenses } from './scripts/third-party-licenses.ts';
 
 /** 最後のコミットの日時(「PukuPop について」に出す)。git が無い所では空にする */
 function commitDate(): string {
@@ -11,14 +13,31 @@ function commitDate(): string {
   try { return execSync('git log -1 --format=%cI', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], cwd }).trim(); } catch { return ''; }
 }
 
-export default defineConfig({
-  // 静的ファイルとしてどこに置いても動くよう相対パスで出力する
-  base: './',
-  plugins: [tailwindcss()],
-  define: { __APP_VERSION__: JSON.stringify(pkg.version), __COMMIT_DATE__: JSON.stringify(commitDate()) },
-  build: { target: 'es2022', chunkSizeWarningLimit: 1500 },
-  test: {
-    include: ['tests/unit/**/*.test.ts'],
-    environment: 'node',
-  },
+/**
+ * `--mode embed` は、ほかのアプリに埋め込む編集画面のビルド(Issue #146。`npm run build:editor`)。
+ * 埋め込みモード(src/app/embed.ts)を有効にし(__EMBED__)、dist-editor/app/ に出す。
+ * 同梱したパッケージのライセンスの表記(THIRD-PARTY-LICENSES.txt)も出す(scripts/editor-package.mjs が配布物の直下へ移す)。
+ * 公開版(ふつうのビルド)では __EMBED__ が false なので、埋め込みの口はビルドに入らない
+ */
+export default defineConfig(({ mode }) => {
+  const embed = mode === 'embed';
+  return {
+    // 静的ファイルとしてどこに置いても動くよう相対パスで出力する(埋め込み用もサブパスに置ける)
+    base: './',
+    plugins: [tailwindcss(), ...(embed ? [thirdPartyLicenses(editorPkg.name)] : [])],
+    define: {
+      __APP_VERSION__: JSON.stringify(pkg.version),
+      __COMMIT_DATE__: JSON.stringify(commitDate()),
+      __EMBED__: JSON.stringify(embed),
+    },
+    build: {
+      target: 'es2022',
+      chunkSizeWarningLimit: 1500,
+      ...(embed ? { outDir: 'dist-editor/app', emptyOutDir: true } : {}),
+    },
+    test: {
+      include: ['tests/unit/**/*.test.ts'],
+      environment: 'node',
+    },
+  };
 });
