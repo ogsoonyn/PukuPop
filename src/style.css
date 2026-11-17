@@ -87,6 +87,8 @@ html.mobile #favList { max-height: 10rem; }
  * 絵を隠さないよう、右パネルや3面図にはかぶってよい。見出しをつかんで動かせる(ui/floatPanel.ts が right / bottom を書く)
  */
 .float-panel { position: fixed; left: auto; right: 1rem; top: auto; bottom: 2.5rem; margin: 0; z-index: 40; width: min(34rem, calc(100vw - 2rem)); }
+/* 膨らませるのパネルは項目名が長い(ウェイトの重ね方・仕上げのぼかしなど)ので、折り返さないよう名前の列を広げる(スマホは下で戻す) */
+#inflateDialog .prop2 { grid-template-columns: 9rem 1fr; }
 .float-handle { cursor: move; user-select: none; touch-action: none; }
 .float-handle::before { content: "⠿" / ""; margin-right: .375rem; opacity: .4; font-weight: 400; }
 html.mobile .float-handle { cursor: auto; touch-action: auto; }
