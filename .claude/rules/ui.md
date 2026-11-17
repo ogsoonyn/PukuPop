@@ -55,7 +55,7 @@ paths:
 
 ## 埋め込みモード
 
-- 埋め込みモード(Issue #146、`App.embedded`。html に `embed`)で使わないコマンドは、`actions.ts` の表に `noEmbed: true` を付ける。使えなくし、ヘルプのキー一覧から外し、`data-cmd` の部品(メニューの項目は `<li>` ごと)に `data-embed-off` を付けて隠す(`style.css`)。コマンドでない部品(タブの閉じるボタン・タブの一覧の「開く…」)は `style.css` の `html.embed` で隠す。
+- 埋め込みモード(Issue #146、`App.embedded`。html に `embed`)で使わないコマンドは、`actions.ts` の表に `noEmbed: true` を付ける。使えなくし、ヘルプのキー一覧から外し、`data-cmd` の部品(メニューの項目は `<li>` ごと)に `data-embed-off` を付けて隠す(`style.css`)。左のツールバー・スマホのシートの一番上では、設定で隠したボタンと同じに扱い(中が全部隠れたまとまりの枠も隠れる)、設定の出す・隠すの一覧にも出さない(`settingsDialog.ts`)。コマンドでない部品(タブの閉じるボタン・タブの一覧の「開く…」)は `style.css` の `html.embed` で隠し、中身が無くなるメニューの見出しには `index.html` で `data-embed-off` を付ける。
 - 埋め込み元へ戻るボタンは、PC はメニューバーの左端(`#embedBack`)、スマホは上のバーの左端(`#mBack`)。戻り先を受け取ったときだけ出す(`ui/embedSession.ts`)。
 
 ## スマホ

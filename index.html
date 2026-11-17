@@ -61,7 +61,8 @@
       <li><button data-cmd="closeTab">タブを閉じる</button></li>
       <li class="menu-title">書き出し</li>
       <li><button data-cmd="export">動画 / GIF / 連番PNG…</button></li>
-      <li class="menu-title">その他</li>
+      <!-- 埋め込みモードでは中身(サンプル)が無くなるので、見出しも隠す(style.css) -->
+      <li class="menu-title" data-embed-off>その他</li>
       <li><button data-cmd="sample">サンプルを開く</button></li>
     </ul>
   </div>

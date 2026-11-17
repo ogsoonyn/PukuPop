@@ -180,7 +180,10 @@ test('ほかのファイルを開く・タブ・名前を付けて保存・サ�
   await expect(menu.locator('[data-cmd="save"]')).toBeVisible();
   await expect(menu.locator('[data-cmd="export"]')).toBeVisible();
   for (const cmd of ['open', 'recent', 'saveAs', 'closeTab', 'sample']) await expect(menu.locator(`[data-cmd="${cmd}"]`)).toBeHidden();
+  // 中身が無くなった見出し(メニューの「その他」)・左のツールバーのまとまりの枠も出さない
+  await expect(menu.locator('.menu-title', { hasText: 'その他' })).toBeHidden();
   await expect(page.locator('#toolNav [data-cmd="recent"]')).toBeHidden();
+  await expect(page.locator('#toolNav .nav-group[aria-label="ファイルの操作"]')).toBeHidden();
   await expect(page.locator('.doc-tab-close')).toBeHidden();
   // 戻り先を渡していないので、戻るボタンは出さない
   await expect(page.locator('#embedBack')).toBeHidden();

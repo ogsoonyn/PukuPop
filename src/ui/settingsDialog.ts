@@ -31,7 +31,7 @@ function loadHidden(): Set<string> {
 function applyToolbar(hidden: ReadonlySet<string>): void {
   applyMobileNav(hidden);
   const nav = ui.toolNav;
-  for (const b of nav.querySelectorAll<HTMLElement>('[data-nav]')) b.classList.toggle('nav-off', hidden.has(b.dataset.nav!));
+  for (const b of nav.querySelectorAll<HTMLElement>('[data-nav]')) b.classList.toggle('nav-off', hidden.has(b.dataset.nav!) || embedOff(b));
   for (const g of nav.querySelectorAll<HTMLElement>('.nav-group')) g.classList.toggle('nav-off', !g.querySelector('[data-nav]:not(.nav-off)'));
   // 全部隠したときは、空の列を残さない
   nav.classList.toggle('nav-off', !nav.querySelector('[data-nav]:not(.nav-off)'));
@@ -49,12 +49,15 @@ function applyToolbar(hidden: ReadonlySet<string>): void {
   }
 }
 
+/** 埋め込みモードで使わないコマンドのボタンか(ui/actions.ts が data-embed-off を付ける)。隠したボタンと同じに扱う */
+const embedOff = (el: Element): boolean => el.hasAttribute('data-embed-off');
+
 /** スマホのシートの一番上に映す。前か後ろに出すものが無くなった区切りも隠す */
 function applyMobileNav(hidden: ReadonlySet<string>): void {
   let seen = false, pending: HTMLElement | null = null;
   for (const el of [...ui.mNav.children] as HTMLElement[]) {
     if (el.dataset.nav) {
-      const off = hidden.has(el.dataset.nav);
+      const off = hidden.has(el.dataset.nav) || embedOff(el);
       el.classList.toggle('nav-off', off);
       if (!off) { pending?.classList.remove('nav-off'); pending = null; seen = true; }
     } else {
@@ -78,6 +81,9 @@ export function bindSettingsDialog(): { open: () => void } {
     for (const it of g.items) {
       const label = document.createElement('label');
       if (it.desktopOnly) label.className = 'd-only';
+      // 埋め込みモードで使わないボタンは、出す・隠すの一覧にも出さない
+      const btn = ui.toolNav.querySelector(`[data-nav="${it.id}"]`);
+      if (btn && embedOff(btn)) label.setAttribute('data-embed-off', '');
       const cb = Object.assign(document.createElement('input'), { type: 'checkbox', className: 'checkbox checkbox-xs' });
       cb.dataset.nav = it.id;
       cb.addEventListener('change', () => {
