@@ -302,6 +302,61 @@ describe('.pukupop', () => {
     expect(() => migrate({ formatVersion: 'x' })).toThrow();
   });
 
+  it('formatVersion は JSON の数だけを版として読む(文字列の "1"・true・[1] は断る)', async () => {
+    expect(migrate({ formatVersion: 1 }).formatVersion).toBe(1);
+    for (const v of ['1', true, [1], 1.5, 0, null]) expect(() => migrate({ formatVersion: v })).toThrow(/formatVersion が不正/);
+    const json = oneLayer({}) as any;
+    json.formatVersion = '1';
+    await expect(deserializeProject(zipOf(json))).rejects.toThrow(/formatVersion が不正/);
+  });
+
+  it('元画像の拡張子は中身(分からなければ mime)から決め、パスの末尾をそのまま使わない', async () => {
+    const png = encodeGrayPng(3, 2, new Uint8Array(6));
+    const jpeg = jpegOf(30, 20, 1);
+    const load = async (image: object, bytes: Uint8Array, path = 'x/a.b/c') => {
+      const json = oneLayer({}) as any;
+      json.documents[0].image = { path, width: 10, height: 10, ...image };
+      const { project } = await deserializeProject(zipSync({ 'project.json': strToU8(JSON.stringify(json)), [path]: bytes }));
+      return project;
+    };
+    // 中身が PNG なら、パスや mime が違っても PNG として読む。保存し直すと決まった形のパスになる
+    const p = await load({ mime: 'image/webp' }, png);
+    expect(p.documents[0].image).toMatchObject({ mime: 'image/png', ext: 'png' });
+    const back = unzipSync(serializeProject(p));
+    expect(Object.keys(back).filter(k => k.startsWith('images/'))).toEqual(['images/doc-0.png']);
+    expect((await load({}, jpeg)).documents[0].image).toMatchObject({ mime: 'image/jpeg', ext: 'jpg' });
+    // 中身から分からなければ mime から。知らない mime(プロトタイプの名前も)・無いときは PNG
+    expect((await load({ mime: 'image/webp' }, new Uint8Array([1]))).documents[0].image).toMatchObject({ mime: 'image/webp', ext: 'webp' });
+    for (const mime of ['image/gif', 'constructor', 3, undefined]) {
+      expect((await load({ mime }, new Uint8Array([1]))).documents[0].image).toMatchObject({ mime: 'image/png', ext: 'png' });
+    }
+  });
+
+  it('project.json に元画像の幅・高さが無い・不正なときは、画像のヘッダ(JPEG は EXIF の向きを当てた寸法)で補う', async () => {
+    const load = async (image: object, bytes: Uint8Array) => {
+      const json = oneLayer({}) as any;
+      json.documents[0].image = { path: 'images/doc-0.png', ...image };
+      const { project } = await deserializeProject(zipSync({ 'project.json': strToU8(JSON.stringify(json)), 'images/doc-0.png': bytes }));
+      const { width, height } = project.documents[0].image;
+      return [width, height];
+    };
+    const png = encodeGrayPng(30, 20, new Uint8Array(600));
+    // 両方とも正しければ project.json の値(丸めて上限まで)
+    expect(await load({ width: 300.4, height: 200 }, png)).toEqual([300, 200]);
+    expect(await load({ width: 99999, height: 200 }, png)).toEqual([32768, 200]);
+    // 無い・数でない・1 未満・片方だけ不正なら、ヘッダの寸法
+    for (const bad of [{}, { width: '300', height: 200 }, { width: 0, height: 0 }, { width: 300 }, { width: 300, height: Infinity }]) {
+      expect(await load(bad, png)).toEqual([30, 20]);
+    }
+    // JPEG は EXIF の向きが 5〜8 なら縦横を入れ替える(リトルエンディアン・ビッグエンディアンの両方)
+    expect(await load({}, jpegOf(30, 20, 1))).toEqual([30, 20]);
+    expect(await load({}, jpegOf(30, 20, 6))).toEqual([20, 30]);
+    expect(await load({}, jpegOf(30, 20, 8, false))).toEqual([20, 30]);
+    expect(await load({}, jpegOf(30, 20, 3, false))).toEqual([30, 20]);
+    // ヘッダからも読めなければ読めないファイル
+    await expect(load({}, new Uint8Array([1]))).rejects.toThrow(/寸法が分かりません/);
+  });
+
   it('ZIP でないものは分かりやすく失敗する', async () => {
     await expect(deserializeProject(new Uint8Array([1, 2, 3]))).rejects.toThrow(/展開できません/);
   });
@@ -340,4 +395,15 @@ function declareSize(zip: Uint8Array, name: string, size: number): Uint8Array {
     if (new TextDecoder().decode(out.subarray(p + 46, p + 46 + n)) === name) { dv.setUint32(p + 24, size, true); return out; }
   }
   throw new Error(`entry ${name} not found`);
+}
+
+/** 寸法(SOF0)と EXIF の向き(APP1)だけを持つ JPEG を作る。画像データは持たない */
+function jpegOf(w: number, h: number, orientation: number, littleEndian = true): Uint8Array {
+  const u16 = (v: number) => (littleEndian ? [v & 0xff, v >> 8] : [v >> 8, v & 0xff]);
+  const u32 = (v: number) => (littleEndian ? [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, v >>> 24] : [v >>> 24, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff]);
+  const tiff = [...(littleEndian ? [0x49, 0x49] : [0x4d, 0x4d]), ...u16(42), ...u32(8), ...u16(1), ...u16(0x0112), ...u16(3), ...u32(1), ...u16(orientation), 0, 0, ...u32(0)];
+  const app1 = [0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff];
+  const sof = [8, h >> 8, h & 0xff, w >> 8, w & 0xff, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1];
+  const seg = (m: number, data: number[]) => [0xff, m, (data.length + 2) >> 8, (data.length + 2) & 0xff, ...data];
+  return new Uint8Array([0xff, 0xd8, ...seg(0xe1, app1), ...seg(0xc0, sof), 0xff, 0xd9]);
 }

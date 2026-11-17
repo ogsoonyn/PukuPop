@@ -13,6 +13,7 @@ import { WeightMap, weightSizeFor } from '../model/weightmap';
 import { takeToJson, takeFromJson, type Take } from '../physics/take';
 import { FAVORITE_NAME_MAX } from '../model/favorites';
 import { encodeGrayPng, decodePngToGray, readPngSize, MAX_PNG_SIDE, type GrayImage } from './png';
+import { IMAGE_TYPES, sniffImageMime, imageOrientedSize } from './imagehead';
 
 export const FORMAT_VERSION = 1;
 export const FILE_EXTENSION = '.pukupop';
@@ -89,13 +90,15 @@ export class NewerFormatError extends Error {
 }
 
 export function migrate(json: Record<string, unknown>): ProjectJson {
-  let v = Number(json.formatVersion);
-  if (!Number.isInteger(v) || v < 1) throw new Error('project.json の formatVersion が不正です');
+  // JSON の数だけを版として読む(文字列の "1" などは断る)
+  const raw = json.formatVersion;
+  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 1) throw new Error('project.json の formatVersion が不正です');
+  let v = raw;
   if (v > FORMAT_VERSION) throw new NewerFormatError(v);
   while (v < FORMAT_VERSION) {
     const m = MIGRATIONS[v];
     if (!m) throw new Error(`formatVersion ${v} からの変換がありません`);
-    json = m(json); v = Number(json.formatVersion);
+    json = m(json); v = json.formatVersion as number;
   }
   return json as unknown as ProjectJson;
 }
@@ -201,6 +204,22 @@ const num = (v: unknown, min: number, max: number, def: number) => {
   return Math.max(min, Math.min(max, n));
 };
 const unit = (v: unknown, def: number) => num(v, 0, 1, def);
+
+/** 元画像の寸法の上限(一辺) */
+const MAX_IMAGE_SIDE = 1 << 15;
+/**
+ * 元画像の寸法。project.json の幅・高さが両方とも数(丸めて 1 以上)ならそれを使い、上限で丸める。
+ * 無い・不正なときは、画像のヘッダの寸法(JPEG の EXIF の向きを当てたもの)で補う。それも読めなければ読めないファイルとする
+ */
+function imageSizeOf(image: { width?: unknown; height?: unknown }, bytes: Uint8Array): { width: number; height: number } {
+  const side = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && Math.round(v) >= 1 ? Math.min(MAX_IMAGE_SIDE, Math.round(v)) : 0);
+  const w = side(image.width), h = side(image.height);
+  if (w && h) return { width: w, height: h };
+  const size = imageOrientedSize(bytes);
+  const hw = size ? side(size.width) : 0, hh = size ? side(size.height) : 0;
+  if (!hw || !hh) throw new Error('元画像の寸法が分かりません(project.json に幅・高さが無く、画像のヘッダからも読めません)');
+  return { width: hw, height: hh };
+}
 const str = (v: unknown, def: string) => (typeof v === 'string' ? v : def);
 const vec = (v: unknown) => {
   const o = (v ?? {}) as Record<string, unknown>;
@@ -305,11 +324,13 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
   for (const dj of docsJson) {
     const imgBytes = own(files, dj.image?.path) ? files[dj.image.path] : undefined;
     if (!imgBytes) throw new Error(`画像 ${dj.image?.path} が見つかりません`);
-    const ext = dj.image.path.split('.').pop() ?? 'png';
-    const width = Math.round(num(dj.image.width, 1, 1 << 15, 1)), height = Math.round(num(dj.image.height, 1, 1 << 15, 1));
+    // 種類は画像の中身から決め、分からなければ mime、それも知らない種類なら PNG とする。
+    // 拡張子は種類から決める(パスの末尾から取ると、変な形のパスがそのまま保存し直すファイルに書かれるため)
+    const mime = sniffImageMime(imgBytes) ?? (typeof dj.image.mime === 'string' && own(IMAGE_TYPES, dj.image.mime) ? dj.image.mime : 'image/png');
+    const { width, height } = imageSizeOf(dj.image, imgBytes);
     const doc: Document = {
       id: uniqueId(dj.id, 'D'), name: str(dj.name, '画像'),
-      image: { bytes: imgBytes, mime: str(dj.image.mime, 'image/png'), ext, width, height },
+      image: { bytes: imgBytes, mime, ext: IMAGE_TYPES[mime], width, height },
       position: vec(dj.position), rotation: vec(dj.rotation), scale: num(dj.scale, 0.01, 100, 1),
       meshDensity: Math.round(num(dj.meshDensity, LIMITS.density.min, LIMITS.density.max, LIMITS.density.def)),
       opacity: unit(dj.opacity, 1), layers: [],

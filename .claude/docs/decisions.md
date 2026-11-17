@@ -445,3 +445,10 @@
 - 戻るボタン: PC はメニューバーの左端、スマホは上のバーの左端。`back` を受け取ったときだけ出す。保存していない変更があれば確かめ、戻ると決めたら `beforeunload` の確認を出さない(二重に聞かないよう、離れる印を立ててから `location.assign`)。ブラウザの戻る・タブを閉じるは、今までの `beforeunload`(未保存の判定)で止める。戻り先が 204 やダウンロードを返してページが変わらないときのため、離れる印は1秒後に戻す(PR 前のレビュー)。
 - 配布: `--mode embed` の出力を `dist-editor/app/` にし、`dist-editor/` の直下に package.json・README・LICENSE・THIRD-PARTY-LICENSES.txt を置く。tgz(npm pack)と zip(`pukupop-editor-<版>/` の下に同じ並び)の中身はそろえる。`app/` だけを配信すればよいよう、ライセンスの表記は `app/` の外に出し、`sw.js` と PWA のマニフェスト(index.html の読み込みも)は外した(埋め込む側のオリジンでアプリとしてインストールされると、クエリが無いので開けない画面になるため。PR 前のレビュー)。ライセンスの表記には、JS に入るものに加えて CSS に入る tailwindcss・daisyui も載せる(JS のチャンクの `moduleIds` だけでは拾えない。PR 前のレビュー)。zip は fflate(もう依存にある)で作り、ファイルの並び・日時・圧縮の度合いを決めて、リリースのジョブで作り直しても同じ sha256 になるようにした。
 - タグは `editor-v<版>`、版の元は `packages/editor/package.json`(アプリの版・Player の版とは別)。タグの確かめは Player の `player-release-check.mjs` の中身を `scripts/release-tag-check.mjs` に移して共有した。同梱したパッケージのライセンスの表記を出す Vite のプラグインも、`vite.player.config.ts` から `scripts/third-party-licenses.ts` に移して共有した(設定ファイルから拡張子付きで import するため、`tsconfig.json` の `allowImportingTsExtensions` を入れた。`noEmit` なので使える)。
+
+## 2026-11-18 .pukupop の読み込みで、版の型・元画像の種類と寸法を確かめる(Issue #136、#137、#138)
+
+- `formatVersion` は JSON の数で 1 以上の整数のときだけ読む(案 A)。前は `Number(...)` で直していて文字列の `"1"` も読めた。編集アプリは必ず数で書くので、開けなくなるのはほかのプログラムが文字列で書いたファイルだけ。
+- 元画像の種類は中身の先頭のバイトから決め、分からなければ `mime`(3つのどれか)、それも違えば PNG にする。拡張子は種類から決める。前はパスの末尾を拡張子にしていたので、変な形のパス(`x/a.b/c`)が保存し直したファイルにそのまま書かれた。中身から決めるので、`mime` が中身と違うファイルも、保存し直すと合った値になる。
+- `image.width`・`height` が無い・不正なときは、画像のヘッダの寸法で補う(案 A)。ヘッダからも読めなければ読めないファイルにする(前は寸法 1 として開いていた)。ブラウザは EXIF の向きを当ててデコードし、編集アプリはその寸法を保存しているので、JPEG だけは EXIF の Orientation が 5〜8 なら縦横を入れ替える(PNG・WebP の EXIF は珍しいので見ない)。両方とも正しい値のときは、今までどおり中身と照らし合わせない(デコードの前に寸法を使っているので、照らし合わせるには読み込みの流れを変える必要がある。案 C は見送った)。
+- ヘッダを読む処理は、DOM に依存しない `src/storage/imagehead.ts` に移した(`storage` から `src/ui` を参照しないため)。`src/ui/imageio.ts` は `IMAGE_TYPES`・`imageHeaderSize` をそこから出し直している(E2E が `imageio.ts` から import しているため)。
