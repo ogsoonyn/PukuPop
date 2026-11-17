@@ -56,7 +56,7 @@ describe('キーフレームの下書きの編集(KeyframeEditor)', () => {
     expect([project.take, project.keyframes.map(k => k.view.yaw)]).toEqual([A, [5, 6, 7]]);
     f.apply(store); // リドゥ: 当てるたびに写しなので、前に直した分は混ざらない
     expect(project.keyframes.map(k => k.seconds)).toEqual([1, 1]);
-    // 一覧と同じキーフレームから作る(「この並びで作る」)ときは、一覧に触らない
+    // 一覧と同じキーフレームから作る(「登録する」)ときは、一覧に触らない
     project.keyframes = [key(8), key(9)];
     const same = project.keyframes;
     const m = new SetTake('作る', F, takeFromKeys(same, 40), same);

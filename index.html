@@ -29,6 +29,8 @@
   <!-- アニメーションの再生・停止(左のツールバーと同じコマンド。アイコンは再生中に停止へ変わる。ui/actions.ts) -->
   <button id="mPlay" class="m-icon" data-cmd="toggleKeyPlay" aria-label="アニメーションを再生"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
   <button id="mAuto" class="m-icon" aria-label="自動で揺らす" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg></button>
+  <!-- 全画面表示(PC のツールオプションの欄の右端と同じコマンド。ワンタッチで押せるよう、再生・自動で揺らすの隣に置く) -->
+  <button id="mFull" class="m-icon" data-cmd="toggleUi" aria-label="全画面表示"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg></button>
   <div class="dropdown dropdown-end">
     <div tabindex="0" role="button" class="m-icon" aria-label="メニュー"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></div>
     <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-50 w-60 p-2 shadow-lg">
@@ -37,7 +39,7 @@
       <li><button data-cmd="save">保存</button></li>
       <li><button data-cmd="export">書き出し…</button></li>
       <li><button data-cmd="sample">サンプルを開く</button></li>
-      <li><button data-cmd="toggleUi">UIを隠す</button></li>
+      <li><button data-cmd="toggleUi">全画面表示</button></li>
       <li><button data-cmd="settings">設定…</button></li>
       <li><button data-cmd="help">操作方法</button></li>
       <li><button data-cmd="about">PukuPop について</button></li>
@@ -49,7 +51,6 @@
 <header class="flex items-center gap-1 px-2 h-10 bg-base-100 border-b border-base-300 shrink-0" id="menubar">
   <!-- 埋め込みモードで、埋め込み元へ戻る(戻り先を受け取ったときだけ出す。ui/embedSession.ts) -->
   <button id="embedBack" type="button" class="btn btn-ghost btn-sm gap-1" hidden><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>戻る</button>
-  <span class="font-bold px-2 select-none">PukuPop</span>
   <div class="dropdown">
     <div tabindex="0" role="button" class="btn btn-ghost btn-sm">ファイル</div>
     <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-30 w-72 p-2 shadow-lg">
@@ -98,7 +99,7 @@
       <li><button data-cmd="resetView">視点リセット(正面)</button></li>
       <li><button data-cmd="resetRotation">回転だけリセット</button></li>
       <li><button data-cmd="togglePanel">右パネル <span data-check="panel" class="ml-auto"></span></button></li>
-      <li><button data-cmd="toggleUi">UIを隠す</button></li>
+      <li><button data-cmd="toggleUi">全画面表示</button></li>
     </ul>
   </div>
   <div class="dropdown">
@@ -169,13 +170,13 @@
   <label class="flex items-center gap-2" data-inflate-opt hidden>重ね方
     <select id="tInflBlend" class="select select-xs w-32"><option value="max">重ねる(高い方)</option><option value="add">足す</option><option value="replace">置き換える</option></select></label>
   <span id="toolHint" class="tool-hint hidden md:flex flex-1 min-w-0"></span>
-  <!-- よく使う操作(アニメーションの再生・停止、自動で揺らす)と、UIを隠す・設定。メニューバーはタブに幅を使うので、この欄の右端に置く。
+  <!-- よく使う操作(アニメーションの再生・停止、自動で揺らす)と、全画面表示・設定。メニューバーはタブに幅を使うので、この欄の右端に置く。
        絵は ui/icons.ts から入れる(ui/actions.ts。再生は再生中に停止の絵に、自動で揺らすは入っている間 aria-pressed に) -->
   <div id="quickActs" class="ml-auto flex items-center gap-1 shrink-0">
     <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleKeyPlay" aria-label="アニメーションを再生"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
     <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleAutoSwing" data-pressed="autoSwing" data-icon="autoSwing" aria-label="自動で揺らす" aria-pressed="false"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
     <span class="quick-sep" aria-hidden="true"></span>
-    <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleUi" aria-label="UIを隠す"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg></button>
+    <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleUi" aria-label="全画面表示"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg></button>
     <button class="btn btn-ghost btn-xs btn-square" data-cmd="settings" aria-label="設定"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
   </div>
 </div>
@@ -351,11 +352,11 @@
                 <label class="flex items-center gap-1 whitespace-nowrap" title="各フレームの画像を半透明で重ねる"><input id="keyGhostShow" type="checkbox" class="checkbox checkbox-xs"> ゴースト</label>
                 <label class="flex items-center gap-1 whitespace-nowrap" title="止まっている間も、3Dビューの下に再生のバーを出す(再生中・記録中はいつも出る)"><input id="playBarShow" type="checkbox" class="checkbox checkbox-xs"> シークバー</label>
               </div>
-              <p id="keyHelp" class="help-text" hidden>視点(回転・ズーム・画像の位置)を順に通り、最後から最初へ戻ってくり返す動きを作ります。画像の位置が動くと揺れます。フレームの間の秒数は、次のフレームまでの時間です(最後の後の ↩ は、最初へ戻るまでの時間)。「通り方」は、そのフレームを、なめらか(止まらず通り抜ける)か、弾む(勢いよく着いて止まり、揺れる)かを選びます。行の左端の点をドラッグすると順番を入れ替えられます(間の秒数は場所に残ります)。点を選んで ↑↓ キーでも動かせます。「この並びで作る」を押すと、この並びの動きが上のアニメーションの動きになり、再生が始まります(元に戻せます)。今の動きがキーフレームで作ったものなら、一覧を直したあと上の「再生」を押しても作り直します。「経路」をオンにすると、1番のフレームの視点をカメラとして止めたまま画像のほうが動くとみなし、各フレームで画像が来る所を枠で、順番を番号で、画像の中心の動きを矢印と秒数で3Dビューに重ねます。1番の視点から見ると、そのカメラで映る並びになります。視点を動かすと横や上からも見られます。番号の形は通り方で、丸がなめらか、ひし形が弾むです。番号を押すとその視点へ移ります。「ゴースト」をオンにすると、同じ所に画像を半透明で重ねます。どちらも記録中・再生中は消えます。「シークバー」をオンにすると、フレームが2つ以上(1周 0.5 秒以上)ある間は、このタブを開いていれば止まっていても3Dビューの下に再生のバーが出ます(記録した操作が入っているときは出ません)。バーを押すと、その時刻で一時停止した状態から再生が始まり(一覧が今の動きと違えば作り直します)、▶ で続きから流れます。各フレームの番号を押すとその時刻へ移ります(キーボードでは PageUp・PageDown)。</p>
+              <p id="keyHelp" class="help-text" hidden>視点(回転・ズーム・画像の位置)を順に通り、最後から最初へ戻ってくり返す動きを作ります。画像の位置が動くと揺れます。フレームの間の秒数は、次のフレームまでの時間です(最後の後の ↩ は、最初へ戻るまでの時間)。「通り方」は、そのフレームを、なめらか(止まらず通り抜ける)か、弾む(勢いよく着いて止まり、揺れる)かを選びます。行の左端の点をドラッグすると順番を入れ替えられます(間の秒数は場所に残ります)。点を選んで ↑↓ キーでも動かせます。「登録する」を押すと、この並びの動きを上のアニメーションの動きとして登録し、再生が始まります(元に戻せます)。今の動きがキーフレームで作ったものなら、一覧を直したあと上の「再生」を押しても作り直します。「経路」をオンにすると、1番のフレームの視点をカメラとして止めたまま画像のほうが動くとみなし、各フレームで画像が来る所を枠で、順番を番号で、画像の中心の動きを矢印と秒数で3Dビューに重ねます。1番の視点から見ると、そのカメラで映る並びになります。視点を動かすと横や上からも見られます。番号の形は通り方で、丸がなめらか、ひし形が弾むです。番号を押すとその視点へ移ります。「ゴースト」をオンにすると、同じ所に画像を半透明で重ねます。どちらも記録中・再生中は消えます。「シークバー」をオンにすると、フレームが2つ以上(1周 0.5 秒以上)ある間は、このタブを開いていれば止まっていても3Dビューの下に再生のバーが出ます(記録した操作が入っているときは出ません)。バーを押すと、その時刻で一時停止した状態から再生が始まり(一覧が今の動きと違えば作り直します)、▶ で続きから流れます。各フレームの番号を押すとその時刻へ移ります(キーボードでは PageUp・PageDown)。</p>
               <div class="key-row key-head text-xs opacity-60" aria-hidden="true"><span></span><span>#</span><span>通り方</span><span></span><span></span></div>
               <ol id="keyList" class="flex flex-col gap-1" aria-label="キーフレーム一覧"></ol>
               <div class="flex flex-wrap items-center gap-2">
-                <button id="keyMake" type="button" class="btn btn-sm" title="この並びの動きを作ってアニメーションの動きにし、再生する(元に戻せる)">この並びで作る</button>
+                <button id="keyMake" type="button" class="btn btn-sm" title="この並びの動きをアニメーションの動きとして登録し、再生する(元に戻せる)">登録する</button>
                 <span id="keyTotal" class="text-xs opacity-70 tabular-nums"></span>
               </div>
             </section>
@@ -646,9 +647,9 @@
       <p id="setPopMaxHelp" class="help-text" hidden>ポップ量と「膨らませる」の高さのスライダーの右端です(100〜1500px)。小さくするとスライダーで細かく動かせます。数値の欄には、この値を超えて 1500px まで打てます。</p>
     </section>
     <section id="setHideFullRow" class="flex flex-col gap-2 mt-4">
-      <h4 class="font-bold">UIを隠す</h4>
+      <h4 class="font-bold">全画面表示</h4>
       <div class="toggle-row"><span class="prop-name"><label for="setHideFull">ブラウザも全画面にする</label><button type="button" class="help-btn" data-help="setHideFullHelp"></button></span><input id="setHideFull" type="checkbox" class="toggle toggle-sm"></div>
-      <p id="setHideFullHelp" class="help-text" hidden>「UIを隠す」(Tab)を使ったときに、ブラウザのタブやアドレスバーも隠して画面全体に出します。Esc で全画面をやめると、UIも戻ります。</p>
+      <p id="setHideFullHelp" class="help-text" hidden>「全画面表示」(Tab)を使ったときに、ブラウザのタブやアドレスバーも隠して画面全体に出します。Esc でブラウザの全画面をやめると、全画面表示も終わります。</p>
     </section>
     <section class="flex flex-col gap-2 mt-4">
       <div class="flex items-center gap-2">
@@ -706,14 +707,14 @@
   <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
 
-<!-- UIを隠している間だけ右上に出すバー(ui/hideUi.ts)。アニメーションの再生・停止、自動で揺らす、お気に入り、UIを戻す。
+<!-- UIを隠している間だけ右上に出すバー(ui/hideUi.ts)。アニメーションの再生・停止、自動で揺らす、お気に入り、全画面を解除。
      PC ではマウスを動かすと少しの間だけ出し、スマホでは薄く出したままにする。再生と自動で揺らすの絵は ui/actions.ts が入れる -->
 <div id="viewBar" role="toolbar" aria-label="見ている間の操作">
   <button class="btn btn-ghost btn-sm btn-square" data-cmd="toggleAnimation" aria-label="アニメーションを再生"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
   <button class="btn btn-ghost btn-sm btn-square" data-cmd="toggleAutoSwing" data-pressed="autoSwing" data-icon="autoSwing" aria-label="自動で揺らす" aria-pressed="false"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
   <select id="viewFav" class="select select-sm w-36" aria-label="お気に入りに切り替える" title="お気に入りに切り替える"><option value="">お気に入り</option></select>
   <span class="quick-sep" aria-hidden="true"></span>
-  <button id="uiRestore" type="button" class="btn btn-ghost btn-sm" title="UIを戻す (Tab / Esc)"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4"/><path d="M15 4v5h5"/><path d="M9 20v-5H4"/><path d="M15 20v-5h5"/></svg>UIを戻す</button>
+  <button id="uiRestore" type="button" class="btn btn-ghost btn-sm" title="全画面表示を解除 (Tab / Esc)"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4"/><path d="M15 4v5h5"/><path d="M9 20v-5H4"/><path d="M15 20v-5h5"/></svg>全画面を解除</button>
 </div>
 
 <div id="toasts" class="toast toast-end toast-bottom z-50 mb-8"></div>
