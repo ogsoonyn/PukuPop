@@ -3,7 +3,7 @@
  *   ブラシ・消しゴム・ぼかし: ブラシのサイズ・強さ・硬さ・筆圧(data-brush-opt)
  *   膨らみ: 描いたあとのパネルをたたむと(高さだけ残る)触れなくなるもののうち、ウェイトの重ね方・レイヤーの重ね方・四隅を動かす・
  *           四角に戻す(data-inflate-opt)。プレビュー中は下のパネルと同じ値を変える。ウェイトの重ね方は、描く前は次に描くときの設定。
- *           レイヤーの重ね方・四隅は範囲ごとのものなので、描くまで押せない(data-inflate-range。レイヤーの重ね方は今のレイヤーのものを見せる)。
+ *           レイヤーの重ね方・四隅は範囲ごとのものなので、描くまで押せない(data-inflate-range。レイヤーの重ね方は描いたときに始まる値を見せる)。
  *           次に描くときの設定はブラウザに覚える(適用したときの設定も覚え、キャンセルした分は覚えない。四隅のずれは覚えない)。
  *   そのほか(つかむ・揺らす・視点・移動): 設定は無く、操作のヒントだけ
  * スマホでは、ブラシの設定はシートの「ツール」タブへ移す(ui/mobile.ts)。
@@ -64,18 +64,19 @@ export function bindToolOptions(app: App): void {
   ui.tInflWarpReset.addEventListener('click', () => { if (app.previewingInflate) app.updateInflate({ area: { warp: null } }); });
 
   /** 欄の値を今の設定に合わせる(入力中の欄は書き換えない) */
-  function syncInflate(): void {
+  function syncInflate(force = false): void {
     const s = app.inflateState, st = s?.settings ?? app.inflateSettings;
-    const set = (el: HTMLInputElement | HTMLSelectElement, v: string) => { if (document.activeElement !== el && el.value !== v) el.value = v; };
+    const set = (el: HTMLInputElement | HTMLSelectElement, v: string) => { if ((force || document.activeElement !== el) && el.value !== v) el.value = v; };
     set(ui.tInflBlend, st.blend);
-    set(ui.tInflLayerBlend, s?.layerBlend ?? app.activeLayer?.blend ?? 'max');
+    // 描く前は、描いたときに始まる値を見せる(新しいレイヤーに作るなら、その既定の加算。そうでなければ今のレイヤーの重ね方)
+    set(ui.tInflLayerBlend, s?.layerBlend ?? (st.newLayer ? 'add' : app.activeLayer?.blend ?? 'add'));
     ui.tInflCorner.checked = !!s?.cornerEdit;
     ui.tInflLayerBlend.disabled = ui.tInflCorner.disabled = !s;
     ui.tInflWarpReset.disabled = !s?.area.warp || s.area.warp.every(v => v === 0);
   }
   app.on('inflate', phase => {
     if (phase === 'end') { pending = {}; save(); } // 適用したら、その設定が次に描くときの設定になる(キャンセルなら前のまま)
-    syncInflate();
+    syncInflate(phase === 'end'); // 終えたら、欄にフォーカスが残っていても描く前の値に戻す
   });
   // 今のレイヤー・その重ね方が変わったら、描く前に見せる重ね方を合わせる(プレビュー中は右パネルで変えた値も映る)
   app.store.on('layer', ({ keys }) => { if (keys.includes('blend')) syncInflate(); });

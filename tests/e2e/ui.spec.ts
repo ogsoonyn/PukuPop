@@ -802,7 +802,13 @@ test('ツールオプションの欄は選択中のツールの設定だけを�
   await page.locator('#tInflWarpReset').click();
   await expect.poll(() => app(a => a.inflateState.area.warp)).toBeFalsy();
   await expect(page.locator('#tInflWarpReset')).toBeDisabled();
-  await page.locator('#inflCancel').click();
+  // 欄にフォーカスがあるまま Esc で終えても、描く前の値(次に描くときの設定)に戻る
+  await page.locator('#tInflBlend').selectOption('replace');
+  await page.locator('#tInflBlend').focus();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#inflateDialog')).toHaveJSProperty('open', false);
+  await expect(page.locator('#tInflBlend')).toHaveValue('add');
+  await expect(page.locator('#tInflLayerBlend')).toBeDisabled();
 });
 
 test('プリセットで自動揺らしの周期を変えるのは、揺れているレイヤーがそのレイヤーだけのとき', async ({ page }) => {

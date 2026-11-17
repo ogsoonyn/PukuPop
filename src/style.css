@@ -95,8 +95,6 @@ html:not(.mobile) #inflateDialog.compact :is(#inflTarget, #inflRows > :not(#infl
 html:not(.mobile) #inflateDialog.compact #inflRows { padding-top: .5rem; }
 html:not(.mobile) #inflateDialog.compact #inflHeightRow { grid-template-columns: 3rem 1fr; }
 html.mobile #inflCompact { display: none; }
-/* スマホの欄はプレビュー中に隠れる(パネルがシートに入る)ので、描く前は押せない範囲ごとの項目を出さない */
-html.mobile [data-inflate-range] { display: none; }
 .float-handle { cursor: move; user-select: none; touch-action: none; }
 .float-handle::before { content: "⠿" / ""; margin-right: .375rem; opacity: .4; font-weight: 400; }
 html.mobile .float-handle { cursor: auto; touch-action: auto; }
@@ -305,6 +303,8 @@ html.mobile #mPanes [data-brush-opt] { display: grid; grid-template-columns: 6.5
 html.mobile #mPanes [data-brush-opt] input[type=range] { width: 100%; }
 html.mobile #mPanes [data-inflate-opt]:not([hidden]) { display: grid; grid-template-columns: 6.5rem 1fr 3.25rem; align-items: center; }
 html.mobile #mPanes [data-inflate-opt] input[type=range], html.mobile #mPanes [data-inflate-opt] select { width: 100%; }
+/* スマホの欄はプレビュー中に隠れる(パネルがシートに入る)ので、描く前は押せない範囲ごとの項目を出さない(上の display: grid より強くする) */
+html.mobile #mPanes [data-inflate-opt][data-inflate-range] { display: none; }
 html.mobile #mPanes #layerList { max-height: none; }
 html.mobile #mPanes #layerList + * { margin-top: 0; }
 /* 膨らませるのパネルは「ツール」タブの中に置く */

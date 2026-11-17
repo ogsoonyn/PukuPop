@@ -81,6 +81,6 @@ export function bindFloatPanels(panels: { dialog: HTMLDialogElement; handle: HTM
     handle.addEventListener('pointercancel', end);
     // ドラッグ中に閉じたときなど、pointerup が届かなくても終える
     handle.addEventListener('lostpointercapture', end);
-    handle.addEventListener('dblclick', () => { if (isMobile()) return; prefs.set(KEY, null); clear(); });
+    handle.addEventListener('dblclick', e => { if (isMobile() || (e.target as Element).closest('button, input, select')) return; prefs.set(KEY, null); clear(); });
   }
 }
