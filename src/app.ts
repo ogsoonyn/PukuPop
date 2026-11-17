@@ -24,7 +24,7 @@ import { createTab, tabName, suggestedName, trimHiddenHistory, MAX_TABS, TABS_FU
 import { TabAutosaver } from './app/autosave';
 import { newImageDefaults } from './app/newImage';
 import { fileTarget, SaveConflictError, type SaveTarget } from './app/saveTarget';
-import { fetchForOpen, ServerTarget, type EmbedOpen } from './app/embed';
+import { fetchForOpen, ServerTarget, createdName, type EmbedOpen } from './app/embed';
 import { PhysicsWorld } from './physics/world';
 import { MotionRecorder } from './physics/recorder';
 import { takeSeconds, type KeyFrame } from './physics/take';
@@ -853,7 +853,7 @@ export class App extends Emitter<AppEvents> {
       const page = location.href;
       try { got = await fetchForOpen(o.kind === 'project' ? o.src : o.image, page); } finally { setBusy(false); }
       if (o.kind === 'project') return this.openProjectBytes(got.bytes, o.name, new ServerTarget(o.name, { url: o.save, etag: got.etag }, page));
-      const name = `${o.name.replace(/\.[^.]+$/, '') || 'untitled'}${FILE_EXTENSION}`;
+      const name = createdName(o.name);
       const target = new ServerTarget(name, { create: o.create, onCreated: onCreated && (loc => onCreated(loc, name)) }, page);
       return this.openImage(new File([got.bytes as BlobPart], o.name, { type: got.type }), target);
     });

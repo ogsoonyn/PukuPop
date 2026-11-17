@@ -96,15 +96,27 @@ export function parseEmbedParams(search: string, page: string): EmbedOpen {
 }
 
 /**
+ * 画像から作った作業の名前(見出しと保存のお知らせに出す)。画像の名前(か name)の拡張子を .pukupop にする。
+ * 読み直したときに name として渡しても切られないよう、拡張子を付けても EMBED_NAME_MAX に収める
+ */
+export function createdName(imageName: string): string {
+  const base = imageName.replace(/\.[^.]+$/, '').slice(0, EMBED_NAME_MAX - FILE_EXTENSION.length).trim();
+  return `${base || 'untitled'}${FILE_EXTENSION}`;
+}
+
+/**
  * 画像から作った作業を初めて保存した(POST が通った)あとの、ページの URL(Issue #150)。
  * image・create(と save)を外し、src を保存先(Location)にする。読み直したとき(Android の Chrome が裏のタブを捨てたときも)に、
  * 元の画像でなく保存したファイルを開き、次の保存も POST でなく PUT にするため。
  * name は見出しに出していた名前にする(省くと Location の最後の部分になり、/files/123 のような URL では名前が変わるため)。
- * back などほかのクエリ・ハッシュは引き継ぐ。location は同じオリジンの絶対 URL(ServerTarget が確かめたもの)なので、パスだけにする
+ * back などほかのクエリ・ハッシュは引き継ぐ(URLSearchParams で組み直すので、並びと書き方は変わる)。
+ * location は同じオリジンの絶対 URL(ServerTarget が確かめたもの)なので、パスだけにする。
+ * ただしパスが // で始まると、読み直したときに別のホストの URL として解決されて開けないので、そのときは絶対 URL のままにする
  */
 export function reopenUrl(page: string, location: string, name: string): string {
   const u = new URL(page), loc = new URL(location);
-  const q = new URLSearchParams({ src: loc.origin === u.origin ? loc.pathname + loc.search : loc.href });
+  const short = loc.origin === u.origin && !loc.pathname.startsWith('//');
+  const q = new URLSearchParams({ src: short ? loc.pathname + loc.search : loc.href });
   for (const [k, v] of new URLSearchParams(u.search)) {
     if (k !== 'src' && k !== 'image' && k !== 'create' && k !== 'save' && k !== 'name') q.append(k, v);
   }

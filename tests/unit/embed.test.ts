@@ -3,7 +3,7 @@
  * fetch は作り物に差し替え、送ったリクエストを控えて確かめる
  */
 import { describe, it, expect } from 'vitest';
-import { parseEmbedParams, backUrl, reopenUrl, sameOriginUrl, fetchForOpen, ServerTarget, EmbedError } from '../../src/app/embed';
+import { parseEmbedParams, backUrl, reopenUrl, createdName, EMBED_NAME_MAX, sameOriginUrl, fetchForOpen, ServerTarget, EmbedError } from '../../src/app/embed';
 import { SaveConflictError } from '../../src/app/saveTarget';
 
 const PAGE = 'https://archive.example/pukupop/?x';
@@ -218,5 +218,20 @@ describe('初めて保存したあとのページの URL(Issue #150)', () => {
     expect(parseEmbedParams(new URL(next).search, next)).toEqual({
       kind: 'project', src: 'https://archive.example/files/123', save: 'https://archive.example/files/123', name: 'cat.pukupop', back: 'https://archive.example/a/b?x=1',
     });
+  });
+  it('保存先のパスが // で始まるときは、絶対 URL のままにする(パスだけだと別のホストとして解決される)', () => {
+    const next = reopenUrl(page, 'https://archive.example//evil.example/x.pukupop', 'x.pukupop');
+    expect(new URL(next).searchParams.get('src')).toBe('https://archive.example//evil.example/x.pukupop');
+    expect(parseEmbedParams(new URL(next).search, next)).toMatchObject({ kind: 'project', src: 'https://archive.example//evil.example/x.pukupop' });
+  });
+  it('作った作業の名前は拡張子を .pukupop にし、長くても name で渡して切られない', () => {
+    expect(createdName('cat.png')).toBe('cat.pukupop');
+    expect(createdName('Cat')).toBe('Cat.pukupop');
+    expect(createdName('.png')).toBe('untitled.pukupop');
+    const long = createdName(`${'あ'.repeat(EMBED_NAME_MAX)}.png`);
+    expect(long.length).toBe(EMBED_NAME_MAX);
+    expect(long.endsWith('.pukupop')).toBe(true);
+    const next = reopenUrl(page, 'https://archive.example/files/1', long);
+    expect(parseEmbedParams(new URL(next).search, next).name).toBe(long);
   });
 });
