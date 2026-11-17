@@ -47,7 +47,6 @@ test('再生の進み具合: 再生中だけ主ビューの下に出て、キー
   const held = await app(page, a => a.takePosition);
   await page.waitForTimeout(300);
   expect(await app(page, a => a.takePosition)).toBe(held);
-  await expect(page.locator('#takeInfo')).toHaveText('一時停止中');
 
   // 番号を押すと、そのフレームの時刻へ移る(一時停止のまま)
   await keys.nth(1).click();
@@ -91,7 +90,6 @@ test('再生の進み具合: 再生中だけ主ビューの下に出て、キー
 
   await page.locator('#playPause').click();
   await expect.poll(() => app(page, a => a.takePosition)).not.toBeCloseTo(1, 1);
-  await expect(page.locator('#takeInfo')).toHaveText('再生中');
 
   await page.locator('#playStop').click();
   expect(await app(page, a => [a.takeState, a.playPaused])).toEqual(['idle', false]);

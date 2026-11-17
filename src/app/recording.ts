@@ -64,7 +64,7 @@ export class TakeRecording {
     if (!take) { toast(`記録が短すぎます。「記録」を押したあと、${TAKE_MIN_SECONDS} 秒以上動かしてください。`, 'warning'); return; }
     h.execute(new SetTake('操作の記録', h.project.take, take));
     const sec = takeSeconds(take).toFixed(1);
-    toast(full ? `最長の ${sec} 秒まで記録したので止めました。` : `${sec} 秒の操作を記録しました。「ループ再生」でくり返し再生できます。`, 'success');
+    toast(full ? `最長の ${sec} 秒まで記録したので止めました。` : `${sec} 秒の操作を記録しました。アニメーションの「再生」でくり返し再生できます。`, 'success');
   }
 
   /** 記録中の操作を黙って捨てる(別の作業に切り替えるとき。知らせは呼ぶ側がまとめて出す) */

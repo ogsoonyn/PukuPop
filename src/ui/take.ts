@@ -1,6 +1,7 @@
 /**
- * 操作の記録・ループ再生とキーフレームの部品(右のパネルの「アニメーション」。スマホではシートの「アニメ」タブへ移す)と、
- * 右パネルの見出しの横の状態。進み具合は3Dビューの下のバー(ui/playBar.ts)に出す。説明は文章で並べず、状態は短いラベル、詳しいことはツールチップに置く。
+ * 右のパネルの「アニメーション」の箱(スマホではシートの「アニメ」タブへ移す)。再生する動きは1つ(project.take)なので、
+ * 上の帯に今の動きの印(◆ キーフレーム / ● 記録)と再生・カメラを戻す・消すを1つずつ置き、下に作り方(操作の記録・キーフレーム)を並べる。
+ * 今の動きを作った側の枠を帯と同じ色にする(.anim-src.on)。進み具合は3Dビューの下のバー(ui/playBar.ts)に出す。説明は文章で並べず、状態は短いラベル、詳しいことはツールチップに置く。
  * 記録・再生・消すのボタンはコマンド(data-cmd。押したときの処理・使えるか・ツールチップは ui/actions.ts)で、ここは表示だけを変える。
  */
 import type { App } from '../app';
@@ -21,8 +22,8 @@ export function bindTakeControls(app: App): void {
   /* ---------- キーフレーム ---------- */
   const { keyList: list, keyAdd: add, keyMake: make } = ui;
   add.addEventListener('click', () => app.addKey());
-  // 再生と停止を1つのボタンにする。再生は一覧から作り直して今の記録と入れ替える(手で記録した操作があっても再生できる。元に戻せる)
-  make.addEventListener('click', () => { if (app.takeState === 'playing') app.stopTake(); else app.makeKeyTake(); });
+  // 一覧から動きを作り直して、今の動きと入れ替えて再生する(記録した操作が入っていても入れ替える。元に戻せる)。再生中でも作り直す
+  make.addEventListener('click', () => app.makeKeyTake());
   // 行の中のボタン・入力はまとめて受ける(行は作り直すことがある)
   const rowOf = (el: EventTarget | null) => Number((el as HTMLElement | null)?.closest<HTMLElement>('[data-key]')?.dataset.key ?? -1);
   list.addEventListener('click', e => {
@@ -207,24 +208,27 @@ export function bindTakeControls(app: App): void {
     ui.keyCount.textContent = `${keys.length}/${MAX_KEYS}`;
     add.disabled = keys.length >= MAX_KEYS || !app.doc;
     const total = keys.reduce((a, k) => a + k.seconds, 0);
-    const playing = app.takeState === 'playing';
-    make.disabled = playing ? app.exporting : keys.length < 2 || total < TAKE_MIN_SECONDS - 1e-9 || !app.doc || app.exporting || app.takeState === 'recording';
-    make.querySelector('[data-icon]')!.textContent = playing ? '■' : '▶';
-    label(make).textContent = playing ? '停止' : '再生';
+    make.disabled = keys.length < 2 || total < TAKE_MIN_SECONDS - 1e-9 || !app.doc || app.exporting || app.takeState === 'recording';
     ui.keyTotal.textContent = keys.length < 2 ? '2つ以上' : total < TAKE_MIN_SECONDS - 1e-9 ? `1周 ${TAKE_MIN_SECONDS}秒以上` : `1周 ${sec(total)}`;
   }
 
   function refresh(): void {
-    const s = app.takeState, has = !!app.project.take, len = app.takeLength;
-    label(rec).textContent = s === 'recording' ? '停止' : '記録';
+    const s = app.takeState, take = app.project.take, len = app.takeLength;
+    // 今の動きの作り方。記録中は記録の側
+    const src = s === 'recording' ? 'rec' : take ? (take.keys ? 'key' : 'rec') : 'none';
+    ui.recSection.classList.toggle('on', src === 'rec');
+    ui.keySection.classList.toggle('on', src === 'key');
+    rec.querySelector('[data-icon]')!.textContent = s === 'recording' ? '■' : '●';
+    label(rec).textContent = s === 'recording' ? '記録を止める' : '記録する';
     rec.setAttribute('aria-pressed', String(s === 'recording'));
     play.querySelector('[data-icon]')!.textContent = s === 'playing' ? '■' : '▶';
     label(play).textContent = s === 'playing' ? '停止' : '再生';
     play.setAttribute('aria-pressed', String(s === 'playing'));
-    info.textContent = s === 'recording' ? `● ${sec(len)} / 60秒`
-      : s === 'playing' ? (app.playPaused ? '一時停止中' : '再生中')
-      : has ? `${app.project.take?.keys ? 'キーフレーム' : '記録'} ${sec(takeSeconds(app.project.take))}` : 'なし';
-    info.classList.toggle('badge-error', s === 'recording');
+    const name = src === 'key' ? '◆ キーフレーム' : '● 記録';
+    info.textContent = s === 'recording' ? `● 記録中 ${sec(len)} / 60秒`
+      : !take ? 'なし'
+      : `${name} ${sec(takeSeconds(take))}`; // 再生中・一時停止中は、帯のボタンと3Dビューの下のバーで分かる
+    info.dataset.src = s === 'recording' ? 'recording' : src;
     refreshKeys();
   }
 

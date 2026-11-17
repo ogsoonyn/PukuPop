@@ -24,8 +24,8 @@
   <button class="m-icon" data-cmd="redo" aria-label="やり直す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
   <!-- 押すと開いている作業(タブ)の一覧を出す(ui/docTabs.ts) -->
   <button id="mTitle" type="button" class="flex-1 min-w-0 font-bold" aria-haspopup="dialog"><span class="m-title-name"></span><span class="m-title-count"></span></button>
-  <!-- キーフレームの再生・停止(左のツールバーと同じコマンド。アイコンは再生中に停止へ変わる。ui/actions.ts) -->
-  <button id="mPlay" class="m-icon" data-cmd="toggleKeyPlay" aria-label="キーフレームを再生"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
+  <!-- アニメーションの再生・停止(左のツールバーと同じコマンド。アイコンは再生中に停止へ変わる。ui/actions.ts) -->
+  <button id="mPlay" class="m-icon" data-cmd="toggleKeyPlay" aria-label="アニメーションを再生"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
   <button id="mAuto" class="m-icon" aria-label="自動で揺らす" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg></button>
   <div class="dropdown dropdown-end">
     <div tabindex="0" role="button" class="m-icon" aria-label="メニュー"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></div>
@@ -100,14 +100,15 @@
     <div tabindex="0" role="button" class="btn btn-ghost btn-sm">アニメーション</div>
     <ul tabindex="-1" class="dropdown-content menu bg-base-100 rounded-box z-30 w-72 p-2 shadow-lg">
       <li><button data-cmd="toggleAutoSwing">自動で揺らす <span data-check="autoSwing" class="ml-auto"></span></button></li>
-      <li class="menu-title">操作の記録</li>
+      <!-- 右パネルの「アニメーション」の箱と同じ分け方: 再生する動きは1つで、その再生・消すと、作り方 -->
+      <li class="menu-title">アニメーション</li>
+      <li><button data-cmd="togglePlay">再生・停止</button></li>
+      <li><button data-cmd="clearTake">アニメーションを消す</button></li>
+      <li class="menu-title">作り方</li>
       <li><button data-cmd="toggleRecording">操作の記録(開始・停止)</button></li>
-      <li><button data-cmd="togglePlay">ループ再生(開始・停止)</button></li>
-      <li><button data-cmd="clearTake">記録を消す</button></li>
-      <li class="menu-title">キーフレーム</li>
-      <li><button data-cmd="toggleKeyPlay">再生・停止</button></li>
-      <li><button data-cmd="toggleKeyPath">経路を重ねる <span data-check="keyPath" class="ml-auto"></span></button></li>
-      <li><button data-cmd="toggleKeyGhost">ゴーストを重ねる <span data-check="keyGhost" class="ml-auto"></span></button></li>
+      <li class="menu-title">キーフレームの表示</li>
+      <li><button data-cmd="toggleKeyPath">キーフレームの経路を重ねる <span data-check="keyPath" class="ml-auto"></span></button></li>
+      <li><button data-cmd="toggleKeyGhost">キーフレームのゴーストを重ねる <span data-check="keyGhost" class="ml-auto"></span></button></li>
       <li class="menu-title">その他</li>
       <li><button data-cmd="addFavorite">お気に入りに追加</button></li>
     </ul>
@@ -163,10 +164,10 @@
   <label class="flex items-center gap-2" data-inflate-opt hidden>重ね方
     <select id="tInflBlend" class="select select-xs w-32"><option value="max">重ねる(高い方)</option><option value="add">足す</option><option value="replace">置き換える</option></select></label>
   <span id="toolHint" class="tool-hint hidden md:flex flex-1 min-w-0"></span>
-  <!-- よく使う操作(キーフレームの再生・停止、自動で揺らす)と、UIを隠す・設定。メニューバーはタブに幅を使うので、この欄の右端に置く。
+  <!-- よく使う操作(アニメーションの再生・停止、自動で揺らす)と、UIを隠す・設定。メニューバーはタブに幅を使うので、この欄の右端に置く。
        絵は ui/icons.ts から入れる(ui/actions.ts。再生は再生中に停止の絵に、自動で揺らすは入っている間 aria-pressed に) -->
   <div id="quickActs" class="ml-auto flex items-center gap-1 shrink-0">
-    <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleKeyPlay" aria-label="キーフレームを再生"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
+    <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleKeyPlay" aria-label="アニメーションを再生"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
     <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleAutoSwing" data-pressed="autoSwing" data-icon="autoSwing" aria-label="自動で揺らす" aria-pressed="false"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg></button>
     <span class="quick-sep" aria-hidden="true"></span>
     <button class="btn btn-ghost btn-xs btn-square" data-cmd="toggleUi" aria-label="UIを隠す"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/></svg></button>
@@ -202,6 +203,8 @@
       <button id="playStart" type="button" class="btn btn-ghost btn-sm btn-square" aria-label="再生" title="キーフレームの動きをループ再生する(一覧が今の記録と違えば作り直す。元に戻せる)"></button>
       <button id="playStop" type="button" class="btn btn-ghost btn-sm btn-square" aria-label="停止"></button>
       <button id="playPause" type="button" class="btn btn-ghost btn-sm btn-square" data-cmd="togglePlayPause" aria-pressed="false" aria-label="一時停止"></button>
+      <!-- 今の動きの作り方(右パネルの「アニメーション」の帯の印と同じ。◆ キーフレーム / ● 記録) -->
+      <span id="playSrc" class="play-src"><span class="play-src-mark" aria-hidden="true"></span><span class="play-src-name"></span></span>
       <span id="playTime" class="tabular-nums"></span>
       <div id="playTrack" role="slider" tabindex="0" aria-label="再生の位置(秒)" aria-valuemin="0">
         <div class="play-rail"><div class="play-fill"></div></div>
@@ -299,40 +302,58 @@
           <div class="prop"><label for="pAutoStr">強さ</label><input id="pAutoStr" type="range" min="0" max="100" class="range range-xs"><output id="pAutoStrO"></output></div>
         </section>
 
-        <section class="flex flex-col gap-2" aria-labelledby="takeTitle" data-m-slot="take">
-          <div class="flex items-center gap-2">
-            <h2 id="takeTitle" class="font-bold">操作の記録</h2><button type="button" class="help-btn" data-help="takeHelp"></button>
-            <span id="takeInfo" class="badge badge-sm badge-ghost font-normal tabular-nums"></span>
+        <!-- アニメーション: 再生する動きは1つだけ(project.take)。上の帯で今の中身を見せて再生し、下に作り方(操作の記録・キーフレーム)を並べる。
+             どちらで作っても帯の中身が入れ替わる。今の中身を作った側を帯と同じ色で光らせる(ui/take.ts) -->
+        <section id="animBox" class="anim-box" aria-labelledby="animTitle" data-m-slot="anim">
+          <div class="anim-head">
+            <div class="flex items-center gap-2">
+              <h2 id="animTitle" class="font-bold">アニメーション</h2><button type="button" class="help-btn" data-help="animHelp"></button>
+              <span id="takeInfo" class="anim-chip tabular-nums"></span>
+            </div>
+            <p id="animHelp" class="help-text" hidden>再生する動きは1つです。下の「操作の記録」か「キーフレーム」で作ると、ここの動きが入れ替わります(元に戻せます)。印は今の動きの作り方で、◆ がキーフレーム、● が記録した操作です。下の作り方のうち、今の動きを作った側の枠が同じ色になります。ループ再生中も、回転・平行移動・ズームで視点を動かせます(画像のほうが動きどおりに動きます)。動かした視点は「カメラを戻す」で再生を始めた視点へ戻せます。塗る・つかむ・揺らすなどで画面を触ると止まります。動きはプロジェクトに保存され、書き出しの「記録した操作をループ再生」にも使えます。再生中は3Dビューの下に進み具合のバーが出て、押す・ドラッグするとその位置へ移ります(移った先の揺れは落ち着いた状態から始まります)。一時停止は Shift+L です。</p>
+            <div class="flex flex-wrap items-center gap-2">
+              <!-- 再生中は「■ 停止」に変わる(ui/take.ts)。キーフレームの動きなら、一覧を直していれば作り直して再生する -->
+              <button id="takePlay" class="btn btn-sm btn-primary" data-cmd="togglePlay"><span aria-hidden="true" data-icon>▶</span> <span data-label>再生</span></button>
+              <button id="takeCam" type="button" class="btn btn-sm" data-cmd="resetPlayView">カメラを戻す</button>
+              <button id="takeClear" class="btn btn-sm btn-ghost ml-auto" data-cmd="clearTake">消す</button>
+            </div>
           </div>
-          <p id="takeHelp" class="help-text" hidden>つかむ・揺らす・移動・視点の操作を覚えます(最長 60 秒)。ループ再生中も、回転・平行移動・ズームで視点を動かせます(画像のほうが記録どおりに動きます)。動かした視点は、キーフレームの下の「カメラを戻す」で再生を始めた視点へ戻せます。塗る・つかむ・揺らすなどで画面を触ると止まります。記録はプロジェクトに保存され、書き出しの「記録した操作をループ再生」にも使えます。再生中と記録中は、3Dビューの下に進み具合のバーが出ます。再生中はバーを押す・ドラッグするとその位置へ移り(移った先の揺れは落ち着いた状態から始まります)、一時停止(Shift+L)もできます。キーフレームの動きなら、各フレームの番号を押すとその時刻へ移ります(キーボードでは PageUp・PageDown)。</p>
-          <div class="flex flex-wrap gap-2">
-            <button id="takeRec" class="btn btn-sm" data-cmd="toggleRecording"><span class="text-error" aria-hidden="true">●</span> <span data-label>記録</span></button>
-            <button id="takePlay" class="btn btn-sm" data-cmd="togglePlay"><span aria-hidden="true" data-icon>▶</span> <span data-label>再生</span></button>
-            <button id="takeClear" class="btn btn-sm btn-ghost" data-cmd="clearTake">消す</button>
-          </div>
-        </section>
+          <div class="anim-body">
+            <span class="anim-label">作り方</span>
+            <section id="recSection" class="anim-src" aria-labelledby="recTitle">
+              <div class="flex items-center gap-2">
+                <h3 id="recTitle" class="font-bold">操作の記録</h3><button type="button" class="help-btn" data-help="recHelp"></button>
+                <span class="anim-using">使用中</span>
+              </div>
+              <p id="recHelp" class="help-text" hidden>つかむ・揺らす・移動・視点の操作を覚えます(最長 60 秒)。止めると、覚えた操作が上のアニメーションの動きになります。</p>
+              <div class="flex flex-wrap items-center gap-2">
+                <button id="takeRec" class="btn btn-sm" data-cmd="toggleRecording"><span class="text-error" aria-hidden="true" data-icon>●</span> <span data-label>記録する</span></button>
+                <span class="text-xs opacity-60">最長 60 秒</span>
+              </div>
+            </section>
 
-        <!-- キーフレーム: 視点を順に通ってくり返す動きを作る(作った動きは記録として再生・保存・書き出しする) -->
-        <section id="keySection" class="flex flex-col gap-2" aria-labelledby="keyTitle" data-m-slot="keys">
-          <div class="flex items-center gap-2">
-            <h2 id="keyTitle" class="font-bold">キーフレーム</h2><button type="button" class="help-btn" data-help="keyHelp"></button>
-            <span id="keyCount" class="text-xs opacity-60 tabular-nums"></span>
-            <button id="keyAdd" class="btn btn-xs ml-auto" title="今の視点を末尾に追加">＋ 追加</button>
-          </div>
-          <div class="flex items-center gap-3 text-xs">
-            <span class="opacity-60">重ねて表示</span>
-            <label class="flex items-center gap-1 whitespace-nowrap" title="枠と経路を3Dビューに重ねる"><input id="keyPathShow" type="checkbox" class="checkbox checkbox-xs"> 経路</label>
-            <label class="flex items-center gap-1 whitespace-nowrap" title="各フレームの画像を半透明で重ねる"><input id="keyGhostShow" type="checkbox" class="checkbox checkbox-xs"> ゴースト</label>
-            <label class="flex items-center gap-1 whitespace-nowrap" title="止まっている間も、3Dビューの下に再生のバーを出す(再生中・記録中はいつも出る)"><input id="playBarShow" type="checkbox" class="checkbox checkbox-xs"> シークバー</label>
-          </div>
-          <p id="keyHelp" class="help-text" hidden>視点(回転・ズーム・画像の位置)を順に通り、最後から最初へ戻ってくり返す動きを作ります。画像の位置が動くと揺れます。フレームの間の秒数は、次のフレームまでの時間です(最後の後の ↩ は、最初へ戻るまでの時間)。「通り方」は、そのフレームを、なめらか(止まらず通り抜ける)か、弾む(勢いよく着いて止まり、揺れる)かを選びます。行の左端の点をドラッグすると順番を入れ替えられます(間の秒数は場所に残ります)。点を選んで ↑↓ キーでも動かせます。作った動きは今の記録と入れ替わります(元に戻せます)。「経路」をオンにすると、1番のフレームの視点をカメラとして止めたまま画像のほうが動くとみなし、各フレームで画像が来る所を枠で、順番を番号で、画像の中心の動きを矢印と秒数で3Dビューに重ねます。1番の視点から見ると、そのカメラで映る並びになります。視点を動かすと横や上からも見られます。番号の形は通り方で、丸がなめらか、ひし形が弾むです。番号を押すとその視点へ移ります。「ゴースト」をオンにすると、同じ所に画像を半透明で重ねます。どちらも記録中・再生中は消えます。「シークバー」をオンにすると、フレームが2つ以上(1周 0.5 秒以上)ある間は、このタブを開いていれば止まっていても3Dビューの下に再生のバーが出ます(手で記録した操作があるときは出ません)。バーを押すと、その時刻で一時停止した状態から再生が始まり(一覧が今の記録と違えば作り直します)、▶ で続きから流れます。</p>
-          <div class="key-row key-head text-xs opacity-60" aria-hidden="true"><span></span><span>#</span><span>通り方</span><span></span><span></span></div>
-          <ol id="keyList" class="flex flex-col gap-1" aria-label="キーフレーム一覧"></ol>
-          <div class="flex flex-wrap items-center gap-2">
-            <!-- 再生中は「■ 停止」に変わる(ui/take.ts) -->
-            <button id="keyMake" type="button" class="btn btn-sm btn-primary" title="キーフレームの動きをループ再生する(今の記録と入れ替わる。元に戻せる)。再生中は止める"><span aria-hidden="true" data-icon>▶</span> <span data-label>再生</span></button>
-            <button id="takeCam" type="button" class="btn btn-sm" data-cmd="resetPlayView">カメラを戻す</button>
-            <span id="keyTotal" class="text-xs opacity-70 tabular-nums"></span>
+            <!-- キーフレーム: 視点を順に通ってくり返す動きを作る(作った動きは上のアニメーションの動きになる) -->
+            <section id="keySection" class="anim-src" aria-labelledby="keyTitle">
+              <div class="flex items-center gap-2">
+                <h3 id="keyTitle" class="font-bold">キーフレーム</h3><button type="button" class="help-btn" data-help="keyHelp"></button>
+                <span class="anim-using">使用中</span>
+                <span id="keyCount" class="text-xs opacity-60 tabular-nums"></span>
+                <button id="keyAdd" class="btn btn-xs ml-auto" title="今の視点を末尾に追加">＋ 追加</button>
+              </div>
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <span class="opacity-60 whitespace-nowrap">重ねて表示</span>
+                <label class="flex items-center gap-1 whitespace-nowrap" title="枠と経路を3Dビューに重ねる"><input id="keyPathShow" type="checkbox" class="checkbox checkbox-xs"> 経路</label>
+                <label class="flex items-center gap-1 whitespace-nowrap" title="各フレームの画像を半透明で重ねる"><input id="keyGhostShow" type="checkbox" class="checkbox checkbox-xs"> ゴースト</label>
+                <label class="flex items-center gap-1 whitespace-nowrap" title="止まっている間も、3Dビューの下に再生のバーを出す(再生中・記録中はいつも出る)"><input id="playBarShow" type="checkbox" class="checkbox checkbox-xs"> シークバー</label>
+              </div>
+              <p id="keyHelp" class="help-text" hidden>視点(回転・ズーム・画像の位置)を順に通り、最後から最初へ戻ってくり返す動きを作ります。画像の位置が動くと揺れます。フレームの間の秒数は、次のフレームまでの時間です(最後の後の ↩ は、最初へ戻るまでの時間)。「通り方」は、そのフレームを、なめらか(止まらず通り抜ける)か、弾む(勢いよく着いて止まり、揺れる)かを選びます。行の左端の点をドラッグすると順番を入れ替えられます(間の秒数は場所に残ります)。点を選んで ↑↓ キーでも動かせます。「この並びで作る」を押すと、この並びの動きが上のアニメーションの動きになり、再生が始まります(元に戻せます)。今の動きがキーフレームで作ったものなら、一覧を直したあと上の「再生」を押しても作り直します。「経路」をオンにすると、1番のフレームの視点をカメラとして止めたまま画像のほうが動くとみなし、各フレームで画像が来る所を枠で、順番を番号で、画像の中心の動きを矢印と秒数で3Dビューに重ねます。1番の視点から見ると、そのカメラで映る並びになります。視点を動かすと横や上からも見られます。番号の形は通り方で、丸がなめらか、ひし形が弾むです。番号を押すとその視点へ移ります。「ゴースト」をオンにすると、同じ所に画像を半透明で重ねます。どちらも記録中・再生中は消えます。「シークバー」をオンにすると、フレームが2つ以上(1周 0.5 秒以上)ある間は、このタブを開いていれば止まっていても3Dビューの下に再生のバーが出ます(記録した操作が入っているときは出ません)。バーを押すと、その時刻で一時停止した状態から再生が始まり(一覧が今の動きと違えば作り直します)、▶ で続きから流れます。各フレームの番号を押すとその時刻へ移ります(キーボードでは PageUp・PageDown)。</p>
+              <div class="key-row key-head text-xs opacity-60" aria-hidden="true"><span></span><span>#</span><span>通り方</span><span></span><span></span></div>
+              <ol id="keyList" class="flex flex-col gap-1" aria-label="キーフレーム一覧"></ol>
+              <div class="flex flex-wrap items-center gap-2">
+                <button id="keyMake" type="button" class="btn btn-sm" title="この並びの動きを作ってアニメーションの動きにし、再生する(元に戻せる)">この並びで作る</button>
+                <span id="keyTotal" class="text-xs opacity-70 tabular-nums"></span>
+              </div>
+            </section>
           </div>
         </section>
       </div>
