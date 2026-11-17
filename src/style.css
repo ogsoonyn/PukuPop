@@ -15,6 +15,22 @@
 .prop { display: grid; grid-template-columns: 6.25rem 1fr 3.25rem; align-items: center; gap: .5rem; }
 .prop output { text-align: right; font-variant-numeric: tabular-nums; }
 /* キーフレームの行: 番号(押すとその視点を見る)・通り方・今の視点で上書き・削除。間の行は次までの秒数で、行の間にあると分かるよう半分ずらす */
+/* アニメーションの箱(ui/take.ts)。再生する動きは1つなので、帯(今の動き・再生)を1つ置き、作り方を中に並べる。
+   今の動きを作った側(.on)の枠を帯と同じ色にして、どれが帯に入っているかを形で見せる */
+.anim-box { --anim: var(--color-primary); border: 2px solid color-mix(in oklab, var(--anim) 55%, transparent); border-radius: .75rem; overflow: hidden; display: flex; flex-direction: column; }
+.anim-head { display: flex; flex-direction: column; gap: .5rem; padding: .5rem .625rem; background: color-mix(in oklab, var(--anim) 10%, var(--color-base-100)); }
+.anim-body { display: flex; flex-direction: column; gap: .5rem; padding: .5rem .5rem .625rem; }
+.anim-label { font-size: .75rem; opacity: .6; }
+.anim-chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: inline-block; align-items: center; padding: .0625rem .5rem; border-radius: 999px; font-size: .75rem; white-space: nowrap; background: color-mix(in oklab, var(--color-base-content) 8%, transparent); }
+.anim-chip[data-src="none"] { opacity: .6; }
+.anim-chip[data-src="key"] { color: var(--anim); font-weight: 600; }
+.anim-chip[data-src="rec"], .anim-chip[data-src="recording"] { color: var(--color-error); font-weight: 600; }
+.anim-src { display: flex; flex-direction: column; gap: .5rem; padding: .5rem; border: 1px solid var(--color-base-300); border-radius: .5rem; }
+.anim-src.on { border-color: color-mix(in oklab, var(--anim) 55%, transparent); background: color-mix(in oklab, var(--anim) 6%, var(--color-base-100)); box-shadow: inset 3px 0 0 var(--anim); }
+.anim-src h3 { font-size: .875rem; }
+.anim-box h2, .anim-box h3 { white-space: nowrap; flex-shrink: 0; }
+.anim-using { white-space: nowrap; display: none; font-size: .6875rem; font-weight: 700; color: var(--anim); }
+.anim-src.on .anim-using { display: inline; }
 .key-row { display: grid; grid-template-columns: 1rem 1.75rem 1fr 1.75rem 1.5rem; align-items: center; gap: .375rem; }
 #keyList { position: relative; }
 .key-grip { display: flex; align-items: center; justify-content: center; height: 1.5rem; border-radius: .25rem; opacity: .45; cursor: grab; touch-action: none; }
@@ -212,6 +228,10 @@ html.mobile #stageWrap { margin-bottom: var(--m-sheet); }
 .play-key { position: absolute; top: 50%; width: 1.125rem; height: 1.125rem; margin: -.5625rem 0 0 -.5625rem; display: grid; place-items: center; font-size: .625rem; font-weight: 700; line-height: 1; color: var(--color-base-100); z-index: 1; cursor: pointer; }
 .play-key::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 50%; background: color-mix(in oklab, var(--color-base-content) 70%, transparent); }
 .play-key[data-mode="bounce"]::before { border-radius: 2px; transform: scale(.8) rotate(45deg); }
+.play-src { flex-shrink: 0; display: inline-flex; align-items: center; gap: .1875rem; padding: 0 .25rem; font-weight: 600; white-space: nowrap; }
+.play-src[data-src="key"] { color: var(--color-primary); }
+.play-src[data-src="rec"] { color: var(--color-error); }
+html.mobile .play-src-name { display: none; }
 .play-loop { flex-shrink: 0; padding: 0 .25rem; font-size: .9375rem; opacity: .6; }
 .play-cam-icon { display: inline-flex; }
 .play-cam-icon svg { width: 1rem; height: 1rem; }
@@ -289,6 +309,10 @@ html.mobile #mFine { display: inline-flex !important; }
 html.mobile #helpDialog .m-only { display: grid !important; }
 html.mobile .help-btn { width: 1.5rem; height: 1.5rem; font-size: 12px; }
 html.mobile #mPanes section { padding: 0; border: 0; }
+/* アニメーションの箱と作り方の枠は、枠で1つの動きを共有していると見せるので残す */
+html.mobile #mPanes .anim-box { border: 2px solid color-mix(in oklab, var(--anim) 55%, transparent); }
+html.mobile #mPanes .anim-src { padding: .5rem .625rem; border: 1px solid var(--color-base-300); }
+html.mobile #mPanes .anim-src.on { border-color: color-mix(in oklab, var(--anim) 55%, transparent); }
 html.mobile #mPanes .btn-xs.btn-square { width: 2.25rem; height: 2.25rem; }
 
 /* レイヤー一覧: 複数選んでいるときは、最後に押したレイヤー(塗りの先)の左に太い線を付ける */

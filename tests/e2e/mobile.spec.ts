@@ -145,7 +145,7 @@ test('上のバーの再生ボタンで、キーフレームの動きを再生�
   await expect(page.locator('#mNav [data-cmd=toggleKeyPlay] .nav-label')).toHaveText('停止');
   await play.click();
   expect(await page.evaluate(() => (window as any).popstage.takeState)).toBe('idle');
-  await expect(play).toHaveAttribute('aria-label', 'キーフレームを再生');
+  await expect(play).toHaveAttribute('aria-label', 'アニメーションを再生');
 });
 
 test('シートのスライダーは横に引くと動き、縦に動かす・触るだけでは値が変わらない', async ({ page }) => {
