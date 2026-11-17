@@ -100,10 +100,14 @@ test('サブパスに置いたビルドで、画像から作って POST し、�
   await expect.poll(() => page.evaluate(() => (window as any).popstage.dirty)).toBe(false);
   expect(srv.files.get('/files/cat.pukupop')).toBeTruthy();
 
-  // 作ったファイルを開き直して、上書きする
-  const errors2 = await open(page, `${new URLSearchParams({ src: '/files/cat.pukupop' })}`);
-  expect(errors2).toEqual([]);
+  // ページの URL は作ったファイルを開く形に置き換わる(Issue #150)。読み直すと、そのファイルを開いて上書きする
+  await expect.poll(() => new URL(page.url()).searchParams.get('src')).toBe('/files/cat.pukupop');
+  expect(new URL(page.url()).pathname).toBe(new URL(APP).pathname);
+  await page.reload();
+  await page.waitForFunction(() => { const a = (window as any).popstage; return a?.doc && a.stage.hasDocument && a.paused; });
+  expect(errors).toEqual([]);
   expect(await page.evaluate(() => (window as any).popstage.tabName((window as any).popstage.activeTab))).toBe('cat.pukupop');
+  await expect(page.locator('#embedBack')).toBeVisible();
   await page.evaluate(() => (window as any).popstage.weightOp('反転', (wm: any) => wm.invert()));
   await page.keyboard.press('Control+s');
   await expect.poll(() => page.evaluate(() => (window as any).popstage.dirty)).toBe(false);
