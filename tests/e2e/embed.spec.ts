@@ -29,7 +29,7 @@ interface Stored { body: Buffer; etag: number; type: string }
  * 作り物のサーバー。/files/<名前> の GET・PUT(If-Match が今の ETag と違えば 412)と、/files/ への POST(201 と Location)を受ける。
  * 受けたリクエストは reqs に控える
  */
-async function fakeServer(page: Page, opts: { weakEtag?: boolean } = {}) {
+async function fakeServer(page: Page, opts: { weakEtag?: boolean; hold?: boolean } = {}) {
   const files = new Map<string, Stored>([
     ['/files/cat.pukupop', { body: projectBytes, etag: 1, type: 'application/zip' }],
     ['/files/cat.png', { body: pngBytes, etag: 1, type: 'image/png' }],
@@ -37,10 +37,14 @@ async function fakeServer(page: Page, opts: { weakEtag?: boolean } = {}) {
   const reqs: { method: string; path: string; ifMatch: string | undefined }[] = [];
   const tag = (s: Stored) => `${opts.weakEtag ? 'W/' : ''}"v${s.etag}"`;
   let seq = 0;
+  // hold なら、書き込み(PUT・POST)の応答を release() まで返さない(遅いサーバー)
+  let release = () => {};
+  const held = opts.hold ? new Promise<void>(r => { release = r; }) : null;
   await page.route('**/files/**', async route => {
     const req: Request = route.request(), path = new URL(req.url()).pathname;
     const ifMatch = req.headers()['if-match'];
     reqs.push({ method: req.method(), path, ifMatch });
+    if (held && req.method() !== 'GET') await held;
     const f = files.get(path);
     if (req.method() === 'GET') {
       if (!f) return route.fulfill({ status: 404, body: 'not found' });
@@ -60,7 +64,7 @@ async function fakeServer(page: Page, opts: { weakEtag?: boolean } = {}) {
     return route.fulfill({ status: 405 });
   });
   return {
-    reqs, files,
+    reqs, files, release: () => release(),
     /** 別の人が上書きしたことにする(ETag が変わる) */
     touch: (path: string) => { files.get(path)!.etag++; },
     writes: () => reqs.filter(r => r.method !== 'GET'),
@@ -170,6 +174,33 @@ test('画像から新しく作る: 最初の保存は POST し、応答の Locat
     { method: 'POST', path: '/files/', ifMatch: undefined },
     { method: 'PUT', path: '/files/new-1.pukupop', ifMatch: '"v1"' },
   ]);
+});
+
+test('保存の最中にもう一度押しても、二重に書かない(新規が2つできない)', async ({ page }) => {
+  const srv = await fakeServer(page, { hold: true });
+  await open(page, { image: '/files/cat.png', create: '/files/' });
+  await paint(page);
+  await save(page);
+  await expect.poll(() => srv.writes().length).toBe(1);
+  await save(page);
+  await expect(page.locator('#toasts')).toContainText('保存しています');
+  srv.release();
+  await expect.poll(async () => (await state(page)).dirty).toBe(false);
+  await paint(page);
+  await save(page);
+  await expect.poll(async () => (await state(page)).dirty).toBe(false);
+  expect(srv.writes().map(r => `${r.method} ${r.path}`)).toEqual(['POST /files/', 'PUT /files/new-1.pukupop']);
+});
+
+test('保存していない変更があるままページを閉じるときは、ブラウザの確認を出す', async ({ page }) => {
+  await fakeServer(page);
+  await open(page, { src: '/files/cat.pukupop', back: '/files/' });
+  await page.locator('[data-tool="brush"]').click();
+  await paint(page);
+  let seen = '';
+  page.on('dialog', d => { seen = d.type(); void d.accept(); });
+  await page.close({ runBeforeUnload: true });
+  await expect.poll(() => seen).toBe('beforeunload');
 });
 
 test('ほかのファイルを開く・タブ・名前を付けて保存・サンプルの操作は隠し、自動保存もしない', async ({ page }) => {

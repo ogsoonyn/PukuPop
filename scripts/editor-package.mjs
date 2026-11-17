@@ -4,7 +4,7 @@
  *
  * - THIRD-PARTY-LICENSES.txt(同梱したパッケージのライセンス。Vite のプラグインが app/ に出す)を dist-editor/ の直下へ移す
  *   (app/ は配信するディレクトリなので、配信しないものは置かない)
- * - service worker(public/sw.js)は埋め込みモードでは登録しないので、app/ から外す
+ * - service worker(public/sw.js)は埋め込みモードでは登録せず、PWA のマニフェストも読み込まない(vite.config.ts)ので、app/ から外す
  * - packages/editor の package.json・README.md と、リポジトリの LICENSE を写す
  */
 import { copyFileSync, existsSync, renameSync, rmSync } from 'node:fs';
@@ -16,7 +16,7 @@ if (!existsSync(join(appDir, 'index.html'))) fail('dist-editor/app/index.html �
 const licenses = join(appDir, 'THIRD-PARTY-LICENSES.txt');
 if (!existsSync(licenses)) fail('dist-editor/app/THIRD-PARTY-LICENSES.txt がありません(vite build --mode embed が出すはず)');
 renameSync(licenses, join(distDir, 'THIRD-PARTY-LICENSES.txt'));
-rmSync(join(appDir, 'sw.js'), { force: true });
+for (const f of ['sw.js', 'manifest.webmanifest']) rmSync(join(appDir, f), { force: true });
 for (const f of ['package.json', 'README.md']) copyFileSync(join(pkgDir, f), join(distDir, f));
 copyFileSync(join(root, 'LICENSE'), join(distDir, 'LICENSE'));
 

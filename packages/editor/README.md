@@ -37,10 +37,10 @@ app.use('/pukupop', express.static('node_modules/pukupop-editor/app'));
 ## 中身
 
 ```
-app/                      配信するファイル(index.html・assets/・icons/・manifest.webmanifest)
+app/                      配信するファイル(index.html・assets/・icons/)
 README.md                 このファイル
 LICENSE                   PukuPop のライセンス(MIT)
-THIRD-PARTY-LICENSES.txt  同梱したパッケージ(three.js など)のライセンス
+THIRD-PARTY-LICENSES.txt  同梱したパッケージ(three.js・daisyUI など)のライセンス
 ```
 
 `app/` の外のファイルは配信しなくてかまいません。
@@ -81,4 +81,4 @@ THIRD-PARTY-LICENSES.txt  同梱したパッケージ(three.js など)のライ�
 - 開くのは、クエリで渡したファイル1つだけです。ほかのファイルを開く・最近開いたファイル・サンプル・タブを増やす操作はありません。
 - 「保存」はサーバーへの上書きです(スマホでも同じです)。「名前を付けて保存」はありません。動画や GIF への書き出しは、ふつうの PukuPop と同じくダウンロードになります。
 - 保存していない変更があるまま「戻る」を押すと、確かめます。ブラウザの戻る・タブを閉じるときは、ブラウザの確認が出ます。
-- service worker は登録しません。自動保存(IndexedDB)と最近開いたファイルも使いません。ブラシの大きさなどの設定は、ふつうの PukuPop と同じく localStorage(キー `popstage.prefs.v1`)に覚えます。
+- service worker は登録せず、アプリとしてのインストール(PWA のマニフェスト)もしません。自動保存(IndexedDB)と最近開いたファイルも使いません。ブラシの大きさなどの設定は、ふつうの PukuPop と同じく localStorage(キー `popstage.prefs.v1`)に覚えます。

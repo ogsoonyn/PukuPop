@@ -87,16 +87,25 @@ const blob = () => new Blob([new Uint8Array([1, 2, 3])], { type: 'application/zi
 describe('開くファイルを取る(GET)', () => {
   it('中身・種類・強い ETag を返す', async () => {
     const f = fakeFetch(new Response(new Uint8Array([9, 8]), { headers: { 'Content-Type': 'image/png; charset=x', ETag: '"v1"' } }));
-    expect(await fetchForOpen('https://archive.example/a.png', f.fn)).toEqual({ bytes: new Uint8Array([9, 8]), type: 'image/png', etag: '"v1"' });
+    expect(await fetchForOpen('https://archive.example/a.png', PAGE, f.fn)).toEqual({ bytes: new Uint8Array([9, 8]), type: 'image/png', etag: '"v1"' });
     expect(f.calls[0].init).toMatchObject({ credentials: 'same-origin', cache: 'no-store' });
   });
   it('弱い ETag は覚えない', async () => {
     const f = fakeFetch(new Response('x', { headers: { ETag: 'W/"v1"' } }));
-    expect((await fetchForOpen('https://archive.example/a', f.fn)).etag).toBeNull();
+    expect((await fetchForOpen('https://archive.example/a', PAGE, f.fn)).etag).toBeNull();
+  });
+  it('リダイレクトの行き着いた先が同じオリジンでなければ開かない', async () => {
+    const moved = (to: string) => {
+      const r = new Response('x');
+      Object.defineProperties(r, { redirected: { value: true }, url: { value: to } });
+      return r;
+    };
+    await expect(fetchForOpen('https://archive.example/go', PAGE, fakeFetch(moved('https://evil.example/x.pukupop')).fn)).rejects.toThrow(EmbedError);
+    expect((await fetchForOpen('https://archive.example/go', PAGE, fakeFetch(moved('https://archive.example/store/x')).fn)).bytes).toHaveLength(1);
   });
   it('失敗は状態のコード付きで投げる', async () => {
-    await expect(fetchForOpen('https://archive.example/a', fakeFetch(new Response('', { status: 404, statusText: 'Not Found' })).fn)).rejects.toThrow('HTTP 404 Not Found');
-    await expect(fetchForOpen('https://archive.example/a', fakeFetch(new TypeError('Failed to fetch')).fn)).rejects.toThrow('Failed to fetch');
+    await expect(fetchForOpen('https://archive.example/a', PAGE, fakeFetch(new Response('', { status: 404, statusText: 'Not Found' })).fn)).rejects.toThrow('HTTP 404 Not Found');
+    await expect(fetchForOpen('https://archive.example/a', PAGE, fakeFetch(new TypeError('Failed to fetch')).fn)).rejects.toThrow('Failed to fetch');
   });
 });
 

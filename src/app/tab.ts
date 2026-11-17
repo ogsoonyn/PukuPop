@@ -34,6 +34,8 @@ export interface Tab {
   target: SaveTarget | null;
   fileName: string | null;
   dirty: boolean;
+  /** 保存(ファイル・サーバーへの書き込み)の最中か。続けて押しても二重に書かない(サーバーでは新規が2つできる・自分の保存が衝突になる) */
+  saving: boolean;
   /** 変更のたびに増える番号。保存中に変更があったかを見分けるのに使う */
   revision: number;
   lastSaved: Date | null;
@@ -64,7 +66,7 @@ export function createTab(project: Project, init: Partial<Pick<Tab, 'id' | 'orde
     id: init.id ?? `tab-${Date.now().toString(36)}-${seq.toString(36)}`,
     order: init.order ?? Date.now() + seq,
     project, history: emptyHistory(), shownAt: 0, sample: init.sample ?? false,
-    target: init.target ?? null, fileName: init.fileName ?? null, dirty: init.dirty ?? false, revision: 0,
+    target: init.target ?? null, fileName: init.fileName ?? null, dirty: init.dirty ?? false, saving: false, revision: 0,
     lastSaved: null, lastAutosave: null, autosaveError: null, autosaveQuota: false, autosaving: Promise.resolve(), autosaveTimer: 0,
     activeLayerId: null, selectedLayerIds: new Set(),
     // 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れて始める

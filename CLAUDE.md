@@ -34,7 +34,7 @@ npm run check:player-pack  # .tgz を OS の一時ディレクトリの空のプ
 
 ```sh
 npm run build:editor       # dist-editor/app/ に出し(vite.config.ts の --mode embed)、package.json・README・ライセンスを dist-editor/ にそろえる
-npm run check:editor       # ビルドの確かめ(相対パスの参照・sw.js が無い・埋め込みの口が入っている。dist/ があれば公開版に入っていないことも)
+npm run check:editor       # ビルドの確かめ(相対パスの参照・sw.js とマニフェストが無い・ライセンスの表記・埋め込みの口が入っている。dist/ があれば公開版に入っていないことも)
 npm run pack:editor        # 直下に pukupop-editor-<版>.tgz(npm pack)と .zip(同じ中身。静的ファイルを置くだけのサーバー向け)を作る
 npm run check:editor-pack  # .tgz を空のプロジェクトに入れ、.zip と中身が同じことを確かめる
 ```
@@ -72,7 +72,7 @@ npm run check:editor-pack  # .tgz を空のプロジェクトに入れ、.zip �
 - `develop` / `main` 向けの PR と `develop` への push では、GitHub Actions(`.github/workflows/ci.yml`)が型検査・単体テスト・ビルド(Player・埋め込み用の編集画面の配布物まで)を流す。E2E は流れない。
 - `main` へ push すると、GitHub Actions(`.github/workflows/deploy-pages.yml`)がテストとビルドを行い、GitHub Pages へ公開する(リポジトリを作り直したときは、Settings → Pages で Source を「GitHub Actions」にする)。ビルド結果は相対パスで参照し合う(`base: './'`)。
 - アプリアイコンは `scripts/icon-art.mjs` の SVG から作る。絵を変えたら `node scripts/make-icons.mjs` で `public/icons/` を作り直す。
-- service worker は `public/sw.js`。本番ビルドのときだけ登録する(`?e2e` 付きのとき・埋め込みモードでは登録しない。埋め込み用の配布物には `sw.js` を入れない)。
+- service worker は `public/sw.js`。本番ビルドのときだけ登録する(`?e2e` 付きのとき・埋め込みモードでは登録しない。埋め込み用の配布物には `sw.js` と PWA のマニフェストを入れない)。
 
 ## やりとり
 

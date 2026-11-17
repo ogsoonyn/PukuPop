@@ -845,8 +845,8 @@ export class App extends Emitter<AppEvents> {
     return this.whileOpening(async () => {
       setBusy(true);
       let got: Awaited<ReturnType<typeof fetchForOpen>>;
-      try { got = await fetchForOpen(o.kind === 'project' ? o.src : o.image); } finally { setBusy(false); }
       const page = location.href;
+      try { got = await fetchForOpen(o.kind === 'project' ? o.src : o.image, page); } finally { setBusy(false); }
       if (o.kind === 'project') return this.openProjectBytes(got.bytes, o.name, new ServerTarget(o.name, { url: o.save, etag: got.etag }, page));
       const target = new ServerTarget(`${o.name.replace(/\.[^.]+$/, '') || 'untitled'}${FILE_EXTENSION}`, { create: o.create }, page);
       return this.openImage(new File([got.bytes as BlobPart], o.name, { type: got.type }), target);
@@ -878,6 +878,13 @@ export class App extends Emitter<AppEvents> {
     if (!this.doc || (saveAs && this.embedded)) return false;
     // 保存先を選んでいる間にタブを切り替えても、このタブに書き戻す
     const tab = this.tab;
+    // 保存の最中にもう一度押しても、二重に書かない(通信の遅いサーバーで、新規が2つできたり自分の保存が衝突になったりしないように)
+    if (tab.saving) { toast('保存しています。終わるまでお待ちください。', 'info'); return false; }
+    tab.saving = true;
+    try { return await this.saveNow(tab, saveAs); } finally { tab.saving = false; }
+  }
+
+  private async saveNow(tab: Tab, saveAs: boolean): Promise<boolean> {
     // 書き込みを待つ間に変更されたら、その変更は保存されていないので「未保存」のまま残す
     const thumb = await this.thumbnail();
     const revision = tab.revision;

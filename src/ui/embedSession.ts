@@ -27,6 +27,8 @@ export function bindEmbed(app: App): EmbedSession {
     }
     leaving = true;
     location.assign(back);
+    // 戻り先が 204 やダウンロードを返すと、ページは変わらない。そのときは印を戻し、ページを閉じるときの確認をまた出す
+    setTimeout(() => { leaving = false; }, 1000);
   };
   for (const b of [ui.embedBack, ui.mBack]) {
     b.hidden = !back;

@@ -3,7 +3,7 @@
  * コマンドの実行などの道具は Player のもの(player-lib.mjs)を使う。
  *
  * 配布物(dist-editor/。tgz も zip も同じ並び):
- *   app/                      ビルドした編集画面(index.html・assets/・icons/・manifest.webmanifest)。これをサブパスに置いて配信する
+ *   app/                      ビルドした編集画面(index.html・assets/・icons/)。これをサブパスに置いて配信する
  *   package.json・README.md・LICENSE・THIRD-PARTY-LICENSES.txt
  */
 import { readFileSync } from 'node:fs';

@@ -116,10 +116,15 @@ export function strongEtag(res: Response): string | null {
   return e && !e.startsWith('W/') ? e : null;
 }
 
-/** 開くファイルを取る(GET)。中身と、上書きの確かめに使う ETag を返す */
-export async function fetchForOpen(url: string, fetchFn: Fetch = defaultFetch): Promise<{ bytes: Uint8Array; type: string; etag: string | null }> {
+/**
+ * 開くファイルを取る(GET)。中身と、上書きの確かめに使う ETag を返す。page はページの URL。
+ * リダイレクトは追うが、行き着いた先も page と同じオリジンでなければ開かない
+ * (同じオリジンの転送の口を使って、外の中身を開かせ、本人のファイルへ保存させないように)
+ */
+export async function fetchForOpen(url: string, page: string, fetchFn: Fetch = defaultFetch): Promise<{ bytes: Uint8Array; type: string; etag: string | null }> {
   let res: Response;
   try { res = await fetchFn(url, { credentials: 'same-origin', cache: 'no-store' }); } catch (e) { throw networkError('ファイルを読み込めませんでした', e); }
+  if (res.redirected) sameOriginUrl(res.url, res.url, page, 'ファイルの転送先(リダイレクト)');
   if (!res.ok) throw httpError('ファイルを読み込めませんでした', res);
   const bytes = new Uint8Array(await res.arrayBuffer());
   return { bytes, type: res.headers.get('Content-Type')?.split(';')[0].trim() ?? '', etag: strongEtag(res) };
@@ -129,7 +134,7 @@ export async function fetchForOpen(url: string, fetchFn: Fetch = defaultFetch): 
  * サーバーの保存先。url があれば PUT で上書きし、無ければ create へ POST して、応答の Location を以後の url にする。
  * 開いたとき・前に保存したときの ETag を覚え、PUT に If-Match を付ける(412 なら SaveConflictError)。
  * サーバーが ETag を返さなければ、確かめずに上書きする。
- * リダイレクトは追わない(同じオリジンの URL が別のオリジンへ転送して、中身が外へ出ないように)
+ * PUT・POST はリダイレクトを追わない(同じオリジンの URL が別のオリジンへ転送して、中身が外へ出ないように)
  */
 export class ServerTarget implements SaveTarget {
   readonly kind = 'server';

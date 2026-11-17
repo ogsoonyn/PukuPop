@@ -5,6 +5,7 @@
  */
 import type { Plugin } from 'vite';
 import { readFileSync, existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 
 /**
  * ビルドに入った node_modules のパッケージの名前と、実際に解決されたディレクトリ(名前で並べ替え済み)。
@@ -26,12 +27,16 @@ export function bundledPackages(moduleIds: readonly string[]): string[] {
   return [...new Set(bundledPackageDirs(moduleIds).map(([name]) => name))];
 }
 
-/** product は先頭の文に出す配布物の名前(例: pukupop-player) */
-export function thirdPartyLicenses(product: string): Plugin {
+/**
+ * product は先頭の文に出す配布物の名前(例: pukupop-player)。
+ * extra は JS のチャンクに入らないが出力に入るパッケージ(CSS に入る tailwindcss・daisyui など)。この設定ファイルの場所から解決する
+ */
+export function thirdPartyLicenses(product: string, extra: readonly string[] = []): Plugin {
+  const require = createRequire(import.meta.url);
   return {
     name: 'pukupop-third-party-licenses',
     generateBundle(_options, bundle) {
-      const ids = Object.values(bundle).flatMap(c => (c.type === 'chunk' ? c.moduleIds : []));
+      const ids = [...Object.values(bundle).flatMap(c => (c.type === 'chunk' ? c.moduleIds : [])), ...extra.map(n => require.resolve(n))];
       const parts = bundledPackageDirs(ids).map(([name, dir]) => {
         const pkg = JSON.parse(readFileSync(`${dir}package.json`, 'utf8')) as { version: string; license?: string; homepage?: string };
         const file = ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'license'].find(f => existsSync(dir + f));

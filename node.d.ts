@@ -5,6 +5,9 @@ declare module 'node:child_process' {
 declare module 'node:url' {
   export function fileURLToPath(url: URL | string): string;
 }
+declare module 'node:module' {
+  export function createRequire(from: string | URL): { resolve(id: string): string };
+}
 declare module 'node:fs' {
   export function readFileSync(path: string, encoding: 'utf8'): string;
   /** 中身をそのまま読む(Node では Buffer。Uint8Array として使う) */
