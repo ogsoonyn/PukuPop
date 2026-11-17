@@ -1,8 +1,9 @@
 /** 画像のデコードとサムネイル。DOM(Canvas)を使うので Model からは分けておく。 */
 import type { ImageAsset } from '../model/project';
 import type { GrayImage } from '../storage/png';
+import { IMAGE_TYPES, imageHeaderSize, sniffImageMime } from '../storage/imagehead';
 
-export const IMAGE_TYPES: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+export { IMAGE_TYPES, imageHeaderSize };
 
 export function isImageFile(f: File): boolean { return f.type in IMAGE_TYPES || /\.(png|jpe?g|webp)$/i.test(f.name); }
 /** クリップボードの画像は名前が無いか `image.png` なので、「貼り付けた画像.png」にする(元の名前があればそのまま) */
@@ -22,7 +23,7 @@ export const MAX_IMAGE_PIXELS = 120_000_000;
  */
 export async function fileToAsset(file: File, maxDisplay: number): Promise<{ asset: ImageAsset; canvas: HTMLCanvasElement }> {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const mime = file.type in IMAGE_TYPES ? file.type : sniffMime(bytes);
+  const mime = file.type in IMAGE_TYPES ? file.type : sniffImageMime(bytes);
   if (!mime) throw new Error('PNG / JPEG / WebP の画像を選んでください。');
   const bmp = await decodeBitmap(bytes, mime);
   const asset: ImageAsset = { bytes, mime, ext: IMAGE_TYPES[mime], width: bmp.width, height: bmp.height };
@@ -54,42 +55,6 @@ function bitmapToCanvas(bmp: ImageBitmap, maxSize: number): HTMLCanvasElement {
   g.drawImage(bmp, 0, 0, c.width, c.height);
   bmp.close();
   return c;
-}
-
-/** PNG / JPEG / WebP のヘッダから寸法を読む(回転は考えない)。読めなければ null */
-export function imageHeaderSize(b: Uint8Array): { width: number; height: number } | null {
-  const u16be = (o: number) => (b[o] << 8) | b[o + 1];
-  const u24le = (o: number) => b[o] | (b[o + 1] << 8) | (b[o + 2] << 16);
-  if (b.length >= 24 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
-    return { width: ((b[16] << 24) | (b[17] << 16) | (b[18] << 8) | b[19]) >>> 0, height: ((b[20] << 24) | (b[21] << 16) | (b[22] << 8) | b[23]) >>> 0 };
-  }
-  if (b.length >= 4 && b[0] === 0xff && b[1] === 0xd8) {
-    let p = 2;
-    while (p + 9 < b.length) {
-      if (b[p] !== 0xff) { p++; continue; }
-      const m = b[p + 1];
-      if (m === 0xff) { p++; continue; }
-      if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { p += 2; continue; }
-      // SOF0〜SOF15(DHT・JPG・DAC を除く)に寸法がある
-      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { width: u16be(p + 7), height: u16be(p + 5) };
-      p += 2 + u16be(p + 2);
-    }
-    return null;
-  }
-  if (b.length >= 30 && String.fromCharCode(b[0], b[1], b[2], b[3]) === 'RIFF' && String.fromCharCode(b[8], b[9], b[10], b[11]) === 'WEBP') {
-    const kind = String.fromCharCode(b[12], b[13], b[14], b[15]);
-    if (kind === 'VP8X') return { width: 1 + u24le(24), height: 1 + u24le(27) };
-    if (kind === 'VP8L') return { width: 1 + (b[21] | ((b[22] & 0x3f) << 8)), height: 1 + ((b[22] >> 6) | (b[23] << 2) | ((b[24] & 0x0f) << 10)) };
-    if (kind === 'VP8 ') return { width: (b[26] | (b[27] << 8)) & 0x3fff, height: (b[28] | (b[29] << 8)) & 0x3fff };
-  }
-  return null;
-}
-
-function sniffMime(b: Uint8Array): string | null {
-  if (b[0] === 0x89 && b[1] === 0x50) return 'image/png';
-  if (b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg';
-  if (b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
-  return null;
 }
 
 /** 表示用に、最大 maxSize に縮めたキャンバスへ描く。画像が壊れていれば日本語のメッセージで例外を投げる。 */

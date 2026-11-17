@@ -5,6 +5,7 @@ import { serializeProject, deserializeProject, migrate, FORMAT_VERSION, UNZIP_LI
 import { createDocument, createProject, createLayer, defaultMultiCamera } from '../../src/model/project';
 import { captureFavorite } from '../../src/model/favorites';
 import { takeFromKeys } from '../../src/physics/take';
+import { imageHeaderSize, jpegOrientation, imageOrientedSize, sniffImageMime } from '../../src/storage/imagehead';
 
 describe('PNG', () => {
   it('グレースケールの往復', () => {
@@ -333,8 +334,134 @@ describe('.pukupop', () => {
     expect(() => migrate({ formatVersion: 'x' })).toThrow();
   });
 
+  it('formatVersion は JSON の数だけを版として読む(文字列の "1"・true・[1] は断る)', async () => {
+    expect(migrate({ formatVersion: 1 }).formatVersion).toBe(1);
+    for (const v of ['1', true, [1], 1.5, 0, null]) expect(() => migrate({ formatVersion: v })).toThrow(/formatVersion が不正/);
+    const json = oneLayer({}) as any;
+    json.formatVersion = '1';
+    await expect(deserializeProject(zipOf(json))).rejects.toThrow(/formatVersion が不正/);
+  });
+
+  it('元画像の拡張子は中身(分からなければ mime)から決め、パスの末尾をそのまま使わない', async () => {
+    const png = encodeGrayPng(3, 2, new Uint8Array(6));
+    const jpeg = jpegOf(30, 20, 1);
+    const load = async (image: object, bytes: Uint8Array, path = 'x/a.b/c') => {
+      const json = oneLayer({}) as any;
+      json.documents[0].image = { path, width: 10, height: 10, ...image };
+      const { project } = await deserializeProject(zipSync({ 'project.json': strToU8(JSON.stringify(json)), [path]: bytes }));
+      return project;
+    };
+    // 中身が PNG なら、パスや mime が違っても PNG として読む。保存し直すと決まった形のパスになる
+    const p = await load({ mime: 'image/webp' }, png);
+    expect(p.documents[0].image).toMatchObject({ mime: 'image/png', ext: 'png' });
+    const back = unzipSync(serializeProject(p));
+    expect(Object.keys(back).filter(k => k.startsWith('images/'))).toEqual(['images/doc-0.png']);
+    const pj = await load({ mime: 'image/png' }, jpeg);
+    expect(pj.documents[0].image).toMatchObject({ mime: 'image/jpeg', ext: 'jpg' });
+    expect(Object.keys(unzipSync(serializeProject(pj))).filter(k => k.startsWith('images/'))).toEqual(['images/doc-0.jpg']);
+    // 中身から分からなければ mime から。知らない mime(プロトタイプの名前も)・無いときは PNG
+    expect((await load({ mime: 'image/webp' }, new Uint8Array([1]))).documents[0].image).toMatchObject({ mime: 'image/webp', ext: 'webp' });
+    for (const mime of ['image/gif', 'constructor', 3, undefined]) {
+      expect((await load({ mime }, new Uint8Array([1]))).documents[0].image).toMatchObject({ mime: 'image/png', ext: 'png' });
+    }
+  });
+
+  it('project.json に元画像の幅・高さが無い・不正なときは、画像のヘッダ(JPEG は EXIF の向きを当てた寸法)で補う', async () => {
+    const load = async (image: object, bytes: Uint8Array) => {
+      const json = oneLayer({}) as any;
+      json.documents[0].image = { path: 'images/doc-0.png', ...image };
+      const { project } = await deserializeProject(zipSync({ 'project.json': strToU8(JSON.stringify(json)), 'images/doc-0.png': bytes }));
+      const { width, height } = project.documents[0].image;
+      return [width, height];
+    };
+    const png = encodeGrayPng(30, 20, new Uint8Array(600));
+    // 両方とも正しければ project.json の値(丸めて上限まで)
+    expect(await load({ width: 300.4, height: 200 }, png)).toEqual([300, 200]);
+    expect(await load({ width: 99999, height: 200 }, png)).toEqual([32768, 200]);
+    // 無い・数でない・1 未満・片方だけ不正なら、ヘッダの寸法
+    for (const bad of [{}, { width: '300', height: 200 }, { width: 0, height: 0 }, { width: 300 }, { width: 300, height: null }, { width: -5, height: 200 }]) {
+      expect(await load(bad, png)).toEqual([30, 20]);
+    }
+    // JPEG は EXIF の向きが 5〜8 なら縦横を入れ替える(リトルエンディアン・ビッグエンディアンの両方)
+    expect(await load({}, jpegOf(30, 20, 1))).toEqual([30, 20]);
+    expect(await load({}, jpegOf(30, 20, 6))).toEqual([20, 30]);
+    expect(await load({}, jpegOf(30, 20, 8, false))).toEqual([20, 30]);
+    expect(await load({}, jpegOf(30, 20, 3, false))).toEqual([30, 20]);
+    // WebP のヘッダからも補う
+    for (const kind of ['VP8 ', 'VP8L', 'VP8X'] as const) expect(await load({}, webpOf(kind, 30, 20))).toEqual([30, 20]);
+    // ヘッダの寸法にも上限を当てる
+    const huge = encodeGrayPng(1, 1, new Uint8Array(1));
+    new DataView(huge.buffer, huge.byteOffset).setUint32(16, 100000);
+    expect(await load({}, huge)).toEqual([32768, 1]);
+    // ヘッダからも読めない・ヘッダの寸法が 0 なら読めないファイル
+    await expect(load({}, new Uint8Array([1]))).rejects.toThrow(/寸法が分かりません/);
+    await expect(load({}, jpegFrom(sof0(0, 20)))).rejects.toThrow(/寸法が分かりません/);
+    await expect(load({}, webpOf('VP8 ', 30, 0))).rejects.toThrow(/寸法が分かりません/);
+  });
+
   it('ZIP でないものは分かりやすく失敗する', async () => {
     await expect(deserializeProject(new Uint8Array([1, 2, 3]))).rejects.toThrow(/展開できません/);
+  });
+});
+
+describe('画像のヘッダ', () => {
+  it('種類と寸法を中身から読む', () => {
+    expect(sniffImageMime(encodeGrayPng(3, 2, new Uint8Array(6)))).toBe('image/png');
+    expect(sniffImageMime(jpegOf(3, 2, 1))).toBe('image/jpeg');
+    expect(sniffImageMime(webpOf('VP8L', 3, 2))).toBe('image/webp');
+    expect(sniffImageMime(new Uint8Array([1, 2, 3]))).toBeNull();
+    // 印の一部だけが合うものは見分けない(RIFF の無い WEBP、2バイトだけの PNG の印)
+    expect(sniffImageMime(new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]))).toBeNull();
+    expect(sniffImageMime(new Uint8Array([0x89, 0x50, 0, 0]))).toBeNull();
+    for (const kind of ['VP8 ', 'VP8L', 'VP8X'] as const) expect(imageHeaderSize(webpOf(kind, 300, 200))).toEqual({ width: 300, height: 200 });
+  });
+
+  it('JPEG の EXIF の向きを読む。Exif でない APP1 や余計なバイトは読み飛ばす', () => {
+    const exif = (o: number, opt = {}) => jpegSeg(0xe1, exifApp1(o, opt));
+    expect(jpegOrientation(jpegFrom(exif(6), sof0(30, 20)))).toBe(6);
+    expect(jpegOrientation(jpegFrom(exif(7, { le: false }), sof0(30, 20)))).toBe(7);
+    // 先に XMP の APP1・APP0 があっても読む
+    const xmp = jpegSeg(0xe1, [...strToU8('http://ns.adobe.com/xap/1.0/'), 0, 1, 2, 3]);
+    expect(jpegOrientation(jpegFrom(jpegSeg(0xe0, [0x4a, 0x46, 0x49, 0x46, 0]), xmp, exif(5), sof0(30, 20)))).toBe(5);
+    // マーカーの間の余計なバイト・0xFF の詰め物
+    expect(jpegOrientation(jpegFrom([0, 0, 0xff, 0xff], exif(8), sof0(30, 20)))).toBe(8);
+    expect(imageOrientedSize(jpegFrom([0, 0xff], exif(6), sof0(30, 20)))).toEqual({ width: 20, height: 30 });
+    // 画像データ(SOS)より後ろの APP1 は見ない
+    expect(jpegOrientation(jpegFrom(sof0(30, 20), jpegSeg(0xda, [0]), exif(6)))).toBe(1);
+  });
+
+  it('EXIF の向きが読めない・細工した形なら 1(回転なし)', () => {
+    const one = (data: number[]) => jpegOrientation(jpegFrom(jpegSeg(0xe1, data), sof0(30, 20)));
+    expect(one(exifApp1(9))).toBe(1);
+    expect(one(exifApp1(0))).toBe(1);
+    expect(one(exifApp1(6, { type: 4 }))).toBe(1); // LONG
+    expect(one(exifApp1(6, { count: 2 }))).toBe(1);
+    expect(one(exifApp1(6, { ifdOffset: 0x7fffffff }))).toBe(1);
+    expect(one(exifApp1(6, { ifdOffset: 0xffffffff }))).toBe(1);
+    expect(one(exifApp1(6, { entries: 0xffff }))).toBe(6); // 件数が多すぎても、先頭の項目が向きなら読める
+    expect(one(exifApp1(6, { entries: 0 }))).toBe(1);
+    expect(one([0x45, 0x78, 0x69, 0x66, 0, 0, 0x41, 0x41, 42, 0, 8, 0, 0, 0])).toBe(1); // II/MM でない
+    // APP1 が途中で切れている・長さが 2 未満
+    const app1 = jpegSeg(0xe1, exifApp1(6));
+    expect(jpegOrientation(new Uint8Array([0xff, 0xd8, ...app1.slice(0, 20)]))).toBe(1);
+    expect(jpegOrientation(new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0, 1, ...app1]))).toBe(1);
+    // JPEG でない・空
+    expect(jpegOrientation(new Uint8Array())).toBe(1);
+    expect(jpegOrientation(encodeGrayPng(1, 1, new Uint8Array(1)))).toBe(1);
+  });
+
+  it('壊した JPEG でも例外にならず、すぐ終わる', () => {
+    let seed = 1;
+    const rand = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    const base = jpegFrom(jpegSeg(0xe1, exifApp1(6)), sof0(30, 20));
+    for (let i = 0; i < 3000; i++) {
+      const b = base.slice(0, 2 + Math.floor(rand() * (base.length - 1)));
+      for (let k = 0; k < 4; k++) b[Math.floor(rand() * b.length)] = Math.floor(rand() * 256);
+      const o = jpegOrientation(b);
+      expect(o >= 1 && o <= 8).toBe(true);
+      imageOrientedSize(b);
+    }
+    expect(jpegOrientation(new Uint8Array(1 << 20).fill(0xff))).toBe(1);
   });
 });
 
@@ -371,4 +498,32 @@ function declareSize(zip: Uint8Array, name: string, size: number): Uint8Array {
     if (new TextDecoder().decode(out.subarray(p + 46, p + 46 + n)) === name) { dv.setUint32(p + 24, size, true); return out; }
   }
   throw new Error(`entry ${name} not found`);
+}
+
+/** EXIF の APP1 の中身。向きのタグ1つだけの IFD を持つ。細工した形も作れるよう、型・個数・IFD の位置・件数を変えられる */
+function exifApp1(orientation: number, o: { le?: boolean; type?: number; count?: number; ifdOffset?: number; entries?: number } = {}): number[] {
+  const le = o.le ?? true;
+  const u16 = (v: number) => (le ? [v & 0xff, (v >> 8) & 0xff] : [(v >> 8) & 0xff, v & 0xff]);
+  const u32 = (v: number) => (le ? [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, v >>> 24] : [v >>> 24, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff]);
+  const tiff = [...(le ? [0x49, 0x49] : [0x4d, 0x4d]), ...u16(42), ...u32(o.ifdOffset ?? 8), ...u16(o.entries ?? 1),
+    ...u16(0x0112), ...u16(o.type ?? 3), ...u32(o.count ?? 1), ...u16(orientation), 0, 0, ...u32(0)];
+  return [0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff];
+}
+const jpegSeg = (m: number, data: number[]) => [0xff, m, (data.length + 2) >> 8, (data.length + 2) & 0xff, ...data];
+const sof0 = (w: number, h: number) => jpegSeg(0xc0, [8, h >> 8, h & 0xff, w >> 8, w & 0xff, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+const jpegFrom = (...parts: number[][]) => new Uint8Array([0xff, 0xd8, ...parts.flat(), 0xff, 0xd9]);
+
+/** 寸法(SOF0)と EXIF の向き(APP1)だけを持つ JPEG を作る。画像データは持たない */
+function jpegOf(w: number, h: number, orientation: number, littleEndian = true): Uint8Array {
+  return jpegFrom(jpegSeg(0xe1, exifApp1(orientation, { le: littleEndian })), sof0(w, h));
+}
+
+/** 寸法だけを持つ WebP(VP8 / VP8L / VP8X)のヘッダを作る */
+function webpOf(kind: 'VP8 ' | 'VP8L' | 'VP8X', w: number, h: number): Uint8Array {
+  const b = new Uint8Array(40);
+  b.set(strToU8('RIFF'), 0); b.set(strToU8('WEBP'), 8); b.set(strToU8(kind), 12);
+  if (kind === 'VP8X') { b.set([(w - 1) & 0xff, ((w - 1) >> 8) & 0xff, (w - 1) >> 16], 24); b.set([(h - 1) & 0xff, ((h - 1) >> 8) & 0xff, (h - 1) >> 16], 27); }
+  if (kind === 'VP8L') { const v = (w - 1) | ((h - 1) << 14); b[20] = 0x2f; b.set([v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >>> 24) & 0x0f], 21); }
+  if (kind === 'VP8 ') b.set([w & 0xff, (w >> 8) & 0x3f, h & 0xff, (h >> 8) & 0x3f], 26);
+  return b;
 }
