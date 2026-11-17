@@ -63,7 +63,7 @@ THIRD-PARTY-LICENSES.txt  同梱したパッケージ(three.js・daisyUI など)
 /pukupop/?image=/files/cat.png&create=/files/&back=/files/
 ```
 
-`image` を GET で取って開き、最初の「保存」で `create` へ POST します。応答の `Location` を保存先にし、以後は PUT で上書きします。
+`image` を GET で取って開き、最初の「保存」で `create` へ POST します。応答の `Location` を保存先にし、以後は PUT で上書きします。最初の「保存」が通ると、編集画面の URL は `?src=<Location>` の形に置き換わり、読み直したときは保存したファイルを開きます(`Location` は GET でも読めるようにしてください)。
 
 | クエリ | 意味 |
 | --- | --- |

@@ -7,11 +7,17 @@ paths:
 
 # テスト
 
-E2E の流し方(ポート・設定ファイル・全件は最後に1回)は `CLAUDE.md` の「手元の動作確認を乱さない」にある。
+E2E の流し方(ポート・設定ファイル・変更が効く範囲の spec だけを流す)は `CLAUDE.md` の「手元の動作確認を乱さない」にある。
 
 - 単体テストは `tests/unit`、E2E は `tests/e2e` に置く。E2E は機能ごとにファイルを分け、共通の道具(起動・WebGL のエラーの見張り・3Dビューでのドラッグなど)は `tests/e2e/helpers.ts` にある。
 - E2E はインストール済みの Google Chrome を使い(`channel: 'chrome'`)、描画は SwiftShader で行う(GPU が無くても動く)。
 - 見た目の比較に使う基準画像は OS ごとに別のファイルになる。使っている OS 用のものが無いときは、`--update-snapshots` を付けて流して作る。
+
+## どの spec を流すか
+
+- E2E は機能ごとにファイルを分けてあるので、変えたファイルを使う機能の spec を選ぶ(例: 埋め込みモードだけなら `embed.spec.ts` と `embedDist.spec.ts`、Player なら `player.spec.ts` と `playerDist.spec.ts`)。変えた機能の spec が無いとき・足りないときは、足してから流す。
+- 単体テスト(`npm test`)と型検査(`npm run typecheck`)は速いので、いつも全件を流す。
+- 全件の E2E を流すのは、多くの機能が通る部品を変えたとき(`CLAUDE.md` に例がある)と、頼まれたときだけ。どれに効くか見分けにくいときは、ユーザーに聞く。
 
 ## E2E の書き方
 
