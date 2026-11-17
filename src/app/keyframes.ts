@@ -91,7 +91,7 @@ export class KeyframeEditor {
 
   /**
    * キーフレームの動きを再生できるか(2つ以上で1周が短すぎず、止まっているとき)。
-   * 手で記録した操作があるときは、黙ってキーフレームの記録に入れ替えないよう使えなくする(キーフレームの「この並びで作る」で入れ替える)
+   * 手で記録した操作があるときは、黙ってキーフレームの記録に入れ替えないよう使えなくする(キーフレームの「登録する」で入れ替える)
    */
   get canPlay(): boolean {
     const h = this.host, n = h.keyDraft.length, total = h.keyDraft.reduce((a, k) => a + k.seconds, 0), take = h.project.take;

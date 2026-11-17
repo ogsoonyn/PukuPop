@@ -194,6 +194,7 @@ test('画像から作って保存したあとに読み直すと、保存した�
   await page.waitForFunction(() => { const a = (window as any).popstage; return a?.doc && a.stage.hasDocument && a.paused; });
   expect(await state(page)).toMatchObject({ tabs: 1, name: 'cat.pukupop', dirty: false, target: expect.stringMatching(/\/files\/new-1\.pukupop$/) });
   await expect(page.locator('#embedBack')).toBeVisible();
+  await expect(page.locator('#embedBack')).toHaveText('戻る');
   // 開いたのは元の画像でなく保存したファイル(塗った分が入っている)
   expect(await page.evaluate(() => (window as any).popstage.doc.layers.some((l: any) => l.weights.data.some((v: number) => v > 0)))).toBe(true);
   await page.locator('[data-tool="brush"]').click();

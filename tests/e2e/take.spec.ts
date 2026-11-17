@@ -207,9 +207,9 @@ test('キーフレーム: 視点を追加・登録・見る・削除し、つな
   await app(page, a => { a.project.camera.yaw += 1; });
   await page.locator('#takeCam').click();
   expect(await app(page, a => [a.takeState, a.project.camera.yaw])).toEqual(['playing', start]);
-  // 再生・停止は上の帯のボタン1つ(キーフレームの「この並びで作る」は作り直すだけで、停止にはならない)
+  // 再生・停止は上の帯のボタン1つ(キーフレームの「登録する」は作り直すだけで、停止にはならない)
   await expect(page.locator('#takePlay')).toHaveText(/停止/);
-  await expect(page.locator('#keyMake')).toHaveText('この並びで作る');
+  await expect(page.locator('#keyMake')).toHaveText('登録する');
   await page.locator('#takePlay').click();
   expect(await app(page, a => a.takeState)).toBe('idle');
   await expect(page.locator('#takePlay')).toHaveText(/再生/);
@@ -315,7 +315,7 @@ test('アニメーションの箱: 動きは1つで、記録とキーフレー�
     await page.locator(b).click();
     expect(await app(page, a => a.takeState)).toBe('idle');
   }
-  // 「この並びで作る」で、キーフレームの動きに入れ替わる(元に戻せる)
+  // 「登録する」で、キーフレームの動きに入れ替わる(元に戻せる)
   await page.locator('#keyMake').click();
   expect(await app(page, a => [a.takeState, !!a.project.take.keys])).toEqual(['playing', true]);
   await expect(key).toHaveClass(/\bon\b/);
