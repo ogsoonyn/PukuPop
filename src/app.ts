@@ -1249,7 +1249,6 @@ export class App extends Emitter<AppEvents> {
   /** ループ再生中に、見る視点を再生の基準の視点(撮影カメラ。記録の初めの視点)へ戻す。再生は続ける */
   resetPlayView(): void { this.playback.resetView(); }
 
-  togglePlay(): void { if (this.takeState === 'playing') this.stopTake(); else this.playTake(); }
 
   /* ---------- キーフレームから動きを作る ---------- */
 
@@ -1274,7 +1273,7 @@ export class App extends Emitter<AppEvents> {
 
   /**
    * キーフレームの動きを再生できるか(2つ以上で1周が短すぎず、止まっているとき)。
-   * 手で記録した操作があるときは、黙ってキーフレームの記録に入れ替えないよう使えなくする(右パネルの「再生」で入れ替える)
+   * 手で記録した操作があるときは、黙ってキーフレームの記録に入れ替えないよう使えなくする(キーフレームの「この並びで作る」で入れ替える)
    */
   get canPlayKeys(): boolean { return this.keys.canPlay; }
 

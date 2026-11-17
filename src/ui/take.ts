@@ -216,7 +216,6 @@ export function bindTakeControls(app: App): void {
     const s = app.takeState, take = app.project.take, len = app.takeLength;
     // 今の動きの作り方。記録中は記録の側
     const src = s === 'recording' ? 'rec' : take ? (take.keys ? 'key' : 'rec') : 'none';
-    ui.animBox.dataset.src = src;
     ui.recSection.classList.toggle('on', src === 'rec');
     ui.keySection.classList.toggle('on', src === 'key');
     rec.querySelector('[data-icon]')!.textContent = s === 'recording' ? '■' : '●';

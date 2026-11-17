@@ -34,7 +34,7 @@ export const ICONS = {
   invert: '<path d="M7 4v16"/><path d="m3 8 4-4 4 4"/><path d="M17 20V4"/><path d="m13 16 4 4 4-4"/>',
   // キーフレームを今の視点で上書きする(カメラ)
   keySet: '<path d="M4 8h3l1.5-2.5h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
-  // キーフレームの再生・停止
+  // アニメーションの再生・停止
   play: '<path d="M7 4.5v15l12-7.5z"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="1"/>',
   // キーフレームの経路: 2つの枠を結ぶ点線の矢印
