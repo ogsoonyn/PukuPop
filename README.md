@@ -92,7 +92,7 @@ npm run preview   # ビルド結果を確認する
 
 ## ほかの Web アプリに埋め込む
 
-作った `.pukupop` を、ほかの Web アプリの中で揺れたまま見せる再生専用の部品(pukupop-player)もあります。入れ方と使い方は [packages/player/README.md](packages/player/README.md) にあります。`.pukupop` を自分のプログラムで読むときは、ファイルの形式の説明 [docs/format.md](docs/format.md) をご覧ください。
+作った `.pukupop` を、ほかの Web アプリの中で揺れたまま見せる再生専用の部品(pukupop-player)もあります。入れ方と使い方は [packages/player/README.md](packages/player/README.md) にあります。ファイルをサーバーで管理するアプリから、編集の画面ごと埋め込んで `.pukupop` を開き・保存させることもできます(pukupop-editor。[packages/editor/README.md](packages/editor/README.md))。`.pukupop` を自分のプログラムで読むときは、ファイルの形式の説明 [docs/format.md](docs/format.md) をご覧ください。
 
 ## ライセンス
 

@@ -6,6 +6,7 @@ import { defaultOrthoView, type OrthoView, type Project } from '../model/project
 import { emptyHistory, shrinkHistory, type HistoryState } from '../commands/history';
 import type { KeyFrame } from '../physics/take';
 import { FILE_EXTENSION, type PngCacheEntry } from '../storage/popstage';
+import type { SaveTarget } from './saveTarget';
 
 /** 一度に開いておけるタブの数 */
 export const MAX_TABS = 5;
@@ -29,9 +30,12 @@ export interface Tab {
   shownAt: number;
   /** サンプルか空で始めたタブ。変更していなければ、次に開いたファイルで置き換える */
   sample: boolean;
-  fileHandle: FileSystemFileHandle | null;
+  /** 保存先(ファイルの場所か、埋め込みモードのサーバー)。無ければ「保存」で保存先を選ぶ */
+  target: SaveTarget | null;
   fileName: string | null;
   dirty: boolean;
+  /** 保存(ファイル・サーバーへの書き込み)の最中か。続けて押しても二重に書かない(サーバーでは新規が2つできる・自分の保存が衝突になる) */
+  saving: boolean;
   /** 変更のたびに増える番号。保存中に変更があったかを見分けるのに使う */
   revision: number;
   lastSaved: Date | null;
@@ -56,13 +60,13 @@ export interface Tab {
 }
 
 let tabSeq = 0;
-export function createTab(project: Project, init: Partial<Pick<Tab, 'id' | 'order' | 'sample' | 'fileName' | 'fileHandle' | 'dirty'>> = {}): Tab {
+export function createTab(project: Project, init: Partial<Pick<Tab, 'id' | 'order' | 'sample' | 'fileName' | 'target' | 'dirty'>> = {}): Tab {
   const seq = tabSeq++;
   return {
     id: init.id ?? `tab-${Date.now().toString(36)}-${seq.toString(36)}`,
     order: init.order ?? Date.now() + seq,
     project, history: emptyHistory(), shownAt: 0, sample: init.sample ?? false,
-    fileHandle: init.fileHandle ?? null, fileName: init.fileName ?? null, dirty: init.dirty ?? false, revision: 0,
+    target: init.target ?? null, fileName: init.fileName ?? null, dirty: init.dirty ?? false, saving: false, revision: 0,
     lastSaved: null, lastAutosave: null, autosaveError: null, autosaveQuota: false, autosaving: Promise.resolve(), autosaveTimer: 0,
     activeLayerId: null, selectedLayerIds: new Set(),
     // 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れて始める

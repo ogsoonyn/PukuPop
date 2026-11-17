@@ -20,6 +20,8 @@
 
 <!-- スマホの画面(ui/mobile.ts が幅で切り替える)。設定の部品は PC の画面から移してくるので、ここには外枠だけを置く -->
 <header id="mTop" class="m-only" aria-label="スマホのメニュー">
+  <!-- 埋め込みモードで、埋め込み元へ戻る(戻り先を受け取ったときだけ出す。ui/embedSession.ts) -->
+  <button id="mBack" type="button" class="m-icon" aria-label="戻る" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
   <button class="m-icon" data-cmd="undo" aria-label="元に戻す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
   <button class="m-icon" data-cmd="redo" aria-label="やり直す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
   <!-- 押すと開いている作業(タブ)の一覧を出す(ui/docTabs.ts) -->
@@ -45,6 +47,8 @@
 
 <!-- メニューバー -->
 <header class="flex items-center gap-1 px-2 h-10 bg-base-100 border-b border-base-300 shrink-0" id="menubar">
+  <!-- 埋め込みモードで、埋め込み元へ戻る(戻り先を受け取ったときだけ出す。ui/embedSession.ts) -->
+  <button id="embedBack" type="button" class="btn btn-ghost btn-sm gap-1" hidden><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>戻る</button>
   <span class="font-bold px-2 select-none">PukuPop</span>
   <div class="dropdown">
     <div tabindex="0" role="button" class="btn btn-ghost btn-sm">ファイル</div>
@@ -57,7 +61,8 @@
       <li><button data-cmd="closeTab">タブを閉じる</button></li>
       <li class="menu-title">書き出し</li>
       <li><button data-cmd="export">動画 / GIF / 連番PNG…</button></li>
-      <li class="menu-title">その他</li>
+      <!-- 埋め込みモードでは中身(サンプル)が無くなるので、見出しも隠す(style.css) -->
+      <li class="menu-title" data-embed-off>その他</li>
       <li><button data-cmd="sample">サンプルを開く</button></li>
     </ul>
   </div>

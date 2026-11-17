@@ -3,6 +3,9 @@ dist/
 # Player のライブラリのビルド結果と、npm pack でできる .tgz
 dist-player/
 *.tgz
+# 埋め込み用の編集画面のビルド結果と、配布物の zip(.tgz は上)
+dist-editor/
+pukupop-editor-*.zip
 coverage/
 test-results/
 playwright-report/

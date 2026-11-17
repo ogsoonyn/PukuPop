@@ -1,5 +1,6 @@
 # develop / main 向けの PR と develop への push のとき、型検査・単体テスト・ビルドを流す(E2E は流さない)。
-# Player のライブラリも、ビルド・確かめ・npm pack・空のプロジェクトでの確かめまで流す(リリースは作らない。release-player.yml)
+# Player のライブラリも、ビルド・確かめ・npm pack・空のプロジェクトでの確かめまで流す(リリースは作らない。release-player.yml)。
+# 埋め込み用の編集画面も同じく、ビルドから配布物の確かめまで流す(release-editor.yml)
 name: CI
 
 on:
@@ -34,3 +35,9 @@ jobs:
       - run: npm run check:player
       - run: npm run pack:player
       - run: npm run check:player-pack
+      # 埋め込み用の編集画面(リリースは作らない。release-editor.yml)。check:editor は、上でビルドした公開版(dist/)に
+      # 埋め込みの口が入っていないことも見る
+      - run: npm run build:editor
+      - run: npm run check:editor
+      - run: npm run pack:editor
+      - run: npm run check:editor-pack

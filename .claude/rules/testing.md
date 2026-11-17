@@ -16,6 +16,7 @@ E2E の流し方(ポート・設定ファイル・全件は最後に1回)は `CL
 ## E2E の書き方
 
 - 新しく作る spec は、`tests/e2e/helpers.ts` の `boot()` で起動し、ファイルの先頭で `watchGlErrors()` を呼ぶ(WebGL のエラーで失敗にするため)。`mobile.spec.ts` と `take.spec.ts` は自前の `boot` を持つ例外で、GL のエラーを見張っていない。`player.spec.ts` は編集アプリでなく確認用のページ(`player.html`)を開くので自前の `open` を持ち、`listenGlErrors()` で GL のエラーを見張る。`playerDist.spec.ts` も `boot()` を使わない例外で、確認用のページを `?dist` 付きで開き(ライブラリとしてビルドした `dist-player/pukupop-player.js` を読む)、自前の `open` と `watchGlErrors()`・`listenGlErrors()` で GL のエラーを見張る。`beforeAll` で `npm run build:player` を流し、その spec を流した作業ツリーの `dist-player/` を今のソースから作り直す(手で作った `dist-player/` は上書きされる。ワークツリーで流せば、そのワークツリーの `dist-player/` だけが変わる)。
+- 埋め込みモード(Issue #146)の `embed.spec.ts` と `embedDist.spec.ts` も `boot()` を使わない例外で、クエリでファイルを渡して開く自前の `open` と `watchGlErrors()`・`listenGlErrors()` で GL のエラーを見張る。ファイルを返す・書き戻すサーバーは `page.route` の作り物で受ける(同じオリジンの `/files/` の下)。`embed.spec.ts` は開発用のサーバーで `?embed` を付けて開く。`embedDist.spec.ts` は `beforeAll` で `npm run build:editor` を流し、`dist-editor/app/` を、どこも listen していないポート(5199)のオリジンのサブパス `/archive/pukupop/` に `page.route` で置いて開く(サーバーは立てない)。
 - 右パネルの部品を触る前に、`openTab()` でその部品のタブを開く。
 
 ## クラウドと手元で流すテストを分ける

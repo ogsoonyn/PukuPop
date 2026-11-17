@@ -23,6 +23,8 @@ interface Window {
 declare const __APP_VERSION__: string;
 /** 最後のコミットの日時(ISO 8601。vite.config.ts がビルドのときに git から読む。読めなければ空) */
 declare const __COMMIT_DATE__: string;
+/** 埋め込み用のビルド(vite build --mode embed)か。埋め込みモードを有効にする(main.ts・src/app/embed.ts) */
+declare const __EMBED__: boolean;
 
 /* ファイルの場所を開き直すときの許可(Chrome 系のみ) */
 interface FileSystemHandlePermissionDescriptor { mode?: 'read' | 'readwrite' }
