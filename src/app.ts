@@ -190,11 +190,11 @@ export class App extends Emitter<AppEvents> {
    */
   private readonly playback: LoopPlayback;
   /**
-   * キーフレームの下書き(画面だけ)。作った記録はそのキーフレームも持つので、
-   * 記録が差し替わったら(開く・アンドゥなど)その記録のキーフレームに合わせる
+   * キーフレームの一覧(下書き。project.keyframes に置き、ファイルにも保存する)。編集はアンドゥに積まない。
+   * 動きをキーフレームから作ったものに差し替えるコマンド(お気に入りの適用)は、一覧も合わせ、アンドゥで戻す(SetTake)
    */
-  get keyDraft(): KeyFrame[] { return this.tab.keyDraft; }
-  set keyDraft(k: KeyFrame[]) { this.tab.keyDraft = k; }
+  get keyDraft(): KeyFrame[] { return this.project.keyframes; }
+  set keyDraft(k: KeyFrame[]) { this.project.keyframes = k; }
   /** キーフレームの下書きの編集(app/keyframes.ts) */
   private readonly keys: KeyframeEditor;
   /** キーフレームの重ね表示(経路・ゴースト)。ブラウザに覚える(ui/keyPath.ts) */
@@ -255,7 +255,8 @@ export class App extends Emitter<AppEvents> {
       get exporting() { return app.exporting; }, get takeState() { return app.takeState; },
       stopTake: () => this.stopTake(), playTake: () => this.playTake(), cutView: () => this.world.cutView(),
       execute: cmd => this.history.execute(cmd),
-      draftChanged: () => this.emit('take', this.takeState),
+      // 一覧はファイルに保存するので、変えたら未保存にし、自動保存する(アンドゥには積まない)
+      draftChanged: () => { this.emit('take', this.takeState); this.store.emit('change', undefined); },
       viewChanged: () => this.emit('status', undefined),
     });
     this.stage.onContextChange = lost => this.onContextChange(lost);
@@ -289,8 +290,9 @@ export class App extends Emitter<AppEvents> {
       if (keys.includes('pop') || keys.includes('visible') || keys.includes('blend')) this.stage.setLayerParams(f.index, f.layer);
       if (keys.includes('visible') && this.view.overlayAll) this.syncView(); // 全レイヤー表示では、隠したレイヤーを重ねない
     });
-    // タブを表に出すとき(enterTab)は、そのタブが預けていた PNG・重心・キーフレームの下書きをそのまま使う(裏にいる間は中身が変わらないため)
-    s.on('replace', () => { if (this.switching) return; this.pngCache.clear(); this.centers.clear(); this.syncKeyDraft(true); });
+    // タブを表に出すとき(enterTab)は、そのタブが預けていた PNG・重心をそのまま使う(裏にいる間は中身が変わらないため)。
+    // キーフレームの一覧はプロジェクトに入っているので、差し替えで合わせ直さない
+    s.on('replace', () => { if (this.switching) return; this.pngCache.clear(); this.centers.clear(); this.emit('take', this.takeState); });
     s.on('layers', () => {
       const doc = this.doc; if (!doc) return;
       // 並べ替え・追加・削除ではウェイトは変わらないので、PNG は作り直さない(無くなったレイヤーの分だけ捨てる)
@@ -324,7 +326,8 @@ export class App extends Emitter<AppEvents> {
       if (keys.includes('take') && this.takeState === 'playing') {
         if (this.project.take) this.playTake(); else this.stopTake();
       }
-      if (keys.includes('take')) this.syncKeyDraft();
+      // キーフレームの一覧は、動きの差し替え(SetTake)が一緒に変えることがある(お気に入りの適用・そのアンドゥ)
+      if (keys.includes('keyframes')) this.emit('take', this.takeState);
       this.emit('status', undefined);
     });
     s.on('change', () => {
@@ -1220,7 +1223,7 @@ export class App extends Emitter<AppEvents> {
     const ch = favoriteChanges(f, this.project, doc), label = `お気に入り「${f.name}」`, cmds: Command[] = [];
     for (const { id: layerId, patch } of ch.layers) cmds.push(PatchLayer.from(this.store, layerId, patch, label));
     if (ch.autoSwing) cmds.push(PatchProject.from(this.store, { autoSwing: ch.autoSwing }, label));
-    if (ch.take !== undefined) cmds.push(new SetTake(label, this.project.take, ch.take));
+    if (ch.take !== undefined) cmds.push(new SetTake(label, this.project.take, ch.take, this.keyDraft));
     if (ch.fov !== null) cmds.push(new SetFov(label, this.project.camera.fov, ch.fov));
     if (cmds.length) this.history.execute(new Batch(label, cmds));
     // 画角を変えると camera は新しいオブジェクトに差し替わるので、実行したあとの camera に当てる
@@ -1320,9 +1323,6 @@ export class App extends Emitter<AppEvents> {
 
   /* ---------- キーフレームから動きを作る ---------- */
 
-  /** 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れる。reset なら、そうでなくても下書きを空にする */
-  private syncKeyDraft(reset = false): void { this.keys.sync(reset); }
-
   /** 今の視点を末尾のキーフレームとして足す。時間とつなぎ方は1つ前のフレームに合わせる(app/keyframes.ts) */
   addKey(): void { this.keys.add(); }
 
@@ -1355,7 +1355,7 @@ export class App extends Emitter<AppEvents> {
   clearTake(): void {
     if (!this.project.take) return;
     this.stopTake();
-    this.history.execute(new SetTake('操作の記録を消す', this.project.take, null));
+    this.history.execute(new SetTake('操作の記録を消す', this.project.take, null, this.keyDraft));
   }
 
   private prev = 0;
