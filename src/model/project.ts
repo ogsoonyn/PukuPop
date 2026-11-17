@@ -4,7 +4,7 @@
  */
 import { Emitter } from '../util/emitter';
 import { WeightMap, weightSizeFor, type Rect } from './weightmap';
-import type { Take } from '../physics/take';
+import type { KeyFrame, Take } from '../physics/take';
 
 export interface Vec3 { x: number; y: number; z: number }
 
@@ -263,6 +263,11 @@ export interface Project {
   autoSwing: AutoSwing;
   /** 操作の記録(ループ再生・書き出し用)。無ければ null */
   take: Take | null;
+  /**
+   * キーフレームの一覧(下書き)。「この並びで作る」で take を作る元で、take を記録で入れ替えても残る(Issue #145)。
+   * 編集はアンドゥに積まない(src/app/keyframes.ts)。take がキーフレームから作ったものに変わったら、そのキーフレームに合わせる
+   */
+  keyframes: KeyFrame[];
   /** お気に入り(揺れと動きの組み合わせ。model/favorites.ts) */
   favorites: Favorite[];
   documents: Document[];
@@ -425,6 +430,7 @@ export function createProject(doc?: Document): Project {
     fps: 60,
     autoSwing: { enabled: true, period: LIMITS.period.def, strength: 0.5 },
     take: null,
+    keyframes: [],
     favorites: [],
     documents: doc ? [doc] : [],
   };

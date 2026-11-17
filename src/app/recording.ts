@@ -62,7 +62,7 @@ export class TakeRecording {
     this.active = false;
     h.stateChanged();
     if (!take) { toast(`記録が短すぎます。「記録」を押したあと、${TAKE_MIN_SECONDS} 秒以上動かしてください。`, 'warning'); return; }
-    h.execute(new SetTake('操作の記録', h.project.take, take));
+    h.execute(new SetTake('操作の記録', h.project.take, take, h.project.keyframes));
     const sec = takeSeconds(take).toFixed(1);
     toast(full ? `最長の ${sec} 秒まで記録したので止めました。` : `${sec} 秒の操作を記録しました。アニメーションの「再生」でくり返し再生できます。`, 'success');
   }

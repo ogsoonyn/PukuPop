@@ -10,7 +10,7 @@ import {
   type Favorite, type FavoriteLayer, type AutoSwing,
 } from '../model/project';
 import { WeightMap, weightSizeFor } from '../model/weightmap';
-import { takeToJson, takeFromJson, type Take } from '../physics/take';
+import { takeToJson, takeFromJson, normalizeKeys, type Take, type KeyFrame } from '../physics/take';
 import { FAVORITE_NAME_MAX } from '../model/favorites';
 import { encodeGrayPng, decodePngToGray, readPngSize, MAX_PNG_SIDE, type GrayImage } from './png';
 
@@ -67,8 +67,8 @@ export interface ProjectJson {
   /** 書き出したアプリ。改名前のファイルは 'PopStage' */
   app: 'PukuPop' | 'PopStage';
   savedAt: string;
-  /** multiCamera・favorites は後から足した項目なので、古いファイルには無い */
-  project: Pick<Project, 'background' | 'camera' | 'fps' | 'autoSwing'> & { multiCamera?: Project['multiCamera']; favorites?: FavoriteJson[] };
+  /** multiCamera・keyframes・favorites は後から足した項目なので、古いファイルには無い */
+  project: Pick<Project, 'background' | 'camera' | 'fps' | 'autoSwing'> & { multiCamera?: Project['multiCamera']; keyframes?: KeyFrame[]; favorites?: FavoriteJson[] };
   documents: DocumentJson[];
 }
 
@@ -180,6 +180,8 @@ function projectParts(project: Project, opts: SerializeOptions): Uint8Array[] {
     formatVersion: FORMAT_VERSION, app: 'PukuPop', savedAt: new Date().toISOString(),
     project: {
       background: project.background, camera: structuredClone(project.camera), multiCamera: structuredClone(project.multiCamera), fps: project.fps, autoSwing: { ...project.autoSwing },
+      // キーフレームの一覧は空でも書く(空にしたことを、記録の keys で補わないように)。読むときと同じく範囲に丸めて書く
+      keyframes: normalizeKeys(project.keyframes),
       ...(favorites.length ? { favorites } : {}),
     },
     documents: docs,
@@ -291,6 +293,8 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
     return takes.get(path)!;
   };
   project.take = takeAt(TAKE_PATH, project.camera.fov);
+  // キーフレームの一覧。無いのは足す前のファイルで、そのときは記録がキーフレームから作ったものなら、そのキーフレームで始める
+  project.keyframes = Array.isArray(p.keyframes) ? normalizeKeys(p.keyframes) : structuredClone([...project.take?.keys ?? []]);
 
   // ID はレイヤーやドキュメントを探す鍵なので、空・重複していたら振り直す
   const seenIds = new Set<string>();

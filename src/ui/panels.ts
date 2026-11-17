@@ -559,7 +559,10 @@ export function bindPanels(app: App): { refresh: () => void } {
   function refreshProps(): void {
     const l = app.activeLayer, d = app.doc, p = app.project;
     const disabled = !l;
-    for (const s of layerSections) for (const el of s.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select')) el.disabled = disabled;
+    // お気に入りの行(名前の欄)は、使えるかどうかを ui/favorites.ts が決める(プレビュー中・記録中なども止める)ので触らない
+    for (const s of layerSections) for (const el of s.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select')) {
+      if (!ui.favList.contains(el)) el.disabled = disabled;
+    }
     // 膨らませるのプレビュー中は、新しいレイヤーに作るかどうかがこのレイヤーのポップ量で決まるので、ポップ量は触らせない。
     // レイヤー一覧も、仮に入れたレイヤーの名前や表示を変えて記録しないよう、操作できなくする
     if (app.previewingInflate) ui.pPop.disabled = ui.pPopN.disabled = true;
