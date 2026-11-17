@@ -95,7 +95,7 @@ npm run check:editor-pack  # .tgz を空のプロジェクトに入れ、.zip �
 - 実装は `.claude/worktrees/<名前>` の git worktree で行う(node_modules は親から解決される)。
 - 自分で立てる Vite はポート 5175〜5179 にし、`cacheDir` を分ける。設定ファイルは `vite.<名前>.config.ts` / `playwright.<名前>.config.ts`、キャッシュは `.vite-<名前>/` という名前にする(`.gitignore` で追跡外になる)。`vite.player.config.ts` は Player のライブラリのビルドの設定で追跡しているので、作業用の名前に使わない(`<名前>` を `player` にしない)。
 - E2E に既定の `playwright.config.ts` は使わない(ポート 5174 のサーバーを使い回す設定のため)。自分の Playwright の設定は既定の設定を広げて作り(`{ ...base, ... }`)、`webServer: undefined` にし、`use.baseURL` を自分で立てたポートにする。`workers` と `grepInvert` は上書きしない(手元では Playwright の既定の並列数で流す。並列で流すと 5173 が重くなることがある。クラウドでは既定の設定が 1 にする)。
-- 作業中は、変えた機能の spec だけを流す。全件の E2E は最後に1回だけ流す。
+- E2E は、変更が効く範囲の spec だけを流す(作業中も、PR の前も)。全件は時間がかかるので、多くの機能が通る部品(`src/app.ts` の中心・描画(`src/stage`)・入力・物理・保存形式・画面の部品の共通の所など)を変えたときと、頼まれたときだけ流す。PR には流した spec と、全件を流さなかったことを書く。
 - クラウド環境では、E2E は自動で 1 並列になり、`@local` の付いたテストは外れる(`.claude/rules/testing.md`)。外れたテストに関わる変更は、手元で流すよう報告に書く。
 - Playwright のブラウザはダウンロードしない(`npx playwright install` をしない)。インストール済みの Chrome を使う。
 - Windows では、バックグラウンドのコマンドを TaskStop で止めても vite の node 子プロセスが残る。残すとワークツリーを削除できない。PowerShell で `Get-NetTCPConnection -LocalPort <port> -State Listen | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force }` のようにポートから止める。
