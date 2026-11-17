@@ -131,3 +131,61 @@ test('膨らませる: 枠の上の丸で回せ(Shift で 15° ごと)、Shift �
   await page.locator('#inflApply').click();
   expect(await app(page, a => a.history.undoLabel)).toMatch(/^膨らませる\(楕円 \d+×\d+px・45°・高さ \d+px\)$/);
 });
+
+test('形を崩す: 四隅を動かすをオンにすると角を1つずつ動かせ、大きさを変えても崩した形が残る。四角に戻す・描き直しで戻る', async ({ page }) => {
+  const a0 = await begin(page);
+  const warp = () => app(page, a => a.inflateState.area.warp ?? null);
+  // オフの間は、角は大きさを変える
+  await expect(page.locator('#inflWarpReset')).toBeDisabled();
+  await page.locator('#inflCorner').check();
+  expect(await app(page, a => a.inflateState.cornerEdit)).toBe(true);
+
+  // 右下の角を内へ(左上へ)寄せる。範囲の大きさ・位置は変わらない
+  const br = await framePoint(page, 1, -1);
+  await dragBy(page, br, -40, -30);
+  const w1 = await warp();
+  expect(w1).not.toBeNull();
+  expect(w1![4]).toBeLessThan(-0.1); expect(w1![5]).toBeLessThan(-0.1);
+  expect(w1!.slice(0, 4).every((v: number) => v === 0)).toBe(true);
+  expect(await app(page, a => { const r = a.inflateState.area; return { x: r.x, y: r.y, w: r.w, h: r.h }; })).toEqual({ x: a0.x, y: a0.y, w: a0.w, h: a0.h });
+  await expect(page.locator('#inflWarpReset')).toBeEnabled();
+
+  // 動かしている途中の Esc は、掴む前に戻す
+  const br2 = await page.evaluate(() => {
+    const a = (window as any).popstage, s = a.inflateState, r = s.area, w = r.warp;
+    const q = a.stage.imageToMainScreen(r.x + (1 + w[4]) * r.w / 2, r.y - (1 + w[5]) * r.h / 2);
+    const box = document.getElementById('view')!.getBoundingClientRect(), m = a.stage.mainView();
+    return { x: box.left + m.x + q.x, y: box.top + m.y + q.y };
+  });
+  await page.mouse.move(br2.x, br2.y); await page.mouse.down();
+  await page.mouse.move(br2.x - 20, br2.y - 20, { steps: 4 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  expect(await warp()).toEqual(w1);
+  expect(await app(page, a => a.previewingInflate)).toBe(true);
+
+  // 数値で大きさを変えても、崩した形は残る
+  await page.locator('#inflW').fill(String(a0.w + 40));
+  await expect.poll(() => app(page, a => a.inflateState.area.w)).toBe(a0.w + 40);
+  expect(await warp()).toEqual(w1);
+
+  // 角の丸み・辺のふくらみは矩形・カマボコで出し、楕円では隠す
+  await expect(page.locator('#inflRoundRow')).toBeHidden();
+  await page.locator('#inflKind').selectOption('rect');
+  await expect(page.locator('#inflRoundRow')).toBeVisible();
+  await page.locator('#inflRoundN').fill('50');
+  await page.locator('#inflBulgeN').fill('-30');
+  await expect.poll(() => app(page, a => [a.inflateState.settings.round, a.inflateState.settings.bulge])).toEqual([0.5, -0.3]);
+
+  // 四角に戻す
+  await page.locator('#inflWarpReset').click();
+  await expect.poll(warp).toBeNull();
+  // もう一度崩してから描き直すと、四角に戻る
+  await dragBy(page, await framePoint(page, -1, 1), 30, -20);
+  expect(await warp()).not.toBeNull();
+  await dragOnStage(page, [0.15, 0.15], [0.3, 0.3]);
+  expect(await warp()).toBeNull();
+
+  await page.locator('#inflApply').click();
+  expect(await app(page, a => a.history.undoLabel)).toMatch(/^膨らませる\(矩形 .*・崩す・高さ \d+px\)$/);
+});

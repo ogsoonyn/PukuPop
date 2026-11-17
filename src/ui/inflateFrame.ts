@@ -3,11 +3,14 @@
  * 枠は膨らむ前の平らな画像の面に描くので、視点を回すと台形に見える。楕円のときは楕円の輪郭も重ねる。
  *   辺・角の8点: 大きさ(反対側を止める。Shift で縦横比を保つ、Alt で中心を止める)
  *   枠の中: 移動 / 枠の上の丸: 回す(Shift で 15° ごと) / 枠の外: 範囲を描き直す(ui/input.ts)
+ *   「四隅を動かす」の間は、角の4点は大きさでなく、その角だけを動かす(形を崩す。丸い点で見分ける)
+ * 崩した形(四隅を動かした・角を丸めた・辺をふくらませた)は、枠を崩した四角で描き、形の輪郭を点線で重ねる。
  * ポインタの操作は ui/input.ts が受け、どこを掴んだかをここの hitFrame で決める。重ね表示自体はポインタを通す。
  * 枠が画面上で小さいときは、辺のハンドルを隠し、角の当たりも小さくして、枠の中を掴んで動かせるようにする。
  */
 import type { App } from '../app';
 import { HANDLES, areaPoint, type Handle } from '../paint/areaEdit';
+import { fromSquare, isFlatWarp, warpCorners } from '../paint/shapeWarp';
 import { ui } from './ids';
 
 type Pt = { x: number; y: number };
@@ -19,10 +22,14 @@ const HIT = 10, HIT_TOUCH = 22;
 const ROT_GAP = 28;
 /** 枠の短い辺がこれより短い(px)ときは、辺のハンドルを出さない。指では当たりが大きいので、中を掴む所が残るよう長めにする */
 const EDGE_MIN = 40, EDGE_MIN_TOUCH = HIT_TOUCH * 3;
-/** 楕円の輪郭を何点で描くか */
+/** 楕円・崩した形の輪郭を何点で描くか */
 const ELLIPSE_SAMPLES = 64;
 
-export type FrameHit = { kind: 'resize'; handle: Handle } | { kind: 'move' } | { kind: 'rotate' };
+/** 四隅を動かすときの角。index は形を崩す計算(paint/shapeWarp.ts)の四隅の順(左上・右上・右下・左下) */
+export type FrameHit = { kind: 'resize'; handle: Handle } | { kind: 'move' } | { kind: 'rotate' } | { kind: 'corner'; index: number };
+
+/** 角のハンドル(su・sv は形の右・上が正)を、四隅の順の番号へ */
+export const cornerIndex = (h: Handle): number => (h.sv > 0 ? (h.su < 0 ? 0 : 1) : (h.su > 0 ? 2 : 3));
 
 interface Geometry {
   /** 枠の四隅(右上・右下・左下・左上)。主ビューの左上からの CSS ピクセル */
@@ -33,8 +40,35 @@ interface Geometry {
   center: Pt;
   /** 枠の短い辺の画面上の長さ */
   minSide: number;
-  /** 楕円の輪郭(矩形なら null) */
+  /** 形の輪郭(楕円、崩した形。崩していない矩形・カマボコなら null) */
   ellipse: Pt[] | null;
+  /** 四隅を動かすか */
+  cornerEdit: boolean;
+}
+
+/** 崩す前の形の輪郭の点(正規化した座標、y は下)。矩形・カマボコは角を丸めた四角 */
+function outlineSquare(shape: string, round: number, w: number, h: number): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = [];
+  if (shape === 'ellipse') {
+    for (let i = 0; i < ELLIPSE_SAMPLES; i++) { const t = (i / ELLIPSE_SAMPLES) * Math.PI * 2; pts.push({ x: Math.cos(t), y: Math.sin(t) }); }
+    return pts;
+  }
+  // 角は丸みの半径の円弧にする。半径は短い方の辺の半分に対する割合(paint/inflate.ts と同じ)なので、正規化した座標では縦横で割合が違う
+  const rr = Math.max(0, Math.min(1, round)) * Math.min(w, h) / 2, rx = rr / (w / 2), ry = rr / (h / 2), N = 12;
+  const corners = [{ cx: 1, cy: 1, a0: 0 }, { cx: -1, cy: 1, a0: Math.PI / 2 }, { cx: -1, cy: -1, a0: Math.PI }, { cx: 1, cy: -1, a0: Math.PI * 1.5 }];
+  for (const c of corners) {
+    const ox = c.cx * (1 - rx), oy = c.cy * (1 - ry);
+    for (let i = 0; i <= N; i++) { const t = c.a0 + (i / N) * Math.PI / 2; pts.push({ x: ox + Math.cos(t) * rx, y: oy + Math.sin(t) * ry }); }
+  }
+  // 角と角の間も点を足す(ふくらみで辺が曲がるのを描くため)
+  const out: { x: number; y: number }[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    out.push(a);
+    const steps = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 0.1);
+    for (let k = 1; k < steps; k++) out.push({ x: a.x + (b.x - a.x) * k / steps, y: a.y + (b.y - a.y) * k / steps });
+  }
+  return out;
 }
 
 const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -53,9 +87,19 @@ export function setRotSide(side: 1 | -1, angle: number): void { rotSide = side; 
 /** 今の範囲の枠を、主ビューの画面の位置で求める。プレビュー中でない・画面に収まらない(カメラの後ろ)ときは null */
 function geometry(app: App, withEllipse = true): Geometry | null {
   const s = app.inflateState; if (!s || !app.stage.hasDocument) return null;
-  const a = s.area, ang = s.settings.angle;
+  const a = s.area, ang = s.settings.angle, st = s.settings;
   if (ang !== sideAngle) { rotSide = 1; sideAngle = ang; }
-  const at = (su: number, sv: number) => { const q = areaPoint(a, ang, su, sv); return app.stage.imageToMainScreen(q.x, q.y); };
+  /** 形の中の位置(su・sv は崩す前の四角の -1〜1、形の右・上が正)を、四隅を動かした分だけ写して画面へ */
+  const warped = !isFlatWarp(a.warp), wc = warped ? warpCorners(a.warp) : null;
+  const toScreen = (X: number, Y: number) => { const q = areaPoint(a, ang, X, -Y); return app.stage.imageToMainScreen(q.x, q.y); };
+  const at = (su: number, sv: number) => {
+    if (!wc) return toScreen(su, -sv);
+    const ss = (su + 1) / 2, tt = (1 - sv) / 2; // 四隅の順は y が下向き
+    return toScreen(
+      (1 - ss) * (1 - tt) * wc[0].x + ss * (1 - tt) * wc[1].x + ss * tt * wc[2].x + (1 - ss) * tt * wc[3].x,
+      (1 - ss) * (1 - tt) * wc[0].y + ss * (1 - tt) * wc[1].y + ss * tt * wc[2].y + (1 - ss) * tt * wc[3].y,
+    );
+  };
   const handles: { h: Handle; p: Pt }[] = [];
   for (const h of HANDLES) { const p = at(h.su, h.sv); if (!p) return null; handles.push({ h, p }); }
   const center = at(0, 0); if (!center) return null;
@@ -69,29 +113,26 @@ function geometry(app: App, withEllipse = true): Geometry | null {
   const rot = { x: top.x + dx / l * ROT_GAP, y: top.y + dy / l * ROT_GAP };
   const minSide = Math.min(dist(corners[0], corners[1]), dist(corners[1], corners[2]));
   let ellipse: Pt[] | null = null;
-  if (withEllipse && s.settings.shape === 'ellipse') {
+  const isEllipse = st.shape === 'ellipse', round = isEllipse ? 0 : st.round, bulge = isEllipse ? 0 : st.bulge;
+  if (withEllipse && (isEllipse || warped || round || bulge)) {
     ellipse = [];
-    for (let i = 0; i < ELLIPSE_SAMPLES; i++) {
-      const t = (i / ELLIPSE_SAMPLES) * Math.PI * 2, p = at(Math.cos(t), Math.sin(t));
+    for (const q of outlineSquare(st.shape, round, a.w, a.h)) {
+      const w = fromSquare(q.x, q.y, a.warp, bulge), p = toScreen(w.x, w.y);
       if (!p) { ellipse = null; break; }
       ellipse.push(p);
     }
   }
-  return { corners, handles, top, rot, center, minSide, ellipse };
+  return { corners, handles, top, rot, center, minSide, ellipse, cornerEdit: s.cornerEdit };
 }
 
-/** 点が(凸の)四角形の中にあるか */
+/** 点が四角形の中にあるか。四隅を動かすと凹んだりねじれたりするので、偶奇の規則で数える */
 function insideQuad(q: readonly Pt[], p: Pt): boolean {
-  let sign = 0;
-  for (let i = 0; i < q.length; i++) {
-    const a = q[i], b = q[(i + 1) % q.length];
-    const c = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
-    if (c === 0) continue;
-    const s = Math.sign(c);
-    if (sign && s !== sign) return false;
-    sign = s;
+  let inside = false;
+  for (let i = 0, j = q.length - 1; i < q.length; j = i++) {
+    const a = q[i], b = q[j];
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
   }
-  return true;
+  return inside;
 }
 
 /** 辺のハンドルを出すか(枠が画面上で十分大きいとき)。描くのと当たり判定で同じ条件にする。スマホの画面では指に合わせて境目を大きくする */
@@ -116,7 +157,7 @@ export function hitFrame(app: App, clientX: number, clientY: number, touch: bool
     const d = dist(p, q);
     if (d <= (isCorner ? cornerR : R) && (!best || d < best.d)) best = { h, d };
   }
-  if (best) return { kind: 'resize', handle: best.h };
+  if (best) return g.cornerEdit && best.h.su !== 0 && best.h.sv !== 0 ? { kind: 'corner', index: cornerIndex(best.h) } : { kind: 'resize', handle: best.h };
   if (insideQuad(g.corners, p)) return { kind: 'move' };
   return null;
 }
@@ -125,6 +166,7 @@ export function hitFrame(app: App, clientX: number, clientY: number, touch: bool
 export function frameCursor(app: App, hit: FrameHit, dragging: boolean): string {
   if (hit.kind === 'move') return 'move';
   if (hit.kind === 'rotate') return dragging ? 'grabbing' : 'grab';
+  if (hit.kind === 'corner') return 'crosshair';
   const g = geometry(app, false);
   const q = g?.handles.find(e => e.h.su === hit.handle.su && e.h.sv === hit.handle.sv)?.p;
   if (!g || !q) return 'move';
@@ -154,7 +196,7 @@ export function bindInflateFrame(app: App): void {
     const f = (v: number) => v.toFixed(1), line = (pts: readonly Pt[]) => pts.map(p => `${f(p.x)},${f(p.y)}`).join(' ');
     // ハンドルは膨らみツールのときだけ出す(ほかのツールでは掴めないので、枠の線だけにする)
     const handles = app.tool === 'inflate', touch = document.documentElement.classList.contains('mobile');
-    const sig = `${m.x},${m.y},${m.w},${m.h}|${line(g.corners)}|${f(g.rot.x)},${f(g.rot.y)}|${g.ellipse ? 1 : 0}|${handles}|${touch}`;
+    const sig = `${m.x},${m.y},${m.w},${m.h}|${line(g.corners)}|${f(g.rot.x)},${f(g.rot.y)}|${g.ellipse ? line(g.ellipse) : 0}|${handles}|${touch}|${g.cornerEdit}`;
     if (sig === last) return;
     last = sig;
     host.hidden = false;
@@ -173,7 +215,9 @@ export function bindInflateFrame(app: App): void {
     const edges = edgesShown(g);
     for (const { h, p } of g.handles) {
       if (!edges && (h.su === 0 || h.sv === 0)) continue;
-      el('rect', { class: 'if-handle', x: f(p.x - 4.5), y: f(p.y - 4.5), width: 9, height: 9, rx: 1.5 }, svg);
+      // 四隅を動かす間の角は、大きさのハンドルと見分けるよう丸い点にする
+      if (g.cornerEdit && h.su !== 0 && h.sv !== 0) el('circle', { class: 'if-handle if-corner', cx: f(p.x), cy: f(p.y), r: 5.5 }, svg);
+      else el('rect', { class: 'if-handle', x: f(p.x - 4.5), y: f(p.y - 4.5), width: 9, height: 9, rx: 1.5 }, svg);
     }
     el('circle', { class: 'if-handle if-rot', cx: f(g.rot.x), cy: f(g.rot.y), r: 5.5 }, svg);
   }

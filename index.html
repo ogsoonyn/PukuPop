@@ -573,6 +573,13 @@
         <input class="join-item btn btn-sm" type="radio" name="inflProfile" value="cone" aria-label="直線" title="まっすぐな斜面(台形・円すい)">
       </div></div>
     <p id="inflProfileHelp" class="help-text" hidden>ドーム: 断面が円弧で、丸く膨らみます。クッション: 縁も頂上もなめらかです。直線: まっすぐな斜面(台形・円すい)です。</p>
+    <div class="prop2"><span class="prop-name">形を崩す<button type="button" class="help-btn" data-help="inflWarpHelp"></button></span>
+      <div class="flex items-center gap-3"><label class="flex items-center gap-2 cursor-pointer"><input id="inflCorner" type="checkbox" class="toggle toggle-sm"> 四隅を動かす</label><button id="inflWarpReset" type="button" class="btn btn-xs">四角に戻す</button></div></div>
+    <p id="inflWarpHelp" class="help-text" hidden>「四隅を動かす」をオンにすると、枠の角の丸い点を1つずつドラッグして、台形やゆがんだ四角にできます(楕円・矩形・カマボコのどれにも効きます)。崩したまま大きさ・位置・角度を変えると、崩した形ごと変わります。「四角に戻す」か範囲を描き直すと、四隅のずれが元に戻ります(角の丸み・辺のふくらみはそのまま)。角の丸みと辺のふくらみは、矩形とカマボコで、四隅・4辺を同じだけ変えます。</p>
+    <div id="inflRoundRow" class="prop2"><span>角の丸み</span>
+      <div class="flex items-center gap-2"><input id="inflRound" type="range" min="0" max="100" class="range range-sm range-primary flex-1"><input id="inflRoundN" type="number" min="0" max="100" class="input input-sm w-20 text-right"> %</div></div>
+    <div id="inflBulgeRow" class="prop2"><span>辺のふくらみ</span>
+      <div class="flex items-center gap-2"><input id="inflBulge" type="range" min="-100" max="100" class="range range-sm range-primary flex-1"><input id="inflBulgeN" type="number" min="-100" max="100" class="input input-sm w-20 text-right"> %</div></div>
     <div class="prop2"><span class="prop-name">仕上げのぼかし<button type="button" class="help-btn" data-help="inflBlurHelp"></button></span>
       <div class="flex items-center gap-2"><input id="inflBlur" type="range" min="0" max="100" class="range range-sm range-primary flex-1"><input id="inflBlurN" type="number" min="0" max="100" class="input input-sm w-20 text-right"> px</div></div>
     <p id="inflBlurHelp" class="help-text" hidden>形を当てたあとに、今回の膨らみだけをこの半径でぼかしてから重ねます。0 でぼかしません。前に塗ったウェイトはぼかしません。縁は形の外へ少しにじみます。</p>
