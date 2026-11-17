@@ -2,7 +2,7 @@
 import type { Command } from './history';
 import type { Store, Layer, Document, Project, Favorite } from '../model/project';
 import { WeightMap, TILE, type Rect } from '../model/weightmap';
-import type { Take } from '../physics/take';
+import type { KeyFrame, Take } from '../physics/take';
 
 const OBJ_BYTES = 256;
 
@@ -58,13 +58,28 @@ export class PatchProject implements Command {
 /**
  * 操作の記録の差し替え(新しく記録した・消した)。記録は作ったあと書き換えないので、コピーせずに持つ。
  */
+/**
+ * 今の動き(project.take)の差し替え。キーフレームから作った動きに替えるときは、キーフレームの一覧もそのキーフレームに合わせ、
+ * アンドゥで前の一覧に戻す(お気に入りの適用など)。一覧を変えないとき(操作の記録・消す・一覧から作る)は、一覧に触らない。
+ * 一覧の編集はアンドゥに積まないので、触らないことで、記録をアンドゥしても直しかけの一覧が消えないようにする(Issue #145)。
+ */
 export class SetTake implements Command {
   readonly bytes: number;
-  constructor(readonly label: string, private before: Take | null, private after: Take | null) {
+  /** 一覧を替えるときの前後(替えないときは null) */
+  private readonly keyframes: { before: KeyFrame[]; after: KeyFrame[] } | null;
+  /** keyframes: 実行する前のキーフレームの一覧(project.keyframes) */
+  constructor(readonly label: string, private before: Take | null, private after: Take | null, keyframes: readonly KeyFrame[]) {
+    const k = after?.keys;
+    this.keyframes = k && JSON.stringify(k) !== JSON.stringify(keyframes) ? { before: structuredClone([...keyframes]), after: structuredClone([...k]) } : null;
     this.bytes = OBJ_BYTES + ((before?.samples.length ?? 0) + (after?.samples.length ?? 0)) * 200;
   }
-  apply(store: Store): void { store.patchProject({ take: this.after }); }
-  revert(store: Store): void { store.patchProject({ take: this.before }); }
+  // 一覧はその場で書き換えられるので、当てるたびに写しを渡す
+  apply(store: Store): void {
+    store.patchProject(this.keyframes ? { take: this.after, keyframes: structuredClone(this.keyframes.after) } : { take: this.after });
+  }
+  revert(store: Store): void {
+    store.patchProject(this.keyframes ? { take: this.before, keyframes: structuredClone(this.keyframes.before) } : { take: this.before });
+  }
 }
 
 /**

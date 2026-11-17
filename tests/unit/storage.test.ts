@@ -178,6 +178,10 @@ describe('.pukupop', () => {
     const old = (await deserializeProject(zipSync(files))).project;
     expect(old.keyframes.map(k => k.view.yaw)).toEqual([0, 1]);
     expect(old.keyframes).not.toBe(old.take!.keys); // 写しを持つ(一覧を編集しても記録は変わらない)
+    // 配列でなければ、項目が無いのと同じ
+    json.project.keyframes = { 0: 1 };
+    files['project.json'] = strToU8(JSON.stringify(json));
+    expect((await deserializeProject(zipSync(files))).project.keyframes.map(k => k.view.yaw)).toEqual([0, 1]);
     delete files['motion/take.json'];
     expect((await deserializeProject(zipSync(files))).project.keyframes).toEqual([]);
   });

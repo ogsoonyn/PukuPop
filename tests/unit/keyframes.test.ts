@@ -31,26 +31,37 @@ function setup(keys: KeyFrame[] = [], take: Take | null = null) {
 }
 
 describe('キーフレームの下書きの編集(KeyframeEditor)', () => {
-  it('sync: 記録がキーフレームから作ったものなら下書きに入れ、記録した操作に入れ替わったときは下書きを残す(Issue #145)', () => {
-    const e = setup([key(9)], takeFromKeys([key(0), key(1)], 40));
-    e.ed.sync();
-    expect(e.host.keyDraft.map(k => k.view.yaw)).toEqual([0, 1]);
-    expect(e.host.keyDraft).not.toBe(e.project.take!.keys); // 写しを入れる
-    expect(e.log).toEqual(['draft']);
-    // 同じ並びなら入れ直さず、知らせも出さない(未保存にしない)
-    e.log.length = 0;
-    e.ed.sync();
-    expect(e.log).toEqual([]);
-
-    const noKeys = setup([key(9)], { samples: takeFromKeys([key(0), key(1)], 40)!.samples });
-    noKeys.ed.sync();
-    expect(noKeys.host.keyDraft.map(k => k.view.yaw)).toEqual([9]); // そのまま
-    expect(noKeys.log).toEqual([]);
-
-    const none = setup([key(9)], null);
-    none.ed.sync();
-    expect(none.host.keyDraft).toHaveLength(1); // そのまま
-    expect(none.log).toEqual([]); // 知らせも出さない
+  it('SetTake: キーフレームから作った動きに替えるときだけ一覧も合わせ、アンドゥで戻す。記録・消すでは一覧に触らない(Issue #145)', () => {
+    const project = createProject(createDocument(image, 'd'));
+    const store = { patchProject: (p: Partial<Project>) => Object.assign(project, p) } as never;
+    const A = takeFromKeys([key(0), key(1)], 40)!, rec: Take = { samples: A.samples };
+    // 直しかけの一覧 B がある所で、操作の記録に入れ替えてアンドゥしても B のまま
+    project.take = A; project.keyframes = [key(5), key(6), key(7)];
+    const r = new SetTake('記録', A, rec, project.keyframes);
+    r.apply(store); r.revert(store);
+    expect([project.take, project.keyframes.map(k => k.view.yaw)]).toEqual([A, [5, 6, 7]]);
+    // 消すのも同じ
+    const c = new SetTake('消す', A, null, project.keyframes);
+    c.apply(store);
+    expect(project.keyframes).toHaveLength(3);
+    c.revert(store);
+    // キーフレームから作った動きに替える(お気に入りの適用)と一覧も替わり、アンドゥで前の一覧に戻る
+    const F = takeFromKeys([key(2), key(3)], 40)!;
+    const f = new SetTake('お気に入り', A, F, project.keyframes);
+    f.apply(store);
+    expect(project.keyframes.map(k => k.view.yaw)).toEqual([2, 3]);
+    expect(project.keyframes).not.toBe(F.keys); // 写しを入れる(一覧を直しても動きは変わらない)
+    project.keyframes[0].seconds = 4;
+    f.revert(store);
+    expect([project.take, project.keyframes.map(k => k.view.yaw)]).toEqual([A, [5, 6, 7]]);
+    f.apply(store); // リドゥ: 当てるたびに写しなので、前に直した分は混ざらない
+    expect(project.keyframes.map(k => k.seconds)).toEqual([1, 1]);
+    // 一覧と同じキーフレームから作る(「この並びで作る」)ときは、一覧に触らない
+    project.keyframes = [key(8), key(9)];
+    const same = project.keyframes;
+    const m = new SetTake('作る', F, takeFromKeys(same, 40), same);
+    m.apply(store); m.revert(store);
+    expect(project.keyframes).toBe(same);
   });
 
   it('canPlay: 2つ以上・1周が短すぎない・止まっている・手で記録した操作が無いときだけ再生できる', () => {

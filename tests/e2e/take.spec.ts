@@ -335,20 +335,24 @@ test('キーフレーム: 記録で動きを入れ替えて保存しても、開
   await expect(rows).toHaveCount(2);
   await page.locator('#keyMake').click();
   await app(page, a => a.stopTake());
-  // 記録した操作で動きを入れ替える
+  // 一覧を直しかけたまま、記録した操作で動きを入れ替える
+  await app(page, a => { a.project.camera.yaw = 1.2; a.addKey(); });
   await recordTake(page);
-  expect(await app(page, a => [!!a.project.take, !!a.project.take.keys, a.keyDraft.length])).toEqual([true, false, 2]);
+  expect(await app(page, a => [!!a.project.take, !!a.project.take.keys, a.keyDraft.length])).toEqual([true, false, 3]);
+  // 記録をアンドゥ・リドゥしても、直しかけの一覧はそのまま
+  expect(await app(page, a => { a.history.undo(); return [a.project.take.keys.length, a.keyDraft.length]; })).toEqual([2, 3]);
+  expect(await app(page, a => { a.history.redo(); return [!!a.project.take.keys, a.keyDraft.length]; })).toEqual([false, 3]);
   const r = await app(page, async a => {
     const bytes = a.serialize(await a.thumbnail());
     await a.loadSample();
     await a.openProjectBytes(bytes, 'rec.pukupop', null);
     return { rec: !!a.project.take && !a.project.take.keys, yaws: a.keyDraft.map((k: any) => k.view.yaw), dirty: a.dirty };
   });
-  expect(r).toEqual({ rec: true, yaws: [0, 0.6], dirty: false });
-  await expect(rows).toHaveCount(2);
+  expect(r).toEqual({ rec: true, yaws: [0, 0.6, 1.2], dirty: false });
+  await expect(rows).toHaveCount(3);
   await expect(page.locator('#takeInfo')).toHaveText(/^● 記録 /);
   // 一覧を変えると未保存になる(ファイルに入るため)
   await rows.nth(1).locator('[data-act=del]').click();
-  await expect(rows).toHaveCount(1);
+  await expect(rows).toHaveCount(2);
   expect(await app(page, a => a.dirty)).toBe(true);
 });

@@ -180,8 +180,8 @@ function projectParts(project: Project, opts: SerializeOptions): Uint8Array[] {
     formatVersion: FORMAT_VERSION, app: 'PukuPop', savedAt: new Date().toISOString(),
     project: {
       background: project.background, camera: structuredClone(project.camera), multiCamera: structuredClone(project.multiCamera), fps: project.fps, autoSwing: { ...project.autoSwing },
-      // キーフレームの一覧は空でも書く(空にしたことを、記録の keys で補わないように)
-      keyframes: structuredClone(project.keyframes),
+      // キーフレームの一覧は空でも書く(空にしたことを、記録の keys で補わないように)。読むときと同じく範囲に丸めて書く
+      keyframes: normalizeKeys(project.keyframes),
       ...(favorites.length ? { favorites } : {}),
     },
     documents: docs,

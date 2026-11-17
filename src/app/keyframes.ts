@@ -31,17 +31,6 @@ export interface KeyframeHost {
 export class KeyframeEditor {
   constructor(private readonly host: KeyframeHost) {}
 
-  /**
-   * 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れる(記録が差し替わったとき)。
-   * 記録した操作に入れ替わったときは下書きを残す(Issue #145)
-   */
-  sync(): void {
-    const h = this.host, k = h.project.take?.keys;
-    if (!k || JSON.stringify(k) === JSON.stringify(h.keyDraft)) return;
-    h.keyDraft = structuredClone([...k]);
-    h.draftChanged();
-  }
-
   private viewKey(): ViewKey {
     const c = this.host.project.camera;
     return { yaw: c.yaw, pitch: c.pitch, roll: c.roll, zoom: c.zoom, target: { ...c.target } };
@@ -126,7 +115,7 @@ export class KeyframeEditor {
     if (cur?.keys && JSON.stringify(cur.keys) === JSON.stringify(normalizeKeys(h.keyDraft))) { h.playTake(); return; }
     const take = takeFromKeys(h.keyDraft, h.project.camera.fov);
     if (!take) return;
-    h.execute(new SetTake('キーフレームから動きを作る', h.project.take, take));
+    h.execute(new SetTake('キーフレームから動きを作る', h.project.take, take, h.keyDraft));
     h.playTake();
   }
 }

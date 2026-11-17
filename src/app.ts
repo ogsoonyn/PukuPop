@@ -190,8 +190,8 @@ export class App extends Emitter<AppEvents> {
    */
   private readonly playback: LoopPlayback;
   /**
-   * キーフレームの一覧(下書き。project.keyframes に置き、ファイルにも保存する)。作った記録はそのキーフレームも持つので、
-   * 記録がキーフレームから作ったものに差し替わったら(アンドゥ・お気に入りの適用など)その記録のキーフレームに合わせる
+   * キーフレームの一覧(下書き。project.keyframes に置き、ファイルにも保存する)。編集はアンドゥに積まない。
+   * 動きをキーフレームから作ったものに差し替えるコマンド(お気に入りの適用)は、一覧も合わせ、アンドゥで戻す(SetTake)
    */
   get keyDraft(): KeyFrame[] { return this.project.keyframes; }
   set keyDraft(k: KeyFrame[]) { this.project.keyframes = k; }
@@ -326,7 +326,8 @@ export class App extends Emitter<AppEvents> {
       if (keys.includes('take') && this.takeState === 'playing') {
         if (this.project.take) this.playTake(); else this.stopTake();
       }
-      if (keys.includes('take')) this.syncKeyDraft();
+      // キーフレームの一覧は、動きの差し替え(SetTake)が一緒に変えることがある(お気に入りの適用・そのアンドゥ)
+      if (keys.includes('keyframes')) this.emit('take', this.takeState);
       this.emit('status', undefined);
     });
     s.on('change', () => {
@@ -1222,7 +1223,7 @@ export class App extends Emitter<AppEvents> {
     const ch = favoriteChanges(f, this.project, doc), label = `お気に入り「${f.name}」`, cmds: Command[] = [];
     for (const { id: layerId, patch } of ch.layers) cmds.push(PatchLayer.from(this.store, layerId, patch, label));
     if (ch.autoSwing) cmds.push(PatchProject.from(this.store, { autoSwing: ch.autoSwing }, label));
-    if (ch.take !== undefined) cmds.push(new SetTake(label, this.project.take, ch.take));
+    if (ch.take !== undefined) cmds.push(new SetTake(label, this.project.take, ch.take, this.keyDraft));
     if (ch.fov !== null) cmds.push(new SetFov(label, this.project.camera.fov, ch.fov));
     if (cmds.length) this.history.execute(new Batch(label, cmds));
     // 画角を変えると camera は新しいオブジェクトに差し替わるので、実行したあとの camera に当てる
@@ -1322,9 +1323,6 @@ export class App extends Emitter<AppEvents> {
 
   /* ---------- キーフレームから動きを作る ---------- */
 
-  /** 記録がキーフレームから作ったものなら、そのキーフレームを下書きに入れる。reset なら、そうでなくても下書きを空にする */
-  private syncKeyDraft(): void { this.keys.sync(); }
-
   /** 今の視点を末尾のキーフレームとして足す。時間とつなぎ方は1つ前のフレームに合わせる(app/keyframes.ts) */
   addKey(): void { this.keys.add(); }
 
@@ -1357,7 +1355,7 @@ export class App extends Emitter<AppEvents> {
   clearTake(): void {
     if (!this.project.take) return;
     this.stopTake();
-    this.history.execute(new SetTake('操作の記録を消す', this.project.take, null));
+    this.history.execute(new SetTake('操作の記録を消す', this.project.take, null, this.keyDraft));
   }
 
   private prev = 0;

@@ -235,7 +235,7 @@ describe('お気に入りをアンドゥを通さずに当てる(applyFavoriteCh
     const ch = favoriteChanges(f, p, doc), cmds: Command[] = [];
     for (const { id: layerId, patch } of ch.layers) cmds.push(PatchLayer.from(store, layerId, patch));
     if (ch.autoSwing) cmds.push(PatchProject.from(store, { autoSwing: ch.autoSwing }));
-    if (ch.take !== undefined) cmds.push(new SetTake('x', p.take, ch.take));
+    if (ch.take !== undefined) cmds.push(new SetTake('x', p.take, ch.take, p.keyframes));
     if (ch.fov !== null) cmds.push(new SetFov('x', p.camera.fov, ch.fov));
     new Batch('x', cmds).apply(store);
     applyView(store.project.camera, ch.view);
