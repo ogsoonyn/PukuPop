@@ -9,7 +9,12 @@
  */
 export const MAX_LAYERS = 8;
 
-export const vertexShader = /* glsl */ `
+/**
+ * fx が true のときは、膨らんだ瞬間のエフェクト用(effectFragmentShader と組む)。同じ変形をしたあと、
+ * レイヤー uFxLayer のウェイトの重心 uFxCenter のまわりで uFxScale 倍に広げ、そのウェイトの分だけ uFxLift 手前へ出す。
+ * 揺れ(uSwing / uSpread)は、そのレイヤーだけエフェクトを出した瞬間の値に差し替えて渡す(Stage.setEffects)。
+ */
+const makeVertexShader = (fx: boolean) => /* glsl */ `
   precision highp sampler2DArray;
   uniform sampler2DArray uW;
   uniform int uLayerCount;
@@ -21,6 +26,7 @@ export const vertexShader = /* glsl */ `
   uniform float uFlat;
   varying vec2 vUv;
   varying vec2 vP;
+  ${fx ? 'uniform int uFxLayer; uniform vec2 uFxCenter; uniform float uFxScale, uFxLift; varying float vFw;' : ''}
   void main() {
     vUv = uv;
     vP = position.xy;
@@ -40,9 +46,39 @@ export const vertexShader = /* glsl */ `
         p += d;
       }
     }
+    ${fx ? `
+    float fw = textureLod(uW, vec3(wuv, float(uFxLayer)), 0.0).r;
+    vFw = fw;
+    p.xy = uFxCenter + (p.xy - uFxCenter) * uFxScale;
+    p.z = p.z * uFxScale + fw * uFxLift;` : ''}
     // ポップ一時OFF: 持ち上げと揺れ(広がりも)を消して平らな画像に戻す
     p = mix(p, position, uFlat);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  }
+`;
+
+export const vertexShader = makeVertexShader(false);
+export const effectVertexShader = makeVertexShader(true);
+
+/**
+ * 膨らんだ瞬間のエフェクト。膨らんだ部分(ウェイト vFw)だけを切り抜いた画像の半透明のコピーと、
+ * uFxRing が 1 ならその輪郭(ウェイトが 0.3 前後の帯)を波紋として描く。色は uTint へ uTintMix だけ寄せる
+ */
+export const effectFragmentShader = /* glsl */ `
+  uniform sampler2D uMap;
+  uniform float uOpacity, uFxAlpha, uFxRing, uTintMix;
+  uniform vec3 uTint;
+  varying vec2 vUv;
+  varying float vFw;
+  void main() {
+    vec4 c = texture2D(uMap, vUv);
+    float copyA = c.a * smoothstep(0.03, 0.45, vFw) * uFxAlpha * 0.85;
+    float ring = smoothstep(0.08, 0.3, vFw) - smoothstep(0.3, 0.6, vFw);
+    float ringA = min(1.0, ring * uFxAlpha * 1.5) * uFxRing;
+    float a = copyA + ringA * (1.0 - copyA);
+    if (a < 0.004) discard;
+    vec3 copyC = mix(c.rgb, uTint, uTintMix), ringC = mix(c.rgb, uTint, max(uTintMix, 0.6));
+    gl_FragColor = vec4(mix(copyC, ringC, ringA / a), a * uOpacity);
   }
 `;
 

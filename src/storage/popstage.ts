@@ -5,9 +5,10 @@
 import { unzipSync, strToU8, strFromU8 } from 'fflate';
 import { zipParts, concatParts, type ZipEntry } from './zip';
 import {
-  LIMITS, PRESETS, MOTIONS, BLENDS, MOTION_PARAMS, createProject, createLayer, defaultCamera, defaultMultiCamera, newId, wrapAngle,
+  LIMITS, PRESETS, MOTIONS, BLENDS, MOTION_PARAMS, EFFECT_LIMITS, EFFECT_TIMINGS, EFFECT_COLORS, EFFECT_BLENDS, defaultEffect, createProject, createLayer, defaultCamera, defaultMultiCamera, newId, wrapAngle,
   type Project, type CameraState, type Document, type Layer, type PhysicsParams, type PresetName, type MotionPattern, type BlendMode,
   type Favorite, type FavoriteLayer, type AutoSwing,
+  type LayerEffect, type EffectTiming, type EffectColor, type EffectBlend,
 } from '../model/project';
 import { WeightMap, weightSizeFor } from '../model/weightmap';
 import { takeToJson, takeFromJson, normalizeKeys, type Take, type KeyFrame } from '../physics/take';
@@ -49,7 +50,7 @@ const takeBytes = new WeakMap<Take, Uint8Array>();
 /* ---------- project.json の形 ---------- */
 
 interface LayerJson {
-  id: string; name: string; visible: boolean; pop: number; blend?: BlendMode; physics: PhysicsParams;
+  id: string; name: string; visible: boolean; pop: number; blend?: BlendMode; physics: PhysicsParams; effect?: LayerEffect;
   weights: { path: string; width: number; height: number };
 }
 interface DocumentJson {
@@ -157,6 +158,7 @@ function projectParts(project: Project, opts: SerializeOptions): Uint8Array[] {
         files.push({ name: path, data: png, stable: !!opts.pngCache });
         return {
           id: layer.id, name: layer.name, visible: layer.visible, pop: layer.pop, blend: layer.blend, physics: { ...layer.physics, motionParams: { ...layer.physics.motionParams } },
+          effect: { ...layer.effect },
           weights: { path, width: layer.weights.width, height: layer.weights.height },
         };
       }),
@@ -254,6 +256,22 @@ function physicsFrom(v: unknown): PhysicsParams {
     hardness: unit(o.hardness, base.hardness), mass: unit(o.mass, base.mass),
     weight: unit(o.weight, 0.15), damping: unit(o.damping, base.damping), motion,
     motionParams: motionParamsFrom(o.motionParams),
+  };
+}
+
+/** 膨らんだ瞬間のエフェクト。無い(古いファイル)・形の合わない値は既定値(切ってある)で読む */
+function effectFrom(v: unknown): LayerEffect {
+  const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>, d = defaultEffect(), L = EFFECT_LIMITS;
+  return {
+    enabled: o.enabled === true, ring: o.ring === true,
+    timing: own(EFFECT_TIMINGS, o.timing) ? o.timing as EffectTiming : d.timing,
+    opacity: num(o.opacity, L.opacity.min, L.opacity.max, d.opacity),
+    spread: num(o.spread, L.spread.min, L.spread.max, d.spread),
+    duration: num(o.duration, L.duration.min, L.duration.max, d.duration),
+    color: own(EFFECT_COLORS, o.color) ? o.color as EffectColor : d.color,
+    // CSS(色の入力)とシェーダへ入れるので、#rrggbb だけを通す
+    customColor: typeof o.customColor === 'string' && /^#[0-9a-f]{6}$/i.test(o.customColor) ? o.customColor.toLowerCase() : d.customColor,
+    blend: own(EFFECT_BLENDS, o.blend) ? o.blend as EffectBlend : d.blend,
   };
 }
 
@@ -361,7 +379,7 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
         visible: lj.visible !== false, pop: num(lj.pop, LIMITS.pop.min, LIMITS.pop.max, LIMITS.pop.def),
         // 重ね方が無い(古いファイル)・知らない値は加算として読む
         blend: own(BLENDS, lj.blend) ? lj.blend as BlendMode : 'add',
-        physics: physicsFrom(lj.physics), weights,
+        physics: physicsFrom(lj.physics), effect: effectFrom(lj.effect), weights,
       };
       doc.layers.push(layer);
     }

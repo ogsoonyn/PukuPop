@@ -5,7 +5,30 @@
 import * as THREE from 'three';
 import { LAYER_COLORS, meshSegments, type CameraState, type Document, type Layer, type OrthoView, type Vec3 } from '../model/project';
 import type { Rect } from '../model/weightmap';
-import { vertexShader, fragmentShader, MAX_LAYERS } from './shaders';
+import { vertexShader, fragmentShader, effectVertexShader, effectFragmentShader, MAX_LAYERS } from './shaders';
+
+/**
+ * 膨らんだ瞬間のエフェクト1つの描き方(playback/stageSwing.ts が物理の結果から決める)。
+ * index のレイヤーの揺れを、エフェクトを出した瞬間の swing(元画像のピクセル)・spread に差し替えた形を、
+ * center(そのレイヤーのウェイトの重心、画像のローカル座標のピクセル)のまわりで scale 倍に広げ、lift(ピクセル)手前へ出し、濃さ alpha で描く
+ */
+export interface EffectDraw {
+  index: number;
+  swing: Vec3;
+  spread: number;
+  center: { x: number; y: number };
+  scale: number;
+  lift: number;
+  alpha: number;
+  ring: boolean;
+  /** 寄せる色(0〜1)と寄せる割合 */
+  tint: [number, number, number];
+  tintMix: number;
+  additive: boolean;
+}
+
+/** 同時に描くエフェクトの数の上限(全レイヤーの合計) */
+export const MAX_EFFECT_DRAWS = 16;
 
 export interface ViewOptions {
   /** overlayAll: 重ね表示を全レイヤーにする(overlay が入のときだけ意味を持つ) */
@@ -89,6 +112,9 @@ export class Stage {
   private ghosts = new THREE.Group();
   private ghostGeo: THREE.PlaneGeometry | null = null;
   private ghostMats: THREE.MeshBasicMaterial[] = [];
+  /** 膨らんだ瞬間のエフェクト(setEffects)。メッシュと同じジオメトリを使い、メッシュの子に置く(同じ置き方・揺れ・ピストンで動く) */
+  private fx = new THREE.Group();
+  private fxMeshes: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>[] = [];
   vertexCount = 0;
   /** ウェイトを部分転送・全面転送した回数(部分転送が効いているかの確認用) */
   partialUploads = 0;
@@ -128,6 +154,7 @@ export class Stage {
     });
     this.rig.matrixAutoUpdate = false;
     this.scene.add(this.rig);
+    this.fx.visible = false;
     this.ghosts.visible = false;
     this.scene.add(this.ghosts);
     // three.js は自分の受け口で preventDefault し、戻ったときに内部の管理(properties など)を作り直す。
@@ -196,6 +223,8 @@ export class Stage {
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h, nx, ny), this.material);
     this.mesh.frustumCulled = false;
     this.rig.add(this.mesh);
+    for (const m of this.fxMeshes) m.geometry = this.mesh.geometry;
+    this.mesh.add(this.fx);
     this.gridN.set(nx, ny);
     this.vertexCount = (nx + 1) * (ny + 1);
   }
@@ -291,6 +320,57 @@ export class Stage {
     }
     g.matrixWorldNeedsUpdate = true;
     g.updateMatrixWorld(true);
+  }
+
+  /**
+   * 膨らんだ瞬間のエフェクトを置く(描画の前に毎回、揺れを入れた後に呼ぶ)。空で消す。
+   * 主ビューと書き出しに出し、3面図の横の図とポップ一時OFF の間は出さない
+   */
+  setEffects(list: readonly EffectDraw[]): void {
+    const n = this.mesh ? Math.min(list.length, MAX_EFFECT_DRAWS) : 0;
+    while (this.fxMeshes.length < n) this.fxMeshes.push(this.makeEffectMesh());
+    const u = this.uniforms, swing = u.uSwing.value as THREE.Vector3[], spread = u.uSpread.value as number[], center = u.uCenter.value as THREE.Vector2[];
+    this.fxMeshes.forEach((m, i) => {
+      m.visible = i < n;
+      if (!m.visible) return;
+      const d = list[i], fu = m.material.uniforms;
+      const sw = fu.uSwing.value as THREE.Vector3[], sp = fu.uSpread.value as number[], ce = fu.uCenter.value as THREE.Vector2[];
+      for (let k = 0; k < MAX_LAYERS; k++) { sw[k].copy(swing[k]); sp[k] = spread[k]; ce[k].copy(center[k]); }
+      sw[d.index].set(d.swing.x, d.swing.y, d.swing.z); sp[d.index] = d.spread; ce[d.index].set(d.center.x, d.center.y);
+      fu.uFxLayer.value = d.index;
+      (fu.uFxCenter.value as THREE.Vector2).set(d.center.x, d.center.y);
+      fu.uFxScale.value = d.scale; fu.uFxLift.value = d.lift; fu.uFxAlpha.value = d.alpha; fu.uFxRing.value = d.ring ? 1 : 0;
+      (fu.uTint.value as THREE.Vector3).set(d.tint[0], d.tint[1], d.tint[2]); fu.uTintMix.value = d.tintMix;
+      const blending = d.additive ? THREE.AdditiveBlending : THREE.NormalBlending;
+      if (m.material.blending !== blending) { m.material.blending = blending; m.material.needsUpdate = true; }
+      // 古いものから順に重ねる
+      m.renderOrder = 100 + i;
+    });
+    this.fx.visible = n > 0;
+  }
+
+  /** 直前の render で主ビューに描いたエフェクトの数(E2E の確認用) */
+  effectCount = 0;
+
+  private makeEffectMesh(): THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> {
+    const u = this.uniforms;
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        // 画像・ウェイト・ポップ量・重ね方・ポップ一時OFF・不透明度は本体と同じものを指す
+        uMap: u.uMap, uW: u.uW, uLayerCount: u.uLayerCount, uPop: u.uPop, uBlend: u.uBlend, uFlat: u.uFlat, uOpacity: u.uOpacity,
+        uSwing: { value: Array.from({ length: MAX_LAYERS }, () => new THREE.Vector3()) },
+        uSpread: { value: new Array(MAX_LAYERS).fill(0) },
+        uCenter: { value: Array.from({ length: MAX_LAYERS }, () => new THREE.Vector2()) },
+        uFxLayer: { value: 0 }, uFxCenter: { value: new THREE.Vector2() }, uFxScale: { value: 1 }, uFxLift: { value: 0 },
+        uFxAlpha: { value: 0 }, uFxRing: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uTintMix: { value: 0 },
+      },
+      vertexShader: effectVertexShader, fragmentShader: effectFragmentShader,
+      transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const m = new THREE.Mesh(this.mesh!.geometry, mat);
+    m.frustumCulled = false;
+    this.fx.add(m);
+    return m;
   }
 
   /** ウェイトのテクスチャ配列を作り直して全レイヤーを転送する。 */
@@ -616,17 +696,23 @@ export class Stage {
     this.place(this.uniforms.uFlat.value === 0);
     this.applyCamera(cam);
     r.setRenderTarget(null);
+    // エフェクトはポップ一時OFF の間は出さない
+    const fxOn = this.fx.visible;
+    if (this.uniforms.uFlat.value !== 0) this.fx.visible = false;
+    this.effectCount = this.fx.visible && this.mesh ? this.fxMeshes.filter(m => m.visible).length : 0;
     if (!this.subViews.length || !this.mesh) {
       r.setScissorTest(false);
       r.setViewport(0, 0, this.canvas.clientWidth, this.canvas.clientHeight);
       r.render(this.scene, this.camera);
+      this.fx.visible = fxOn;
       return;
     }
     r.setScissorTest(true);
     this.drawIn(this.main(), this.camera);
-    // 横の図は形を見るためのものなので、ブラシの円・ウェイトの重ね表示・画像を薄く・グリッド・ゴーストは効かせない
+    // 横の図は形を見るためのものなので、ブラシの円・ウェイトの重ね表示・画像を薄く・グリッド・ゴースト・エフェクトは効かせない
     const ghosts = this.ghosts.visible;
     this.ghosts.visible = false;
+    this.fx.visible = false;
     const u = this.uniforms, brush = u.uBrushOn.value, overlay = u.uOverlay.value, fade = u.uFade.value, grid = u.uGrid.value;
     u.uBrushOn.value = 0; u.uOverlay.value = 0; u.uFade.value = 0; u.uGrid.value = 0;
     const scale = this.orthoScale();
@@ -647,6 +733,7 @@ export class Stage {
     }
     u.uBrushOn.value = brush; u.uOverlay.value = overlay; u.uFade.value = fade; u.uGrid.value = grid;
     this.ghosts.visible = ghosts;
+    this.fx.visible = fxOn;
     r.setScissorTest(false);
   }
 
@@ -740,6 +827,7 @@ export class Stage {
     this.mapTex?.dispose(); this.weightTex?.dispose(); this.exportTarget?.dispose();
     this.mesh?.geometry.dispose(); this.material.dispose();
     this.ghostGeo?.dispose(); for (const m of this.ghostMats) m.dispose();
+    for (const m of this.fxMeshes) m.material.dispose();
     const lost = this.renderer.getContext().isContextLost();
     this.renderer.dispose(); // three.js の受け口もここで外れる
     // すでに失われていれば手放すものが無い(失われたコンテキストでは拡張が取れず、three.js が警告を出すので呼ばない)

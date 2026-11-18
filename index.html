@@ -283,6 +283,22 @@
             </div>
           </details>
         </section>
+        <!-- 膨らんだ瞬間のエフェクト(レイヤーごと。panels.ts) -->
+        <section class="flex flex-col gap-2" data-m-slot="effect">
+          <div class="flex items-center gap-2"><h2 class="font-bold">エフェクト</h2><button type="button" class="help-btn" data-help="pFxHelp"></button></div>
+          <p id="pFxHelp" class="help-text" hidden>自動で揺らしているとき、膨らんだ瞬間に、膨らんだ所(塗った所)の半透明のコピーが外へふわっと広がって消えます。押し出す動きのある揺らし方(鼓動・一瞬膨らむ・ためて膨らむ・ためて膨らむ2・ふわっと膨らむ)で出ます。記録やキーフレームの再生中も出て、書き出しにも入ります。つかんで離したときと、ポップを一時OFF にしている間は出ません。</p>
+          <label class="flex items-center justify-between">膨らんだ瞬間に広げる <input id="pFx" type="checkbox" class="toggle toggle-sm"></label>
+          <p id="pFxNote" class="text-xs opacity-70" hidden>この揺らし方では出ません。</p>
+          <div id="pFxBody" class="flex flex-col gap-2 border-l-2 border-primary/40 pl-2 ml-1">
+            <label class="flex items-center justify-between text-sm">波紋も出す <input id="pFxRing" type="checkbox" class="checkbox checkbox-xs"></label>
+            <div class="prop"><label for="pFxTiming">タイミング</label><select id="pFxTiming" class="select select-xs col-span-2 w-full"></select></div>
+            <div class="prop"><label for="pFxOpacity">濃さ</label><input id="pFxOpacity" type="range" min="10" max="100" class="range range-xs"><output id="pFxOpacityO"></output></div>
+            <div class="prop"><label for="pFxSpread">広がる大きさ</label><input id="pFxSpread" type="range" min="5" max="80" class="range range-xs"><output id="pFxSpreadO"></output></div>
+            <div class="prop"><label for="pFxDur">消えるまで</label><input id="pFxDur" type="range" min="20" max="150" step="5" class="range range-xs"><output id="pFxDurO"></output></div>
+            <div class="prop"><label for="pFxColor">色</label><select id="pFxColor" class="select select-xs w-full"></select><input id="pFxCustom" type="color" class="w-full h-6" aria-label="エフェクトの色"></div>
+            <div class="prop"><label for="pFxBlend">重ね方</label><select id="pFxBlend" class="select select-xs col-span-2 w-full"></select></div>
+          </div>
+        </section>
       </div>
 
       <div class="flex flex-col gap-4" data-ppane="anim" hidden>

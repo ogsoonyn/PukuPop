@@ -163,3 +163,20 @@ export function motionSpread(pattern: MotionPattern, t: number, period: number, 
   if (pattern === 'pulse') return a * pulseBump(u, P('time'));
   return chargeCurve(u, a * P('pinch'), P('time'), a);
 }
+
+/**
+ * 揺らし方が手前・外へ押し出し始める時刻(周期に対する割合、0 以上 1 未満)。膨らんだ瞬間のエフェクト(physics/effect.ts)を出す目安にする。
+ * 押し出す時刻の無い揺らし方(左右に振る・漂うなど)は空。鼓動は2拍なので2つ。
+ */
+export function motionPushes(pattern: MotionPattern, params?: Record<string, number>): number[] {
+  const P = (key: string) => motionParam(params, pattern, key);
+  switch (pattern) {
+    case 'heartbeat': return [0.01, Math.min(0.99, 0.01 + P('gap'))]; // bump(u, 0.06, 0.1) の立ち上がり
+    case 'charge': case 'charge2': return [P('time')]; // ためた所から離す瞬間
+    case 'puff': case 'pulse': return [0]; // 周期の頭で一度だけ膨らむ
+    default: return [];
+  }
+}
+
+/** 膨らんだ瞬間のエフェクトを使える揺らし方か */
+export const hasPush = (pattern: MotionPattern): boolean => motionPushes(pattern).length > 0;

@@ -1,6 +1,6 @@
 /** 右パネル(レイヤー一覧とプロパティ)とツールオプション。 */
 import { countLabel, type App } from '../app';
-import { PRESETS, PRESET_ORDER, BLENDS, BLEND_ORDER, MOTIONS, MOTION_PARAMS, LIMITS, motionParam, scalePops, layerColor, type MotionParamDef, type Layer, type PhysicsParams, type PresetName, type MotionPattern, type BlendMode, type Project, type Document } from '../model/project';
+import { PRESETS, PRESET_ORDER, BLENDS, BLEND_ORDER, MOTIONS, MOTION_PARAMS, LIMITS, EFFECT_TIMINGS, EFFECT_COLORS, EFFECT_BLENDS, motionParam, scalePops, layerColor, type MotionParamDef, type Layer, type LayerEffect, type EffectTiming, type EffectColor, type EffectBlend, type PhysicsParams, type PresetName, type MotionPattern, type BlendMode, type Project, type Document } from '../model/project';
 import { PatchLayer, PatchDocument, PatchProject, SetFov, Batch } from '../commands/commands';
 import type { Command } from '../commands/history';
 import { prefs } from '../storage/prefs';
@@ -8,6 +8,7 @@ import { ui } from './ids';
 import { drawWeightThumb } from './imageio';
 import { popSliderRange, popToSlider, sliderToPop } from './popSlider';
 import { createHelp } from './help';
+import { hasPush } from '../physics/motion';
 import { isComposingKey } from './dom';
 
 type Target = 'layer' | 'doc' | 'project';
@@ -221,6 +222,53 @@ export function bindPanels(app: App): { refresh: () => void } {
   bindRange(ui.pDamp, ui.pDampO, { target: 'layer', keys: ['physics'], label: 'おさまり', toPatch: v => physPatch('damping', v), fmt: pct });
   // 「重さ」はプリセットに含まれないので、変えてもカスタムにはしない
   bindRange(ui.pWeight, ui.pWeightO, { target: 'layer', keys: ['physics'], label: '重さ', toPatch: v => physPatch('weight', v, false), fmt: pct });
+
+  /* ---------- 膨らんだ瞬間のエフェクト ---------- */
+
+  /** エフェクトの1項目だけを、選んでいるレイヤーそれぞれの値に書く */
+  const fxPatch = <K extends keyof LayerEffect>(k: K, v: LayerEffect[K]): LayerPatch => l => ({ effect: { ...l.effect, [k]: v } });
+  ui.pFx.addEventListener('change', () => exec('layer', 'エフェクト', fxPatch('enabled', ui.pFx.checked)));
+  ui.pFxRing.addEventListener('change', () => exec('layer', 'エフェクトの波紋', fxPatch('ring', ui.pFxRing.checked)));
+  ui.pFxTiming.replaceChildren(...(Object.keys(EFFECT_TIMINGS) as EffectTiming[]).map(k => new Option(EFFECT_TIMINGS[k].label, k)));
+  ui.pFxColor.replaceChildren(...(Object.keys(EFFECT_COLORS) as EffectColor[]).map(k => new Option(EFFECT_COLORS[k].label, k)));
+  ui.pFxBlend.replaceChildren(...(Object.keys(EFFECT_BLENDS) as EffectBlend[]).map(k => new Option(EFFECT_BLENDS[k].label, k)));
+  ui.pFxTiming.addEventListener('change', () => { if (ui.pFxTiming.value) exec('layer', 'エフェクトのタイミング', fxPatch('timing', ui.pFxTiming.value as EffectTiming)); });
+  ui.pFxColor.addEventListener('change', () => { if (ui.pFxColor.value) exec('layer', 'エフェクトの色', fxPatch('color', ui.pFxColor.value as EffectColor)); });
+  ui.pFxBlend.addEventListener('change', () => { if (ui.pFxBlend.value) exec('layer', 'エフェクトの重ね方', fxPatch('blend', ui.pFxBlend.value as EffectBlend)); });
+  // 色を選ぶと「指定の色」にする
+  bindLive(ui.pFxCustom, {
+    begin: () => snapshot('layer', ['effect']),
+    input: v => patchNow('layer', (l: Layer) => ({ effect: { ...l.effect, customColor: v, color: 'custom' } })),
+    commit: before => record('layer', 'エフェクトの色', before, snapshot('layer', ['effect'])),
+  });
+  bindRange(ui.pFxOpacity, ui.pFxOpacityO, { target: 'layer', keys: ['effect'], label: 'エフェクトの濃さ', toPatch: v => fxPatch('opacity', v / 100), fmt: v => `${v}%` });
+  bindRange(ui.pFxSpread, ui.pFxSpreadO, { target: 'layer', keys: ['effect'], label: 'エフェクトの広がり', toPatch: v => fxPatch('spread', v / 100), fmt: v => `+${v}%` });
+  bindRange(ui.pFxDur, ui.pFxDurO, { target: 'layer', keys: ['effect'], label: 'エフェクトの時間', toPatch: v => fxPatch('duration', v / 100), fmt: v => `${(v / 100).toFixed(2)}秒` });
+
+  function refreshEffect(l: Layer, ls: readonly Layer[]): void {
+    const fx = l.effect, on = same(ls, x => x.effect.enabled);
+    ui.pFx.checked = on && fx.enabled; ui.pFx.indeterminate = !on;
+    // 押し出す動きの無い揺らし方では出ないので、欄ごと止める(選んだレイヤーのどれかで出るなら触れる)
+    const usable = ls.some(x => hasPush(x.physics.motion));
+    ui.pFxNote.hidden = usable;
+    ui.pFxNote.textContent = ls.length > 1 ? '選んだレイヤーの揺らし方では出ません。' : `揺らし方「${MOTIONS[l.physics.motion].label}」では出ません。`;
+    ui.pFxBody.hidden = !ls.some(x => x.effect.enabled);
+    for (const el of [ui.pFx, ui.pFxRing, ui.pFxTiming, ui.pFxOpacity, ui.pFxSpread, ui.pFxDur, ui.pFxColor, ui.pFxCustom, ui.pFxBlend]) el.disabled = !usable;
+    const ring = same(ls, x => x.effect.ring);
+    ui.pFxRing.checked = ring && fx.ring; ui.pFxRing.indeterminate = !ring;
+    setSelect(ui.pFxTiming, !same(ls, x => x.effect.timing), fx.timing);
+    setSelect(ui.pFxColor, !same(ls, x => x.effect.color), fx.color);
+    setSelect(ui.pFxBlend, !same(ls, x => x.effect.blend), fx.blend);
+    if (document.activeElement !== ui.pFxCustom) ui.pFxCustom.value = fx.customColor;
+    const num = (el: HTMLInputElement, out: HTMLElement, k: 'opacity' | 'spread' | 'duration', fmt: (v: number) => string) => {
+      const all = same(ls, x => x.effect[k]);
+      setRange(el, null, Math.round(fx[k] * 100));
+      setOut(out, all ? fmt(Math.round(fx[k] * 100)) : MIXED, !all);
+    };
+    num(ui.pFxOpacity, ui.pFxOpacityO, 'opacity', v => `${v}%`);
+    num(ui.pFxSpread, ui.pFxSpreadO, 'spread', v => `+${v}%`);
+    num(ui.pFxDur, ui.pFxDurO, 'duration', v => `${(v / 100).toFixed(2)}秒`);
+  }
 
   /* ---------- 画像・カメラ・自動揺らし ---------- */
 
@@ -599,6 +647,7 @@ export function bindPanels(app: App): { refresh: () => void } {
         setOut(out, all ? pct(l.physics[k] * 100) : MIXED, !all);
       };
       mat(ui.pHard, ui.pHardO, 'hardness'); mat(ui.pMass, ui.pMassO, 'mass'); mat(ui.pWeight, ui.pWeightO, 'weight'); mat(ui.pDamp, ui.pDampO, 'damping');
+      refreshEffect(l, ls);
     }
     if (d) {
       setRange(ui.pDensity, ui.pDensityO, d.meshDensity, `${d.meshDensity}`);

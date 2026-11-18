@@ -1,6 +1,6 @@
 {
   "name": "pukupop-player",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "PukuPop の .pukupop ファイルを、ほかの Web アプリの <canvas> に揺れたまま描く再生専用の部品",
   "license": "MIT",
