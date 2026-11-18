@@ -25,6 +25,7 @@ export const MOBILE_SLOTS: readonly { slot: string; tab: Tab; prepend?: boolean 
   { slot: 'layers', tab: 'layer', prepend: true },
   { slot: 'layerProps', tab: 'layer' },
   { slot: 'swing', tab: 'layer' },
+  { slot: 'effect', tab: 'layer' },
   { slot: 'favorites', tab: 'anim' },
   { slot: 'autoSwing', tab: 'anim' },
   { slot: 'anim', tab: 'anim' },

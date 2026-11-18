@@ -18,6 +18,7 @@
  */
 import type { Layer, PhysicsParams, AutoSwing, Vec3 } from '../model/project';
 import { motionAnchor, motionSpread, pistonOffset, pistonReach } from './motion';
+import { freshEffect, copyEffect, stepEffect, type Burst, type EffectState } from './effect';
 
 export const PHYSICS_DT = 1 / 120;
 const MAX_DISPLACEMENT = 1.2;
@@ -50,7 +51,7 @@ export interface ViewAngles { yaw: number; pitch: number; roll: number; zoom: nu
 export interface ViewPoint { target: Vec3; view: ViewAngles }
 /** 1刻み前のカメラの位置と向き(正規化座標)と、レイヤーごとのならした速度(カメラから見た向き) */
 interface BaseState { pose: Pose; vel: [string, Vec3][] }
-export interface WorldSnapshot { time: number; acc: number; states: [string, SpringState][]; base?: BaseState | null }
+export interface WorldSnapshot { time: number; acc: number; states: [string, SpringState][]; base?: BaseState | null; effects?: [string, EffectState][] }
 
 export class PhysicsWorld {
   /** 物理の経過時間(秒)。自動揺らしの位相に使う。 */
@@ -83,6 +84,8 @@ export class PhysicsWorld {
   unitPx = 1;
 
   private states = new Map<string, SpringState>();
+  /** 膨らんだ瞬間のエフェクト(レイヤーごと、effect.ts)。エフェクトを切ったレイヤーは持たない */
+  private effects = new Map<string, EffectState>();
   private acc = 0;
   private anchor = v3();
   private anchorPrev = v3();
@@ -102,7 +105,10 @@ export class PhysicsWorld {
   /** 塗った範囲の広がり(中心からの距離に対する割合。広げる揺らし方は motion.ts の SPREAD_MOTIONS) */
   spread(layerId: string): number { return this.states.get(layerId)?.r ?? 0; }
 
-  reset(): void { this.states.clear(); this.acc = 0; this.base = null; }
+  /** レイヤーの、今出ているエフェクト(古い順) */
+  bursts(layerId: string): readonly Burst[] { return this.effects.get(layerId)?.bursts ?? NO_BURSTS; }
+
+  reset(): void { this.states.clear(); this.effects.clear(); this.acc = 0; this.base = null; }
 
   /** 視点が飛んだ(視点のリセットなど)ことを知らせる。その動きでは揺らさない */
   cutView(): void { this.base = null; }
@@ -150,7 +156,7 @@ export class PhysicsWorld {
     const pax = (g2.x - 2 * g1.x + g0.x) / (dt * dt), pay = (g2.y - 2 * g1.y + g0.y) / (dt * dt), paz = (g2.z - 2 * g1.z + g0.z) / (dt * dt);
     for (const layer of layers) {
       const st = this.state(layer.id);
-      if (!layer.physics.enabled || !layer.visible) { zero(st.s); zero(st.v); st.r = st.rv = 0; view?.vel.delete(layer.id); continue; }
+      if (!layer.physics.enabled || !layer.visible) { zero(st.s); zero(st.v); st.r = st.rv = 0; view?.vel.delete(layer.id); this.effects.delete(layer.id); continue; }
       const drive = this.viewAccel(layer, view, dt);
       drive.x += pax; drive.y += pay; drive.z += paz;
       const { k, m, c, g } = coefficients(layer.physics);
@@ -185,7 +191,14 @@ export class PhysicsWorld {
         st.rv += ((-k * (st.r - rb) - c * (st.rv - (rb - rbp) / dt)) / m) * dt;
         st.r = Math.max(SPREAD_MIN, Math.min(SPREAD_MAX, st.r + st.rv * dt));
       }
+      // 膨らんだ瞬間のエフェクト
+      if (layer.effect?.enabled) {
+        let fx = this.effects.get(layer.id);
+        if (!fx) this.effects.set(layer.id, (fx = freshEffect()));
+        stepEffect(fx, layer, auto, this.time, this.time + dt, st.s, st.r, layer.pop / this.unitPx);
+      } else this.effects.delete(layer.id);
     }
+    for (const id of this.effects.keys()) if (!layers.some(l => l.id === id)) this.effects.delete(id);
     // 消したレイヤーの速度は捨てる
     if (view) for (const id of view.vel.keys()) if (!layers.some(l => l.id === id)) view.vel.delete(id);
     this.time += dt;
@@ -250,6 +263,7 @@ export class PhysicsWorld {
       time: this.time, acc: this.acc,
       states: [...this.states].map(([id, s]) => [id, { s: { ...s.s }, v: { ...s.v }, r: s.r, rv: s.rv }]),
       base: b ? { pose: copyPose(b.pose), vel: [...b.vel].map(([id, v]) => [id, { ...v }]) } : null,
+      effects: [...this.effects].map(([id, e]) => [id, copyEffect(e)]),
     };
   }
 
@@ -258,8 +272,11 @@ export class PhysicsWorld {
     this.states = new Map(snap.states.map(([id, s]) => [id, { s: { ...s.s }, v: { ...s.v }, r: s.r ?? 0, rv: s.rv ?? 0 }]));
     const b = snap.base;
     this.base = b ? { pose: copyPose(b.pose), vel: new Map(b.vel.map(([id, v]) => [id, { ...v }])) } : null;
+    this.effects = new Map((snap.effects ?? []).map(([id, e]) => [id, copyEffect(e)]));
   }
 }
+
+const NO_BURSTS: readonly Burst[] = [];
 
 function zero(v: Vec3): void { v.x = v.y = v.z = 0; }
 const sameVec = (a: Vec3, b: Vec3) => a.x === b.x && a.y === b.y && a.z === b.z;

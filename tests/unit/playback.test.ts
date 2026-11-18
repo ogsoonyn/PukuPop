@@ -5,7 +5,7 @@ import { takeFromKeys, type Take } from '../../src/physics/take';
 import type { RecordSample } from '../../src/physics/recorder';
 import { StageSwing, BASE_EASE, type PlaybackScene } from '../../src/playback/stageSwing';
 import { LoopPlayback, sameView } from '../../src/playback/loopPlayback';
-import type { PlaybackStage } from '../../src/playback/stageApi';
+import type { PlaybackEffect, PlaybackStage } from '../../src/playback/stageApi';
 import { preparePhysics, feedView, advanceSwing } from '../../src/playback/frame';
 
 /** Stage の偽物。再生のつなぎが呼んだものを控える(three.js を import しない) */
@@ -17,6 +17,7 @@ function fakeStage() {
     reach: [] as number[],
     rig: [] as ([CameraState, CameraState] | null)[],
     camera: [] as CameraState[],
+    effects: [] as PlaybackEffect[][],
   };
   const stage: PlaybackStage = {
     setSwing: (i, s, visible) => { calls.swing.set(i, { s: { ...s }, visible }); },
@@ -25,6 +26,7 @@ function fakeStage() {
     setBaseReach: px => { calls.reach.push(px); },
     setRig: (from, to) => { calls.rig.push(from && to ? [structuredClone(from), structuredClone(to)] : null); },
     applyCamera: c => { calls.camera.push(structuredClone(c)); },
+    setEffects: list => { calls.effects.push(structuredClone([...list])); },
   };
   return { stage, calls };
 }
