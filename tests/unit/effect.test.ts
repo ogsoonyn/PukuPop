@@ -80,8 +80,8 @@ describe('膨らんだ瞬間のエフェクトを出す時刻', () => {
   }
 
   it('手で揺らしたとき(自動揺らしを切っていても)、勢いよく切り返した所で出し、小さな揺れでは出さない', () => {
-    const run = (amp: number) => {
-      const doc = docWith('sway'), w = worldFor(); w.autoSwing.enabled = false;
+    const run = (amp: number, motion: MotionPattern = 'sway') => {
+      const doc = docWith(motion), w = worldFor(); w.autoSwing.enabled = false;
       const id = doc.layers[0].id, seen = new Set<number>();
       let d: unknown;
       for (let i = 0; i < 240; i++) {
@@ -95,6 +95,9 @@ describe('膨らんだ瞬間のエフェクトを出す時刻', () => {
     expect(big.n).toBeGreaterThan(0);
     expect(big.d).toMatchObject({ y: 0, z: 0 });
     expect(run(0.002).n).toBe(0);
+    // 上下左右は弱い揺れでは出さないが、前に突き出る揺らし方は弱い揺れでも出す
+    expect(run(0.08).n).toBe(0);
+    expect(run(0.08, 'pulse').n).toBeGreaterThan(0);
   });
 
   it('残像は少し前の形を覚え、止まっている間は描かない', () => {

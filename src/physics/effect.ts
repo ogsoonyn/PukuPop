@@ -33,7 +33,9 @@ export interface TrailSample { t: number; s: Vec3; r: number }
 /** 残像のために覚えておく長さ(秒) */
 export const TRAIL_KEEP = 0.6;
 /** 切り返しとみなす速さの下限(正規化座標/秒)。これより遅い向きの変わり目では出さない */
-const TURN_SPEED = 0.02;
+const TURN_SPEED = 0.2;
+/** 上下左右のエフェクト(切り返し・着地)を続けて出さない間(秒) */
+const TURN_GAP = 0.5;
 
 export interface EffectState {
   /** 受け付けを始めた時刻。受け付けていないときは -Infinity */
@@ -149,7 +151,7 @@ function stepTurn(e: EffectState, turns: readonly { u: number; axis: 'x' | 'y'; 
     for (const p of turns) if (crossed(u0, u1, p.u)) { e.win = t1; e.fired = false; e.dir = p.dir; e.armAt = 0; }
     // armAt に、受け付けてから受け付けた向きに一番速かった速さを持つ(ゆっくりした向きの変わり目では出さない)
     if (!e.fired && e.armAt !== null) e.armAt = Math.max(e.armAt, v * e.dir);
-    if (!e.fired && t1 - e.win < len && (e.armAt ?? 0) > TURN_SPEED && e.prevV * e.dir > 0 && v * e.dir <= 0) {
+    if (!e.fired && t1 - e.win < len && (e.armAt ?? 0) > TURN_SPEED && e.prevV * e.dir > 0 && v * e.dir <= 0 && t1 - (e.bursts.at(-1)?.t ?? -Infinity) > TURN_GAP) {
       e.fired = true;
       e.bursts.push({ t: t1, s: { ...s }, r, d: axis === 'x' ? { x: e.dir, y: 0, z: 0 } : { x: 0, y: e.dir, z: 0 } });
       if (e.bursts.length > MAX_BURSTS) e.bursts.shift();
@@ -161,8 +163,11 @@ function stepTurn(e: EffectState, turns: readonly { u: number; axis: 'x' | 'y'; 
 /** 手で揺らしたあと、これだけの間(秒)は揺れの勢いで出す */
 const HAND_KEEP = 1.5;
 /** 手で揺らしたときに出す速さの下限(正規化座標/秒)と、続けて出さない間(秒) */
-const HAND_SPEED = 0.35;
-const HAND_GAP = 0.25;
+const HAND_SPEED = 1.5;
+const HAND_GAP = 0.7;
+/** 膨らむ揺らし方(前に突き出る)は弱い揺れでも出す */
+const HAND_PUSH_SPEED = 0.15;
+const HAND_PUSH_GAP = 0.35;
 
 /**
  * 手で揺らしたとき(つかむ・視点を動かす。実験)。自動揺らしの時刻が無いので、揺れの結果だけで決める:
@@ -179,10 +184,11 @@ function stepHand(e: EffectState, motion: MotionPattern, auto: AutoSwing, t0: nu
   if (Math.hypot(v.x, v.y) > Math.hypot(e.hpk.x, e.hpk.y)) e.hpk = { ...v };
   const pk = Math.hypot(e.hpk.x, e.hpk.y);
   // 一番速かった向きへの速さが 0 以下になったら切り返し
-  if (pk > HAND_SPEED && v.x * e.hpk.x + v.y * e.hpk.y <= 0 && t1 - e.handFire > HAND_GAP && t1 - (e.bursts.at(-1)?.t ?? -Infinity) > HAND_GAP) {
+  const push = PUSH_MOTIONS(motion), min = push ? HAND_PUSH_SPEED : HAND_SPEED, gap = push ? HAND_PUSH_GAP : HAND_GAP;
+  if (pk > min && v.x * e.hpk.x + v.y * e.hpk.y <= 0 && t1 - e.handFire > gap && t1 - (e.bursts.at(-1)?.t ?? -Infinity) > gap) {
     const side = Math.abs(e.hpk.x) >= Math.abs(e.hpk.y);
-    // 膨らむ揺らし方は今までと同じく手前へ広げ、そのほかは動いていた向きへ飛び出す
-    const d = PUSH_MOTIONS(motion) ? undefined : side ? { x: Math.sign(e.hpk.x), y: 0, z: 0 } : { x: 0, y: Math.sign(e.hpk.y), z: 0 };
+    // 膨らむ揺らし方は今までと同じく手前へ広げ、そのほかは揺れた向きの側だけを広げる
+    const d = push ? undefined : side ? { x: Math.sign(e.hpk.x), y: 0, z: 0 } : { x: 0, y: Math.sign(e.hpk.y), z: 0 };
     e.bursts.push({ t: t1, s: { ...s }, r, d });
     if (e.bursts.length > MAX_BURSTS) e.bursts.shift();
     e.handFire = t1; e.hpk = { x: 0, y: 0 };
