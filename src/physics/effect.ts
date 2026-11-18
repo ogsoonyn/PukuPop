@@ -15,7 +15,7 @@
  * 自動揺らしの時刻だけで決まるので、記録の再生・書き出し・Player でも同じ所で出る。
  */
 import type { AutoSwing, Layer, MotionPattern, Vec3 } from '../model/project';
-import { motionAnchor, motionPushes, motionSpread } from './motion';
+import { motionAnchor, motionPushes, motionSpread, motionTurns } from './motion';
 
 /** 押し出す時刻から受け付ける長さの下限(秒)。周期の半分の方が長ければそちら */
 export const EFFECT_WINDOW = 0.4;
@@ -26,8 +26,14 @@ const LOOK = 24;
 /** 土台がこの割合まで膨らんだら構える */
 const ARM = 0.25;
 
-/** 出したエフェクト1つ。t は出した物理の時刻、s と r はそのときのずれ(正規化座標)と広がり */
-export interface Burst { t: number; s: Vec3; r: number }
+/** 出したエフェクト1つ。t は出した物理の時刻、s と r はそのときのずれ(正規化座標)と広がり。d は広がりながら流れる向き(切り返しのとき) */
+export interface Burst { t: number; s: Vec3; r: number; d?: Vec3 }
+/** 残像のための、少し前の形(実験) */
+export interface TrailSample { t: number; s: Vec3; r: number }
+/** 残像のために覚えておく長さ(秒) */
+export const TRAIL_KEEP = 0.6;
+/** 切り返しとみなす速さの下限(正規化座標/秒)。これより遅い向きの変わり目では出さない */
+const TURN_SPEED = 0.02;
 
 export interface EffectState {
   /** 受け付けを始めた時刻。受け付けていないときは -Infinity */
@@ -40,14 +46,22 @@ export interface EffectState {
   prevI: number;
   prevV: number;
   bursts: Burst[];
+  /** 切り返しで受け付けている向き(実験)。0 なら膨らみで受け付けている */
+  dir: number;
+  /** 残像のための少し前の形(実験、出し方が残像のときだけ) */
+  hist: TrailSample[];
 }
 
 export function freshEffect(): EffectState {
-  return { win: -Infinity, fired: true, armAt: null, prevI: NaN, prevV: 0, bursts: [] };
+  return { win: -Infinity, fired: true, armAt: null, prevI: NaN, prevV: 0, bursts: [], dir: 0, hist: [] };
 }
 
 export function copyEffect(e: EffectState): EffectState {
-  return { ...e, bursts: e.bursts.map(b => ({ t: b.t, s: { ...b.s }, r: b.r })) };
+  return {
+    ...e,
+    bursts: e.bursts.map(b => ({ t: b.t, s: { ...b.s }, r: b.r, ...(b.d ? { d: { ...b.d } } : {}) })),
+    hist: e.hist.map(h => ({ t: h.t, s: { ...h.s }, r: h.r })),
+  };
 }
 
 /** [u0, u1) の中に位相 p があるか(周期で一周するのも含む) */
@@ -77,6 +91,16 @@ export function stepEffect(e: EffectState, layer: Layer, auto: AutoSwing, t0: nu
   const fx = layer.effect, motion = layer.physics.motion;
   // 消えるまでの時間を過ぎたものを捨てる
   if (e.bursts.length) e.bursts = e.bursts.filter(b => t1 - b.t < fx.duration);
+  if (fx.style === 'trail') {
+    // 残像: 少し前の形を覚えておくだけ(描き方は playback/stageSwing.ts)
+    e.hist.push({ t: t1, s: { ...s }, r });
+    while (e.hist.length && t1 - e.hist[0].t > TRAIL_KEEP) e.hist.shift();
+    e.prevI = NaN;
+    return;
+  }
+  if (e.hist.length) e.hist = [];
+  const turns = motionTurns(motion, layer.physics.motionParams);
+  if (turns.length) { stepTurn(e, turns, auto, t0, t1, s, r); return; }
   const I = inflation(motion, s, r, pop);
   const v = Number.isNaN(e.prevI) ? 0 : (I - e.prevI) / Math.max(t1 - t0, 1e-6);
   if (auto.enabled && auto.strength > 0) {
@@ -98,6 +122,28 @@ export function stepEffect(e: EffectState, layer: Layer, auto: AutoSwing, t0: nu
         e.bursts.push({ t: t1, s: { ...s }, r });
         if (e.bursts.length > MAX_BURSTS) e.bursts.shift();
       }
+    }
+  }
+  e.prevI = I; e.prevV = v;
+}
+
+/**
+ * 切り返し・着地(実験)。土台が端まで行った・着地した時刻(motionTurns)から受け付け、塗った部分の速さの向きが
+ * 受け付けた向きから逆に変わった最初の1回だけ出す。左右の切り返しは、それまで動いていた向きへ少し流しながら広げる
+ */
+function stepTurn(e: EffectState, turns: readonly { u: number; axis: 'x' | 'y'; dir: 1 | -1 }[], auto: AutoSwing, t0: number, t1: number, s: Vec3, r: number): void {
+  const axis = turns[0].axis, I = s[axis];
+  const v = Number.isNaN(e.prevI) ? 0 : (I - e.prevI) / Math.max(t1 - t0, 1e-6);
+  if (auto.enabled && auto.strength > 0) {
+    const T = Math.max(0.05, auto.period), frac = (t: number) => (((t / T) % 1) + 1) % 1, len = effectWindow(T);
+    const u0 = frac(t0), u1 = frac(t1);
+    for (const p of turns) if (crossed(u0, u1, p.u)) { e.win = t1; e.fired = false; e.dir = p.dir; e.armAt = 0; }
+    // armAt に、受け付けてから受け付けた向きに一番速かった速さを持つ(ゆっくりした向きの変わり目では出さない)
+    if (!e.fired && e.armAt !== null) e.armAt = Math.max(e.armAt, v * e.dir);
+    if (!e.fired && t1 - e.win < len && (e.armAt ?? 0) > TURN_SPEED && e.prevV * e.dir > 0 && v * e.dir <= 0) {
+      e.fired = true;
+      e.bursts.push({ t: t1, s: { ...s }, r, d: axis === 'x' ? { x: e.dir, y: 0, z: 0 } : undefined });
+      if (e.bursts.length > MAX_BURSTS) e.bursts.shift();
     }
   }
   e.prevI = I; e.prevV = v;

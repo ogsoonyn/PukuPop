@@ -8,6 +8,8 @@ import type { PhysicsWorld } from '../physics/world';
 import type { PlaybackEffect, PlaybackStage } from './stageApi';
 
 const easeOut = (t: number) => 1 - (1 - t) ** 3;
+/** 残像の数(実験) */
+const TRAIL_COPIES = 4;
 
 /** '#rrggbb' を 0〜1 の3つの数にする(読み込みで形を確かめてある) */
 function hexRgb(hex: string): [number, number, number] {
@@ -86,8 +88,8 @@ export class StageSwing {
     doc.layers.forEach((l, i) => {
       const fx = l.effect;
       if (!fx?.enabled || !l.visible || !l.physics.enabled) return;
-      const bursts = world.bursts(l.id);
-      if (!bursts.length) return;
+      const bursts = world.bursts(l.id), hist = fx.style === 'trail' ? world.trail(l.id) : [];
+      if (!bursts.length && hist.length < 2) return;
       const center = this.layerCenter(doc, l);
       const tint: [number, number, number] = fx.color === 'custom' ? hexRgb(fx.customColor) : [1, 1, 1];
       const tintMix = fx.color === 'white' ? 0.65 : fx.color === 'custom' ? 0.6 : 0;
@@ -95,10 +97,30 @@ export class StageSwing {
         const age = (world.time - b.t) / fx.duration;
         if (age < 0 || age >= 1) continue;
         const env = effectEnvelope(age, fx.opacity, fx.spread);
+        // 切り返しは、それまで動いていた向きへ少し流しながら広げる(実験)
+        const drift = b.d ? fx.spread * 0.3 * easeOut(age) : 0, dx = (b.d?.x ?? 0) * drift, dy = (b.d?.y ?? 0) * drift;
         out.push({
-          t: b.t, index: i, swing: { x: b.s.x * k, y: b.s.y * k, z: b.s.z * k }, spread: b.r, center,
+          t: b.t, index: i, swing: { x: (b.s.x + dx) * k, y: (b.s.y + dy) * k, z: b.s.z * k }, spread: b.r, center,
           scale: env.scale, lift: env.lift * l.pop, alpha: env.alpha, ring: fx.ring, tint, tintMix, additive: fx.blend === 'add',
         });
+      }
+      if (hist.length >= 2) {
+        // 残像(実験): 消えるまでの時間を TRAIL_COPIES 等分した少し前の形を、古いほど薄く重ねる。止まっている間は出さない
+        const now = hist[hist.length - 1];
+        for (let c = TRAIL_COPIES; c >= 1; c--) {
+          const tt = now.t - (fx.duration * 0.5 * c) / TRAIL_COPIES;
+          let h = hist[0];
+          for (const x of hist) { if (x.t > tt) break; h = x; }
+          if (h.t > tt + 1 / 60) continue; // まだ覚えていない
+          const dist = Math.hypot(h.s.x - now.s.x, h.s.y - now.s.y, h.s.z - now.s.z);
+          const speed = Math.min(1, dist / (0.04 * (0.3 + fx.spread)));
+          const alpha = fx.opacity * 0.8 * (1 - (c - 1) / TRAIL_COPIES) * speed;
+          if (alpha < 0.01) continue;
+          out.push({
+            t: h.t, index: i, swing: { x: h.s.x * k, y: h.s.y * k, z: h.s.z * k }, spread: h.r, center,
+            scale: 1, lift: 0, alpha, ring: false, tint, tintMix, additive: fx.blend === 'add',
+          });
+        }
       }
     });
     // レイヤーをまたいで古いものから重ね、多すぎるときは新しいものを残す

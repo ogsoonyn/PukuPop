@@ -178,3 +178,24 @@ export function motionPushes(pattern: MotionPattern, params?: Record<string, num
   }
 }
 
+
+/** 左右・上下の揺らし方の切り返し・着地(実験)。u から受け付け、塗った部分の axis の速さの向きが dir から逆に変わった所で出す */
+export interface MotionTurn { u: number; axis: 'x' | 'y'; dir: 1 | -1 }
+
+/**
+ * 切り返し・着地の時刻(周期に対する割合)。土台が端まで行った・着地した所。塗った部分は遅れて付いてくるので、そこから先に向きが変わる所を探す。
+ * 空でない揺らし方は model の EFFECT_MOTIONS に入れる
+ */
+export function motionTurns(pattern: MotionPattern, params?: Record<string, number>): MotionTurn[] {
+  const P = (key: string) => motionParam(params, pattern, key);
+  const wrap = (u: number) => ((u % 1) + 1) % 1;
+  switch (pattern) {
+    // 塗った部分がほとんど遅れずに付いてくるときも向きが変わる前から受け付けるよう、土台が端に着く少し前から受け付ける
+    case 'sway': return [{ u: 0.15, axis: 'x', dir: 1 }, { u: 0.65, axis: 'x', dir: -1 }];
+    case 'shake': { const w = P('width') / 4; return [{ u: 0.25 - w, axis: 'x', dir: 1 }, { u: 0.75 - w, axis: 'x', dir: -1 }]; }
+    case 'jump': return [{ u: wrap(0.1 + Math.min(P('air'), 0.86)), axis: 'y', dir: -1 }];
+    case 'bounce': return [{ u: wrap(0.98 - P('ground') / 2), axis: 'y', dir: -1 }];
+    case 'jiggle': { const w = P('width'); return [{ u: wrap(0.1 + w * 0.75), axis: 'y', dir: -1 }, { u: wrap(0.55 + w * 0.75), axis: 'y', dir: 1 }]; }
+    default: return [];
+  }
+}

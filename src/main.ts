@@ -137,9 +137,14 @@ fileProject.addEventListener('change', () => { const f = fileProject.files?.[0];
 
 const IMAGE_ACCEPT = { 'image/*': ['.png', '.jpg', '.jpeg', '.webp'] };
 
+function inCrossOriginFrame(): boolean {
+  try { return window.top !== window.self && !window.top?.location.href; } catch { return true; }
+}
+
 /** Chrome 系はファイルの場所(ハンドル)ごと受け取る。最近開いたファイルから開き直すのに使う */
 async function pickAndOpen(types: FilePickerAcceptType[], fallback: HTMLInputElement): Promise<void> {
-  if (window.showOpenFilePicker) {
+  // 別のオリジンの枠の中(ほかのページに載せたとき)ではファイルの場所を受け取る画面を出せないので、ふつうのファイルの選択にする
+  if (window.showOpenFilePicker && !inCrossOriginFrame()) {
     try {
       const r = await retryWithClick(() => window.showOpenFilePicker!({ types }), 'ファイルを選ぶ…');
       if (!r) return;

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { PhysicsWorld, PHYSICS_DT } from '../../src/physics/world';
 import { effectWindow } from '../../src/physics/effect';
-import { motionPushes } from '../../src/physics/motion';
+import { motionPushes, motionTurns } from '../../src/physics/motion';
 import { createDocument, MOTIONS, EFFECT_MOTIONS, MAX_EFFECT_DRAWS, type Document, type MotionPattern } from '../../src/model/project';
 import { StageSwing, effectEnvelope } from '../../src/playback/stageSwing';
 import type { PlaybackEffect, PlaybackStage } from '../../src/playback/stageApi';
@@ -39,8 +39,7 @@ function fires(w: PhysicsWorld, doc: Document, seconds: number): number[] {
 
 describe('膨らんだ瞬間のエフェクトを出す時刻', () => {
   it('押し出す時刻のある揺らし方だけで使える(画面が見る EFFECT_MOTIONS と揃っている)', () => {
-    for (const m of Object.keys(MOTIONS) as MotionPattern[]) expect(motionPushes(m).length > 0).toBe(EFFECT_MOTIONS.has(m));
-    expect([...EFFECT_MOTIONS].sort()).toEqual(['charge', 'charge2', 'heartbeat', 'puff', 'pulse']);
+    for (const m of Object.keys(MOTIONS) as MotionPattern[]) expect(motionPushes(m).length + motionTurns(m).length > 0).toBe(EFFECT_MOTIONS.has(m));
     expect(motionPushes('charge', { 'charge.time': 0.7 })).toEqual([0.7]);
   });
 
@@ -69,6 +68,24 @@ describe('膨らんだ瞬間のエフェクトを出す時刻', () => {
     }
   }
 
+  // 左右・上下の切り返し・着地(実験)
+  for (const [motion, perCycle] of [['sway', 2], ['shake', 2], ['jump', 1], ['bounce', 1], ['jiggle', 2]] as [MotionPattern, number][]) {
+    it(`${motion} は切り返し・着地1回につき1回だけ、毎周期同じ位置で出る`, () => {
+      const T = 1.2, n = 6, ts = fires(worldFor(T), docWith(motion), T * n);
+      const later = ts.filter(t => t >= T * 2);
+      expect(later.length).toBe((n - 2) * perCycle);
+      const phases = later.map(t => (t / T) % 1);
+      for (let i = perCycle; i < phases.length; i++) expect(Math.abs(phases[i] - phases[i - perCycle]) * T).toBeLessThan(0.02);
+    });
+  }
+
+  it('残像は少し前の形を覚え、止まっている間は描かない', () => {
+    const doc = docWith('sway'); doc.layers[0].effect.style = 'trail';
+    const w = worldFor();
+    expect(fires(w, doc, 2.4)).toEqual([]);
+    expect(w.trail(doc.layers[0].id).length).toBeGreaterThan(10);
+  });
+
   it('鼓動の拍の間隔が短く2拍の膨らみがつながるときも、毎周期同じ数・同じ位置で出る', () => {
     for (const timing of ['burst', 'peak'] as const) {
       const T = 1.2, ts = fires(worldFor(T), docWith('heartbeat', timing, { 'heartbeat.gap': 0.08 }), T * 6);
@@ -88,7 +105,7 @@ describe('膨らんだ瞬間のエフェクトを出す時刻', () => {
     expect(fires(worldFor(), off, 3)).toEqual([]);
     const w = worldFor(); w.autoSwing.enabled = false;
     expect(fires(w, docWith('pulse'), 3)).toEqual([]);
-    expect(fires(worldFor(), docWith('sway'), 3)).toEqual([]);
+    expect(fires(worldFor(), docWith('float'), 3)).toEqual([]);
   });
 
   it('消えるまでの時間を過ぎると消え、控えから戻すと同じように出る', () => {

@@ -202,7 +202,14 @@ export interface LayerEffect {
   color: EffectColor;
   customColor: string;
   blend: EffectBlend;
+  /** 出し方(実験): spread = 膨らんだ瞬間・切り返し・着地で広がる、trail = 動いた跡に残像を残す */
+  style: EffectStyle;
 }
+export type EffectStyle = 'spread' | 'trail';
+export const EFFECT_STYLES: Record<EffectStyle, { label: string; desc: string }> = {
+  spread: { label: '広がる', desc: '膨らんだ瞬間・切り返し・着地で、その形のコピーが広がって消えます' },
+  trail: { label: '残像', desc: '動いた跡に、少し前の形を薄く残します' },
+};
 export type EffectTiming = 'burst' | 'peak';
 export type EffectColor = 'image' | 'white' | 'custom';
 export type EffectBlend = 'normal' | 'add';
@@ -224,7 +231,9 @@ export const EFFECT_LIMITS = {
 } as const;
 
 /** エフェクトを出せる揺らし方(押し出す時刻がある。時刻は physics/motion.ts の motionPushes) */
-export const EFFECT_MOTIONS: ReadonlySet<MotionPattern> = new Set<MotionPattern>(['heartbeat', 'pulse', 'charge', 'charge2', 'puff']);
+export const EFFECT_MOTIONS: ReadonlySet<MotionPattern> = new Set<MotionPattern>(['heartbeat', 'pulse', 'charge', 'charge2', 'puff', 'sway', 'shake', 'jump', 'bounce', 'jiggle']);
+/** 残像を出せる揺らし方(左右・上下に動くもの) */
+export const TRAIL_MOTIONS: ReadonlySet<MotionPattern> = new Set<MotionPattern>(['sway', 'shake', 'jump', 'bounce', 'jiggle', 'float', 'circle', 'shiver', 'stretch']);
 /** 同時に描くエフェクトの数の上限(全レイヤーの合計。多いときは古いものから描かない) */
 export const MAX_EFFECT_DRAWS = 12;
 
@@ -232,7 +241,7 @@ export function defaultEffect(): LayerEffect {
   return {
     enabled: false, ring: false, timing: 'burst',
     opacity: EFFECT_LIMITS.opacity.def, spread: EFFECT_LIMITS.spread.def, duration: EFFECT_LIMITS.duration.def,
-    color: 'white', customColor: '#ff8ab8', blend: 'normal',
+    color: 'white', customColor: '#ff8ab8', blend: 'normal', style: 'spread',
   };
 }
 

@@ -6,7 +6,8 @@ watchGlErrors();
 test('膨らんだ瞬間のエフェクト: 押し出す揺らし方でだけ使え、自動で揺らすと出て、1手で戻せる', async ({ page }) => {
   await boot(page);
   await openTab(page, 'layer');
-  // 既定(ぷるぷる = 上下に小刻み)では出ないので、欄ごと止まっている
+  // ずんずん(ピストン)では出ないので、欄ごと止まっている
+  await page.selectOption('#pPreset', 'zun');
   await expect(page.locator('#pFx')).toBeDisabled();
   await expect(page.locator('#pFxNote')).toBeVisible();
   await expect(page.locator('#pFxBody')).toBeHidden();
@@ -61,4 +62,24 @@ test('膨らんだ瞬間のエフェクト: 複数のレイヤーで値が違う
   await page.evaluate(() => { const a = (window as any).popstage; a.addLayer(); a.selectAllLayers(); });
   await expect(page.locator('#pFx')).toHaveJSProperty('indeterminate', true);
   await expect(page.locator('#pFxColor option:checked')).toHaveText('混在');
+});
+
+test('左右・上下の揺れのエフェクト(実験): 切り返しで広がり、残像も出せる', async ({ page }) => {
+  await boot(page);
+  await openTab(page, 'layer');
+  await page.selectOption('#pPreset', 'furi'); // ふりふり(左右に素早く振る)
+  await page.locator('#pFx').check();
+  await expect(page.locator('#pFxNote')).toBeHidden();
+  await page.evaluate(() => {
+    const a = (window as any).popstage;
+    a.weightOp('全塗り', (wm: any) => wm.data.fill(255));
+    a.setPaused(false);
+  });
+  await expect.poll(() => page.evaluate(() => (window as any).popstage.stage.effectCount), { timeout: 20_000 }).toBeGreaterThan(0);
+  await page.selectOption('#pFxStyle', 'trail');
+  expect(await page.evaluate(() => (window as any).popstage.activeLayer.effect.style)).toBe('trail');
+  await expect.poll(() => page.evaluate(() => (window as any).popstage.stage.effectCount), { timeout: 20_000 }).toBeGreaterThan(1);
+  // 揺らし方が「どきどき」だと残像は出ない(注意書き)
+  await page.selectOption('#pPreset', 'doki');
+  await expect(page.locator('#pFxNote')).toBeVisible();
 });

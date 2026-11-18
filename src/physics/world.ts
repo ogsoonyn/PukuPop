@@ -18,7 +18,7 @@
  */
 import type { Layer, PhysicsParams, AutoSwing, Vec3 } from '../model/project';
 import { motionAnchor, motionSpread, pistonOffset, pistonReach } from './motion';
-import { freshEffect, copyEffect, stepEffect, type Burst, type EffectState } from './effect';
+import { freshEffect, copyEffect, stepEffect, type Burst, type EffectState, type TrailSample } from './effect';
 
 export const PHYSICS_DT = 1 / 120;
 const MAX_DISPLACEMENT = 1.2;
@@ -107,6 +107,8 @@ export class PhysicsWorld {
 
   /** レイヤーの、今出ているエフェクト(古い順) */
   bursts(layerId: string): readonly Burst[] { return this.effects.get(layerId)?.bursts ?? NO_BURSTS; }
+  /** 残像のための少し前の形(古い順、実験) */
+  trail(layerId: string): readonly TrailSample[] { return this.effects.get(layerId)?.hist ?? NO_TRAIL; }
 
   reset(): void { this.states.clear(); this.effects.clear(); this.acc = 0; this.base = null; }
 
@@ -277,6 +279,7 @@ export class PhysicsWorld {
 }
 
 const NO_BURSTS: readonly Burst[] = [];
+const NO_TRAIL: readonly TrailSample[] = [];
 
 function zero(v: Vec3): void { v.x = v.y = v.z = 0; }
 const sameVec = (a: Vec3, b: Vec3) => a.x === b.x && a.y === b.y && a.z === b.z;

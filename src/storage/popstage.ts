@@ -5,10 +5,10 @@
 import { unzipSync, strToU8, strFromU8 } from 'fflate';
 import { zipParts, concatParts, type ZipEntry } from './zip';
 import {
-  LIMITS, PRESETS, MOTIONS, BLENDS, MOTION_PARAMS, EFFECT_LIMITS, EFFECT_TIMINGS, EFFECT_COLORS, EFFECT_BLENDS, defaultEffect, createProject, createLayer, defaultCamera, defaultMultiCamera, newId, wrapAngle,
+  LIMITS, PRESETS, MOTIONS, BLENDS, MOTION_PARAMS, EFFECT_LIMITS, EFFECT_TIMINGS, EFFECT_COLORS, EFFECT_BLENDS, EFFECT_STYLES, defaultEffect, createProject, createLayer, defaultCamera, defaultMultiCamera, newId, wrapAngle,
   type Project, type CameraState, type Document, type Layer, type PhysicsParams, type PresetName, type MotionPattern, type BlendMode,
   type Favorite, type FavoriteLayer, type AutoSwing,
-  type LayerEffect, type EffectTiming, type EffectColor, type EffectBlend,
+  type LayerEffect, type EffectTiming, type EffectColor, type EffectBlend, type EffectStyle,
 } from '../model/project';
 import { WeightMap, weightSizeFor } from '../model/weightmap';
 import { takeToJson, takeFromJson, normalizeKeys, type Take, type KeyFrame } from '../physics/take';
@@ -272,6 +272,7 @@ function effectFrom(v: unknown): LayerEffect {
     // CSS(色の入力)とシェーダへ入れるので、#rrggbb だけを通す
     customColor: typeof o.customColor === 'string' && /^#[0-9a-f]{6}$/i.test(o.customColor) ? o.customColor.toLowerCase() : d.customColor,
     blend: own(EFFECT_BLENDS, o.blend) ? o.blend as EffectBlend : d.blend,
+    style: own(EFFECT_STYLES, o.style) ? o.style as EffectStyle : d.style,
   };
 }
 
