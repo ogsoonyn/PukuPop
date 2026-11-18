@@ -166,7 +166,7 @@ export function motionSpread(pattern: MotionPattern, t: number, period: number, 
 
 /**
  * 揺らし方が手前・外へ押し出し始める時刻(周期に対する割合、0 以上 1 未満)。膨らんだ瞬間のエフェクト(physics/effect.ts)を出す目安にする。
- * 押し出す時刻の無い揺らし方(左右に振る・漂うなど)は空。鼓動は2拍なので2つ。
+ * 押し出す時刻の無い揺らし方(左右に振る・漂うなど)は空。鼓動は2拍なので2つ。空でない揺らし方は model の EFFECT_MOTIONS と同じ。
  */
 export function motionPushes(pattern: MotionPattern, params?: Record<string, number>): number[] {
   const P = (key: string) => motionParam(params, pattern, key);
@@ -178,5 +178,3 @@ export function motionPushes(pattern: MotionPattern, params?: Record<string, num
   }
 }
 
-/** 膨らんだ瞬間のエフェクトを使える揺らし方か */
-export const hasPush = (pattern: MotionPattern): boolean => motionPushes(pattern).length > 0;

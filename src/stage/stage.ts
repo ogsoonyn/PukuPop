@@ -3,7 +3,7 @@
  * 単位は元画像の 1 ピクセル = 1、画像の中心が原点。
  */
 import * as THREE from 'three';
-import { LAYER_COLORS, meshSegments, type CameraState, type Document, type Layer, type OrthoView, type Vec3 } from '../model/project';
+import { LAYER_COLORS, MAX_EFFECT_DRAWS, meshSegments, type CameraState, type Document, type Layer, type OrthoView, type Vec3 } from '../model/project';
 import type { Rect } from '../model/weightmap';
 import { vertexShader, fragmentShader, effectVertexShader, effectFragmentShader, MAX_LAYERS } from './shaders';
 
@@ -27,8 +27,6 @@ export interface EffectDraw {
   additive: boolean;
 }
 
-/** 同時に描くエフェクトの数の上限(全レイヤーの合計) */
-export const MAX_EFFECT_DRAWS = 16;
 
 export interface ViewOptions {
   /** overlayAll: 重ね表示を全レイヤーにする(overlay が入のときだけ意味を持つ) */
@@ -323,7 +321,8 @@ export class Stage {
   }
 
   /**
-   * 膨らんだ瞬間のエフェクトを置く(描画の前に毎回、揺れを入れた後に呼ぶ)。空で消す。
+   * 膨らんだ瞬間のエフェクトを置く(描画の前に毎回、揺れを入れた後に呼ぶ)。古いものから順に渡す。空で消す。
+   * MAX_EFFECT_DRAWS を超えた分は描かない(呼ぶ側が新しいものを残して渡す)。
    * 主ビューと書き出しに出し、3面図の横の図とポップ一時OFF の間は出さない
    */
   setEffects(list: readonly EffectDraw[]): void {
@@ -341,9 +340,9 @@ export class Stage {
       (fu.uFxCenter.value as THREE.Vector2).set(d.center.x, d.center.y);
       fu.uFxScale.value = d.scale; fu.uFxLift.value = d.lift; fu.uFxAlpha.value = d.alpha; fu.uFxRing.value = d.ring ? 1 : 0;
       (fu.uTint.value as THREE.Vector3).set(d.tint[0], d.tint[1], d.tint[2]); fu.uTintMix.value = d.tintMix;
-      const blending = d.additive ? THREE.AdditiveBlending : THREE.NormalBlending;
-      if (m.material.blending !== blending) { m.material.blending = blending; m.material.needsUpdate = true; }
-      // 古いものから順に重ねる
+      // 重ね方は描くときの GL の状態なので、シェーダを作り直さなくてよい
+      m.material.blending = d.additive ? THREE.AdditiveBlending : THREE.NormalBlending;
+      // 渡された順(古いものから)に重ねる
       m.renderOrder = 100 + i;
     });
     this.fx.visible = n > 0;

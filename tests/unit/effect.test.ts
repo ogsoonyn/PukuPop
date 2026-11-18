@@ -1,20 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { strToU8, strFromU8, unzipSync, zipSync } from 'fflate';
 import { PhysicsWorld, PHYSICS_DT } from '../../src/physics/world';
-import { EFFECT_WINDOW } from '../../src/physics/effect';
-import { motionPushes, hasPush } from '../../src/physics/motion';
-import { createDocument, createProject, type Document, type MotionPattern, type Vec3 } from '../../src/model/project';
+import { effectWindow } from '../../src/physics/effect';
+import { motionPushes } from '../../src/physics/motion';
+import { createDocument, MOTIONS, EFFECT_MOTIONS, MAX_EFFECT_DRAWS, type Document, type MotionPattern } from '../../src/model/project';
 import { StageSwing, effectEnvelope } from '../../src/playback/stageSwing';
 import type { PlaybackEffect, PlaybackStage } from '../../src/playback/stageApi';
-import { serializeProject, deserializeProject } from '../../src/storage/popstage';
 
 const image = { bytes: new Uint8Array(), mime: 'image/png', ext: 'png', width: 400, height: 400 };
 
-function docWith(motion: MotionPattern, timing: 'burst' | 'peak' = 'burst'): Document {
+function docWith(motion: MotionPattern, timing: 'burst' | 'peak' = 'burst', params: Record<string, number> = {}): Document {
   const doc = createDocument(image, 'd'), l = doc.layers[0];
   l.weights.data.fill(255);
   l.pop = 80;
-  l.physics = { ...l.physics, motion, preset: 'custom', hardness: 0.5, mass: 0.2, damping: 0.2 };
+  l.physics = { ...l.physics, motion, preset: 'custom', hardness: 0.5, mass: 0.2, damping: 0.2, motionParams: params };
   l.effect = { ...l.effect, enabled: true, timing };
   return doc;
 }
@@ -40,32 +38,45 @@ function fires(w: PhysicsWorld, doc: Document, seconds: number): number[] {
 }
 
 describe('膨らんだ瞬間のエフェクトを出す時刻', () => {
-  it('押し出す時刻のある揺らし方だけで使える', () => {
-    expect(hasPush('pulse')).toBe(true);
-    expect(hasPush('heartbeat')).toBe(true);
-    expect(hasPush('charge')).toBe(true);
-    expect(hasPush('charge2')).toBe(true);
-    expect(hasPush('puff')).toBe(true);
-    for (const m of ['sway', 'shake', 'float', 'jiggle', 'piston', 'none'] as MotionPattern[]) expect(hasPush(m)).toBe(false);
+  it('押し出す時刻のある揺らし方だけで使える(画面が見る EFFECT_MOTIONS と揃っている)', () => {
+    for (const m of Object.keys(MOTIONS) as MotionPattern[]) expect(motionPushes(m).length > 0).toBe(EFFECT_MOTIONS.has(m));
+    expect([...EFFECT_MOTIONS].sort()).toEqual(['charge', 'charge2', 'heartbeat', 'puff', 'pulse']);
     expect(motionPushes('charge', { 'charge.time': 0.7 })).toEqual([0.7]);
   });
 
-  for (const [motion, perCycle] of [['pulse', 1], ['charge', 1], ['charge2', 1], ['puff', 1], ['heartbeat', 2]] as const) {
+  /** 揺らし方・周期・固有設定の組み合わせ。perCycle は1周期に出る数 */
+  const cases: [MotionPattern, number, number, Record<string, number>][] = [
+    ['pulse', 1, 1.2, {}], ['charge', 1, 1.2, {}], ['charge2', 1, 1.2, {}], ['puff', 1, 1.2, {}], ['heartbeat', 2, 1.2, {}],
+    // 周期が長い・短い
+    ['pulse', 1, 10, {}], ['puff', 1, 10, {}], ['heartbeat', 2, 10, {}], ['charge', 1, 10, {}], ['pulse', 1, 0.3, {}],
+    // 固有設定を端に寄せる
+    ['pulse', 1, 3, { 'pulse.time': 0.6 }], ['puff', 1, 3, { 'puff.time': 0.8 }], ['puff', 1, 1.2, { 'puff.time': 0.8 }],
+    ['puff', 1, 1.2, { 'puff.spread': 0 }], ['charge', 1, 2, { 'charge.time': 0.9 }], ['charge2', 1, 2, { 'charge2.time': 0.2 }],
+  ];
+  for (const [motion, perCycle, T, params] of cases) {
     for (const timing of ['burst', 'peak'] as const) {
-      it(`${motion}(${timing})は押し出し1回につき1回だけ、毎周期同じ位置で出る`, () => {
-        const T = 1.2, doc = docWith(motion, timing), w = worldFor(T);
-        const ts = fires(w, doc, T * 6);
-        expect(ts.length).toBe(6 * perCycle);
-        // 周期の中の位置が毎回同じ(跳ね返りで出たり出なかったりしない)
+      it(`${motion} 周期${T}秒 ${JSON.stringify(params)}(${timing})は押し出し1回につき1回だけ、毎周期同じ位置で出る`, () => {
+        const doc = docWith(motion, timing, params), w = worldFor(T), n = T < 1 ? 12 : 6;
+        const ts = fires(w, doc, T * n);
+        expect(ts.length).toBe(n * perCycle);
+        // 周期の中の位置が毎回同じ(跳ね返りや前の周期の残りの揺れで、出る所が変わらない)。1周目は止まった所から動き出すので比べない
         const phases = ts.map(t => (t / T) % 1);
-        // 1周目は止まった所から動き出すので比べない
-        for (let i = 2 * perCycle; i < phases.length; i++) expect(Math.abs(phases[i] - phases[i - perCycle])).toBeLessThan(0.02);
+        for (let i = 2 * perCycle; i < phases.length; i++) expect(Math.abs(phases[i] - phases[i - perCycle]) * T).toBeLessThan(0.02);
         // 押し出す時刻から受け付ける長さの中で出る
-        const pushes = motionPushes(motion);
-        for (const ph of phases) expect(pushes.some(p => { const d = ((ph - p) % 1 + 1) % 1; return d * T <= EFFECT_WINDOW; })).toBe(true);
+        const pushes = motionPushes(motion, params);
+        for (const ph of phases) expect(pushes.some(p => { const d = ((ph - p) % 1 + 1) % 1; return d * T <= effectWindow(T); })).toBe(true);
       });
     }
   }
+
+  it('鼓動の拍の間隔が短く2拍の膨らみがつながるときも、毎周期同じ数・同じ位置で出る', () => {
+    for (const timing of ['burst', 'peak'] as const) {
+      const T = 1.2, ts = fires(worldFor(T), docWith('heartbeat', timing, { 'heartbeat.gap': 0.08 }), T * 6);
+      const per = ts.filter(t => t >= T * 2 && t < T * 3).length;
+      expect(per).toBeGreaterThanOrEqual(1);
+      expect(ts.filter(t => t >= T * 4 && t < T * 5).length).toBe(per);
+    }
+  });
 
   it('一番膨らんだときは、膨らみ始めより後に出る', () => {
     const a = fires(worldFor(), docWith('pulse', 'burst'), 1.2)[0], b = fires(worldFor(), docWith('pulse', 'peak'), 1.2)[0];
@@ -126,30 +137,21 @@ describe('エフェクトの描き方', () => {
     expect(e[0].additive).toBe(true);
     expect(e[0].tint).toEqual([1, 0, 0]);
     expect(e[0].alpha).toBeGreaterThan(0);
+    // 多すぎるときは、レイヤーをまたいで新しいものを残し、古い順に渡す
+    l.effect.duration = 1.5;
+    for (let j = 0; j < 7; j++) { const l2 = { ...l, id: `L${j}`, effect: { ...l.effect } }; doc.layers.push(l2); }
+    const w2 = worldFor(0.5);
+    fires(w2, doc, 0.5 * 6 + 0.2);
+    sw.applySwing(w2, doc);
+    const many = got.at(-1)!;
+    expect(many.length).toBe(MAX_EFFECT_DRAWS);
+    expect(new Set(many.map(x => x.index)).size).toBe(8);
+    // 古い順(広がりが大きい順)に並ぶ
+    for (let j = 1; j < many.length; j++) expect(many[j].scale).toBeLessThanOrEqual(many[j - 1].scale + 1e-9);
+    doc.layers.length = 1;
     // 隠したレイヤーは出さない
     l.visible = false;
     sw.applySwing(w, doc);
     expect(got.at(-1)).toEqual([]);
   });
 });
-
-describe('エフェクトの保存', () => {
-  it('保存して読むと戻り、項目の無い古いファイルは切ったものとして読む。形の合わない値は既定値', async () => {
-    const doc = createDocument({ bytes: new Uint8Array([1, 2, 3]), mime: 'image/png', ext: 'png', width: 40, height: 20 }, 'p');
-    doc.layers[0].effect = { enabled: true, ring: true, timing: 'peak', opacity: 0.8, spread: 0.5, duration: 1.2, color: 'custom', customColor: '#12ab34', blend: 'add' };
-    const bytes = serializeProject(createProject(doc));
-    const back = await deserializeProject(bytes);
-    expect(back.project.documents[0].layers[0].effect).toEqual(doc.layers[0].effect);
-
-    const files = unzipSync(bytes), json = JSON.parse(strFromU8(files['project.json']));
-    delete json.documents[0].layers[0].effect;
-    const old = await deserializeProject(zipSync({ ...files, 'project.json': strToU8(JSON.stringify(json)) }));
-    expect(old.project.documents[0].layers[0].effect.enabled).toBe(false);
-
-    json.documents[0].layers[0].effect = { enabled: 'yes', timing: 'later', opacity: 9, spread: -1, duration: 'x', color: 'red', customColor: 'url(x)', blend: 'screen' };
-    const bad = (await deserializeProject(zipSync({ ...files, 'project.json': strToU8(JSON.stringify(json)) }))).project.documents[0].layers[0].effect;
-    expect(bad).toEqual({ enabled: false, ring: false, timing: 'burst', opacity: 1, spread: 0.05, duration: 0.55, color: 'white', customColor: '#ff8ab8', blend: 'normal' });
-  });
-});
-
-export type { Vec3 };

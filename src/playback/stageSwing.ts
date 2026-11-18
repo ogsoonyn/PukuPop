@@ -3,7 +3,7 @@
  * 編集アプリ(App)と、編集 UI を持たない再生専用の部品(Issue #127)で共有するため、App・アンドゥ・タブ・DOM には依存しない。
  * 今のドキュメントと重心の控えの置き場所は、PlaybackScene で受ける(App ではタブごとに持つ)。
  */
-import type { Document, Layer, Vec3 } from '../model/project';
+import { MAX_EFFECT_DRAWS, type Document, type Layer, type Vec3 } from '../model/project';
 import type { PhysicsWorld } from '../physics/world';
 import type { PlaybackEffect, PlaybackStage } from './stageApi';
 
@@ -82,7 +82,7 @@ export class StageSwing {
 
   /** 膨らんだ瞬間のエフェクトの描き方(physics/effect.ts で出したものを、出した瞬間の形のまま広げて薄くする)。k は正規化座標の 1 のピクセル */
   private effects(world: PhysicsWorld, doc: Document, k: number): PlaybackEffect[] {
-    const out: PlaybackEffect[] = [];
+    const out: (PlaybackEffect & { t: number })[] = [];
     doc.layers.forEach((l, i) => {
       const fx = l.effect;
       if (!fx?.enabled || !l.visible || !l.physics.enabled) return;
@@ -96,12 +96,14 @@ export class StageSwing {
         if (age < 0 || age >= 1) continue;
         const env = effectEnvelope(age, fx.opacity, fx.spread);
         out.push({
-          index: i, swing: { x: b.s.x * k, y: b.s.y * k, z: b.s.z * k }, spread: b.r, center,
+          t: b.t, index: i, swing: { x: b.s.x * k, y: b.s.y * k, z: b.s.z * k }, spread: b.r, center,
           scale: env.scale, lift: env.lift * l.pop, alpha: env.alpha, ring: fx.ring, tint, tintMix, additive: fx.blend === 'add',
         });
       }
     });
-    return out;
+    // レイヤーをまたいで古いものから重ね、多すぎるときは新しいものを残す
+    out.sort((a, b) => a.t - b.t || a.index - b.index);
+    return out.slice(Math.max(0, out.length - MAX_EFFECT_DRAWS)).map(({ t: _t, ...e }) => e);
   }
 
   /** 物理に渡すレイヤーの重心(正規化座標)。回転で揺れる大きさを決める */

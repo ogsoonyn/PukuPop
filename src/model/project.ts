@@ -223,6 +223,11 @@ export const EFFECT_LIMITS = {
   duration: { min: 0.2, max: 1.5, def: 0.55 },
 } as const;
 
+/** エフェクトを出せる揺らし方(押し出す時刻がある。時刻は physics/motion.ts の motionPushes) */
+export const EFFECT_MOTIONS: ReadonlySet<MotionPattern> = new Set<MotionPattern>(['heartbeat', 'pulse', 'charge', 'charge2', 'puff']);
+/** 同時に描くエフェクトの数の上限(全レイヤーの合計。多いときは古いものから描かない) */
+export const MAX_EFFECT_DRAWS = 12;
+
 export function defaultEffect(): LayerEffect {
   return {
     enabled: false, ring: false, timing: 'burst',
