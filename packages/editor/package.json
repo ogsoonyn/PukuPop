@@ -1,6 +1,6 @@
 {
   "name": "pukupop-editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "ほかの Web アプリに埋め込む PukuPop の編集画面(静的ファイル一式。埋め込む側と同じオリジンの下から配信する)",
   "license": "MIT",
