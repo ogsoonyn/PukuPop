@@ -3,9 +3,26 @@
  * 編集アプリ(App)と、編集 UI を持たない再生専用の部品(Issue #127)で共有するため、App・アンドゥ・タブ・DOM には依存しない。
  * 今のドキュメントと重心の控えの置き場所は、PlaybackScene で受ける(App ではタブごとに持つ)。
  */
-import type { Document, Layer, Vec3 } from '../model/project';
+import { MAX_EFFECT_DRAWS, type Document, type Layer, type Vec3 } from '../model/project';
 import type { PhysicsWorld } from '../physics/world';
-import type { PlaybackStage } from './stageApi';
+import type { PlaybackEffect, PlaybackStage } from './stageApi';
+
+const easeOut = (t: number) => 1 - (1 - t) ** 3;
+
+/** '#rrggbb' を 0〜1 の3つの数にする(読み込みで形を確かめてある) */
+function hexRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
+/**
+ * 出したエフェクト1つの、出してから k(0〜1、消えるまでの時間に対する割合)のときの濃さ・広がり・手前への出方。
+ * 出た直後にすっと濃くなり、広がりながら薄くなって消える
+ */
+export function effectEnvelope(k: number, opacity: number, spread: number): { alpha: number; scale: number; lift: number } {
+  const e = easeOut(k);
+  return { alpha: opacity * Math.min(1, k / 0.06) * (1 - k) ** 1.6, scale: 1 + spread * e, lift: 0.6 * e };
+}
 
 /** 画像全体のずれ(ピストン)の飛びをならす時定数(秒)。自動揺らしの切り替えや、塗り終わりで止めていた画像を戻すとき */
 export const BASE_EASE = 0.05;
@@ -57,10 +74,37 @@ export class StageSwing {
       const r = world.spread(l.id);
       this.stage.setSpread(i, r ? this.layerCenter(doc, l) : { x: 0, y: 0 }, r, on);
     });
+    this.stage.setEffects(this.effects(world, doc, k));
     // 画像全体の動き(揺らし方「ピストン」)。一時停止中・自動揺らしが切れているときは 0
     const g = world.baseOffset(doc.layers);
     this.stage.setBaseOffset({ x: g.x * k, y: g.y * k, z: g.z * k });
   };
+
+  /** 膨らんだ瞬間のエフェクトの描き方(physics/effect.ts で出したものを、出した瞬間の形のまま広げて薄くする)。k は正規化座標の 1 のピクセル */
+  private effects(world: PhysicsWorld, doc: Document, k: number): PlaybackEffect[] {
+    const out: (PlaybackEffect & { t: number })[] = [];
+    doc.layers.forEach((l, i) => {
+      const fx = l.effect;
+      if (!fx?.enabled || !l.visible || !l.physics.enabled) return;
+      const bursts = world.bursts(l.id);
+      if (!bursts.length) return;
+      const center = this.layerCenter(doc, l);
+      const tint: [number, number, number] = fx.color === 'custom' ? hexRgb(fx.customColor) : [1, 1, 1];
+      const tintMix = fx.color === 'white' ? 0.65 : fx.color === 'custom' ? 0.6 : 0;
+      for (const b of bursts) {
+        const age = (world.time - b.t) / fx.duration;
+        if (age < 0 || age >= 1) continue;
+        const env = effectEnvelope(age, fx.opacity, fx.spread);
+        out.push({
+          t: b.t, index: i, swing: { x: b.s.x * k, y: b.s.y * k, z: b.s.z * k }, spread: b.r, center,
+          scale: env.scale, lift: env.lift * l.pop, alpha: env.alpha, ring: fx.ring, tint, tintMix, additive: fx.blend === 'add',
+        });
+      }
+    });
+    // レイヤーをまたいで古いものから重ね、多すぎるときは新しいものを残す
+    out.sort((a, b) => a.t - b.t || a.index - b.index);
+    return out.slice(Math.max(0, out.length - MAX_EFFECT_DRAWS)).map(({ t: _t, ...e }) => e);
+  }
 
   /** 物理に渡すレイヤーの重心(正規化座標)。回転で揺れる大きさを決める */
   centerOf = (l: Layer): { x: number; y: number } => {

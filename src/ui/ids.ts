@@ -22,6 +22,8 @@ export const UI_IDS = {
   pPop: 'input', pPopN: 'input', pBlend: 'select', pBlendDesc: 'p',
   pDensity: 'input', pDensityO: 'output', pOpacity: 'input', pOpacityO: 'output',
   pSwing: 'input', pPreset: 'select', pPresetDesc: 'p', physDetails: 'details', physSummary: 'span', pMotion: 'select', motionParams: 'div',
+  pFx: 'input', pFxNote: 'p', pFxBody: 'div', pFxRing: 'input', pFxTiming: 'select', pFxOpacity: 'input', pFxOpacityO: 'output',
+  pFxSpread: 'input', pFxSpreadO: 'output', pFxDur: 'input', pFxDurO: 'output', pFxColor: 'select', pFxCustom: 'input', pFxBlend: 'select',
   pHard: 'input', pHardO: 'output', pMass: 'input', pMassO: 'output', pDamp: 'input', pDampO: 'output', pWeight: 'input', pWeightO: 'output',
   pAuto: 'input', pPeriod: 'input', pPeriodO: 'output', pAutoStr: 'input', pAutoStrO: 'output',
   animBox: 'section', recSection: 'section', takeInfo: 'span', takeRec: 'button', takePlay: 'button', takeClear: 'button',
