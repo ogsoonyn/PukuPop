@@ -2,7 +2,7 @@
  * レイヤーの結合。複数のレイヤーの高さ(ウェイト × ポップ量)を1枚にまとめる。DOM と three.js を参照しない。
  * 揺れ・重ね方・名前などの設定は呼び出し側で決める(App.mergeLayers は一番下のレイヤーのものを残す)。
  */
-import { LIMITS, type Layer } from './project';
+import { LIMITS, type Favorite, type Layer } from './project';
 import { WeightMap } from './weightmap';
 
 /**
@@ -16,6 +16,9 @@ export const MERGE_MODES: Record<MergeMode, { label: string; desc: string }> = {
   add: { label: '加算', desc: '重なった所は、高さを足し合わせます' },
 };
 
+/** 非表示のレイヤーを含むときに断る理由(非表示のレイヤーは高さに入っていないので、入れても捨てても見た目が変わる) */
+export const MERGE_HIDDEN_NOTE = '非表示のレイヤーは結合できません。表示してから結合してください。';
+
 export interface MergeResult {
   /** 結合したレイヤーのポップ量 */
   pop: number;
@@ -28,7 +31,9 @@ export interface MergeResult {
  * 高さを合わせる。高さは「ウェイト / 255 × ポップ量」。
  * ポップ量は、高い方なら結合するレイヤーの一番大きい値にする(どのレイヤーのポップ量も同じなら、ウェイトはそのまま)。
  * 加算なら、それと足した高さの一番高い所の大きい方にする(上限 LIMITS.pop.max。超えた所は上限で切る)。
- * どのレイヤーもポップ量が 0 のときは、ウェイトだけを合わせる(高さは 0 のまま)。
+ * どのレイヤーもポップ量が 0 のときは、ウェイトだけを合わせる(高さは 0 のまま)。ほかにポップ量のあるレイヤーがあれば、
+ * ポップ量が 0 のレイヤーの塗りは高さ 0 なので残らない。
+ * ポップ量の違うレイヤーを合わせると低い方のウェイトは縮むが、塗ってあった所を 0 に丸めない(ぼかした縁が消えないように)。
  * ウェイトマップの大きさはどれも同じ(同じ画像のレイヤー)とする
  */
 export function mergeHeights(layers: readonly Pick<Layer, 'pop' | 'weights'>[], mode: MergeMode): MergeResult {
@@ -56,6 +61,24 @@ export function mergeHeights(layers: readonly Pick<Layer, 'pop' | 'weights'>[], 
   const clipped = topPop > 0 && peak / 255 > pop;
   const out = new WeightMap(w, h);
   const k = 1 / pop;
-  for (let i = 0; i < n; i++) out.data[i] = Math.min(255, Math.round(height[i] * k));
+  for (let i = 0; i < n; i++) if (height[i] > 0) out.data[i] = Math.max(1, Math.min(255, Math.round(height[i] * k)));
   return { pop: topPop > 0 ? pop : 0, weights: out, clipped };
+}
+
+/**
+ * 結合でレイヤーのポップ量を from から to に変えたとき、お気に入りの中のそのレイヤーのポップ量を同じ比率で伸び縮みさせる。
+ * 結合でウェイトは新しいポップ量に合わせて縮むので、そのままのお気に入りを当てると高さが崩れるため。
+ * 変えるものが無ければ、渡した配列をそのまま返す
+ */
+export function scaleFavoritePops(list: readonly Favorite[], layerId: string, from: number, to: number): readonly Favorite[] {
+  if (from === to) return list;
+  const scale = (p: number) => (from > 0 ? Math.min(LIMITS.pop.max, Math.round(p * to / from)) : to);
+  let changed = false;
+  const out = list.map(f => {
+    if (!f.layers.some(l => l.id === layerId)) return f;
+    changed = true;
+    // お気に入りは書き換えないので、作り直す
+    return { ...f, layers: f.layers.map(l => (l.id === layerId ? { ...l, pop: scale(l.pop) } : l)) };
+  });
+  return changed ? out : list;
 }

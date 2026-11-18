@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { mergeHeights } from '../../src/model/merge';
-import { LIMITS } from '../../src/model/project';
+import { mergeHeights, scaleFavoritePops } from '../../src/model/merge';
+import { LIMITS, type Favorite } from '../../src/model/project';
 import { WeightMap } from '../../src/model/weightmap';
 
 const layer = (pop: number, data: number[]) => ({ pop, weights: new WeightMap(data.length, 1, Uint8Array.from(data)) });
@@ -53,10 +53,39 @@ describe('レイヤーの結合(model/merge.ts)', () => {
     expect([...mergeHeights([layer(0, [100, 200]), layer(0, [50, 100])], 'add').weights.data]).toEqual([150, 255]);
   });
 
+  it('ポップ量の差が大きくても、塗ってあった所を 0 に丸めない', () => {
+    // 10 × 12 / 1500 は 0.08 なので、丸めると 0 になってしまう
+    const r = mergeHeights([layer(10, [12, 0]), layer(1500, [0, 255])], 'max');
+    expect(r.pop).toBe(1500);
+    expect([...r.weights.data]).toEqual([1, 255]);
+  });
+
   it('元のウェイトマップは書き換えない。大きさが違えば断る', () => {
     const a = layer(100, [10, 20]), b = layer(100, [30, 5]);
     mergeHeights([a, b], 'add');
     expect([...a.weights.data]).toEqual([10, 20]);
     expect(() => mergeHeights([a, layer(100, [1, 2, 3])], 'max')).toThrow();
+  });
+});
+
+describe('結合のときのお気に入りのポップ量(scaleFavoritePops)', () => {
+  const fav = (id: string, layers: [string, number][]) => ({ id, layers: layers.map(([lid, pop]) => ({ id: lid, pop })) }) as unknown as Favorite;
+
+  it('結合先のレイヤーのポップ量だけを同じ比率で伸び縮みさせ、ほかは同じものを使う', () => {
+    const a = fav('F1', [['A', 100], ['B', 200]]), b = fav('F2', [['C', 50]]);
+    const out = scaleFavoritePops([a, b], 'A', 100, 200);
+    expect(out[0].layers.map(l => l.pop)).toEqual([200, 200]);
+    expect(out[0].id).toBe('F1');
+    expect(out[1]).toBe(b);
+    // 元のお気に入りは書き換えない
+    expect(a.layers[0].pop).toBe(100);
+    // 上限で切る
+    expect(scaleFavoritePops([fav('F', [['A', 1000]])], 'A', 100, 200)[0].layers[0].pop).toBe(LIMITS.pop.max);
+  });
+
+  it('変えるものが無ければ、渡した配列をそのまま返す', () => {
+    const list = [fav('F', [['B', 10]])];
+    expect(scaleFavoritePops(list, 'A', 100, 200)).toBe(list);
+    expect(scaleFavoritePops(list, 'B', 100, 100)).toBe(list);
   });
 });

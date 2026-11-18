@@ -12,6 +12,7 @@ import { isTyping } from './input';
 import { TOOL_GROUPS, TOOLS } from './tools';
 import { icon, ICONS, type IconName } from './icons';
 import { LIMITS } from '../model/project';
+import { MERGE_HIDDEN_NOTE } from '../model/merge';
 import { HELP_OPS, hintHtml } from './mouseHint';
 
 export interface Action {
@@ -182,8 +183,12 @@ function defineActions(app: App, d: ActionDeps) {
     // 1枚のときはすぐ下のレイヤーへ、複数を選んでいるときは選んだ全部を一番下のレイヤーへまとめる
     mergeLayers: {
       label: '結合', desc: '選んでいるレイヤーを、すぐ下のレイヤーにまとめる(複数を選んでいるときは、選んだ全部を一番下のレイヤーへ)',
-      run: d.openMerge, enabled: () => app.mergeTargets.length >= 2,
-      blocked: () => (app.mergeTargets.length < 2 && (app.doc?.layers.length ?? 0) > 1 ? '一番下のレイヤーは、下にまとめる先がありません。上のレイヤーを選ぶか、複数のレイヤーを選んでください' : null),
+      run: d.openMerge, enabled: () => app.mergeTargets.length >= 2 && app.mergeTargets.every(l => l.visible),
+      blocked: () => {
+        const ls = app.mergeTargets;
+        if (ls.length < 2) return (app.doc?.layers.length ?? 0) > 1 ? '一番下のレイヤーは、下にまとめる先がありません。上のレイヤーを選ぶか、複数のレイヤーを選んでください。' : null;
+        return ls.some(l => !l.visible) ? MERGE_HIDDEN_NOTE : null;
+      },
     },
     // 並べ替えは1枚ずつ(複数を選んでいるときは使えない)
     layerUp: { label: '上へ', run: () => app.moveLayer(1), enabled: () => !app.multiSelected && app.activeIndex >= 0 && app.activeIndex < (app.doc?.layers.length ?? 0) - 1 },

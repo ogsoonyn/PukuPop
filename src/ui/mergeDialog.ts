@@ -8,7 +8,7 @@ import { ui } from './ids';
 
 export function bindMergeDialog(app: App): { open: () => void } {
   const dlg = ui.mergeDialog, sel = ui.mergeMode;
-  for (const [v, m] of Object.entries(MERGE_MODES)) sel.add(new Option(m.label, v));
+  for (const [v, m] of Object.entries(MERGE_MODES)) { const o = new Option(m.label, v); o.title = m.desc; sel.add(o); }
 
   ui.mergeApply.addEventListener('click', () => {
     dlg.close();
