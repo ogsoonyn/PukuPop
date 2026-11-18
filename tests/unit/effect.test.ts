@@ -96,8 +96,11 @@ describe('膨らんだ瞬間のエフェクトを出す時刻', () => {
     expect(big.d).toMatchObject({ y: 0, z: 0 });
     expect(run(0.002).n).toBe(0);
     // 上下左右は弱い揺れでは出さないが、前に突き出る揺らし方は弱い揺れでも出す
-    expect(run(0.08).n).toBe(0);
+    expect(run(0.04).n).toBe(0);
     expect(run(0.08, 'pulse').n).toBeGreaterThan(0);
+    // 1回動かしただけなら、揺れ返しでは出さず1回だけ
+    expect(run(0.4).n).toBe(1);
+    expect(run(0.08, 'pulse').n).toBe(1);
   });
 
   it('残像は少し前の形を覚え、止まっている間は描かない', () => {
