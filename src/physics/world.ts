@@ -197,7 +197,7 @@ export class PhysicsWorld {
       if (layer.effect?.enabled) {
         let fx = this.effects.get(layer.id);
         if (!fx) this.effects.set(layer.id, (fx = freshEffect()));
-        stepEffect(fx, layer, auto, this.time, this.time + dt, st.s, st.r, layer.pop / this.unitPx);
+        stepEffect(fx, layer, auto, this.time, this.time + dt, st.s, st.r, layer.pop / this.unitPx, !!grab || (!!view && !view.still));
       } else this.effects.delete(layer.id);
     }
     for (const id of this.effects.keys()) if (!layers.some(l => l.id === id)) this.effects.delete(id);

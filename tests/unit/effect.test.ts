@@ -79,6 +79,24 @@ describe('膨らんだ瞬間のエフェクトを出す時刻', () => {
     });
   }
 
+  it('手で揺らしたとき(自動揺らしを切っていても)、勢いよく切り返した所で出し、小さな揺れでは出さない', () => {
+    const run = (amp: number) => {
+      const doc = docWith('sway'), w = worldFor(); w.autoSwing.enabled = false;
+      const id = doc.layers[0].id, seen = new Set<number>();
+      let d: unknown;
+      for (let i = 0; i < 240; i++) {
+        w.grab = i < 15 ? { x: amp * (i / 15), y: 0, z: 0 } : i < 30 ? { x: amp, y: 0, z: 0 } : null;
+        w.step(doc.layers);
+        for (const b of w.bursts(id)) { if (!seen.has(b.t)) d = b.d; seen.add(b.t); }
+      }
+      return { n: seen.size, d };
+    };
+    const big = run(0.4);
+    expect(big.n).toBeGreaterThan(0);
+    expect(big.d).toMatchObject({ y: 0, z: 0 });
+    expect(run(0.002).n).toBe(0);
+  });
+
   it('残像は少し前の形を覚え、止まっている間は描かない', () => {
     const doc = docWith('sway'); doc.layers[0].effect.style = 'trail';
     const w = worldFor();

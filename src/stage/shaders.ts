@@ -26,7 +26,7 @@ const makeVertexShader = (fx: boolean) => /* glsl */ `
   uniform float uFlat;
   varying vec2 vUv;
   varying vec2 vP;
-  ${fx ? 'uniform int uFxLayer; uniform vec2 uFxCenter; uniform float uFxScale, uFxLift; varying float vFw;' : ''}
+  ${fx ? 'uniform int uFxLayer; uniform vec2 uFxCenter; uniform float uFxScale, uFxLift; uniform vec2 uFxDir; varying float vFw, vSide;' : ''}
   void main() {
     vUv = uv;
     vP = position.xy;
@@ -49,7 +49,12 @@ const makeVertexShader = (fx: boolean) => /* glsl */ `
     ${fx ? `
     float fw = textureLod(uW, vec3(wuv, float(uFxLayer)), 0.0).r;
     vFw = fw;
-    p.xy = uFxCenter + (p.xy - uFxCenter) * uFxScale;
+    // uFxDir が 0 でなければ、重心から見てその向きの側だけを広げる(揺れた向きの側だけがポワンと膨らむ)
+    float dirOn = step(0.001, dot(uFxDir, uFxDir));
+    vec2 rel = position.xy - uFxCenter;
+    float side = dot(rel / max(length(rel), 1e-3), uFxDir);
+    vSide = mix(1.0, smoothstep(-0.15, 0.6, side), dirOn);
+    p.xy = uFxCenter + (p.xy - uFxCenter) * (1.0 + (uFxScale - 1.0) * vSide);
     p.z = p.z * uFxScale + fw * uFxLift;` : ''}
     // ポップ一時OFF: 持ち上げと揺れ(広がりも)を消して平らな画像に戻す
     p = mix(p, position, uFlat);
@@ -69,12 +74,12 @@ export const effectFragmentShader = /* glsl */ `
   uniform float uOpacity, uFxAlpha, uFxRing, uTintMix;
   uniform vec3 uTint;
   varying vec2 vUv;
-  varying float vFw;
+  varying float vFw, vSide;
   void main() {
     vec4 c = texture2D(uMap, vUv);
-    float copyA = c.a * smoothstep(0.03, 0.45, vFw) * uFxAlpha * 0.85;
+    float copyA = c.a * smoothstep(0.03, 0.45, vFw) * uFxAlpha * 0.85 * vSide;
     float ring = smoothstep(0.08, 0.3, vFw) - smoothstep(0.3, 0.6, vFw);
-    float ringA = min(1.0, ring * uFxAlpha * 1.5) * uFxRing;
+    float ringA = min(1.0, ring * uFxAlpha * 1.5) * uFxRing * vSide;
     float a = copyA + ringA * (1.0 - copyA);
     if (a < 0.004) discard;
     vec3 copyC = mix(c.rgb, uTint, uTintMix), ringC = mix(c.rgb, uTint, max(uTintMix, 0.6));

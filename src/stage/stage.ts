@@ -18,6 +18,8 @@ export interface EffectDraw {
   spread: number;
   center: { x: number; y: number };
   scale: number;
+  /** 重心から見てこの向き(長さ1)の側だけを広げる。無ければ全体 */
+  dir?: { x: number; y: number };
   lift: number;
   alpha: number;
   ring: boolean;
@@ -338,7 +340,7 @@ export class Stage {
       sw[d.index].set(d.swing.x, d.swing.y, d.swing.z); sp[d.index] = d.spread; ce[d.index].set(d.center.x, d.center.y);
       fu.uFxLayer.value = d.index;
       (fu.uFxCenter.value as THREE.Vector2).set(d.center.x, d.center.y);
-      fu.uFxScale.value = d.scale; fu.uFxLift.value = d.lift; fu.uFxAlpha.value = d.alpha; fu.uFxRing.value = d.ring ? 1 : 0;
+      fu.uFxScale.value = d.scale; fu.uFxLift.value = d.lift; (fu.uFxDir.value as THREE.Vector2).set(d.dir?.x ?? 0, d.dir?.y ?? 0); fu.uFxAlpha.value = d.alpha; fu.uFxRing.value = d.ring ? 1 : 0;
       (fu.uTint.value as THREE.Vector3).set(d.tint[0], d.tint[1], d.tint[2]); fu.uTintMix.value = d.tintMix;
       // 重ね方は描くときの GL の状態なので、シェーダを作り直さなくてよい
       m.material.blending = d.additive ? THREE.AdditiveBlending : THREE.NormalBlending;
@@ -360,7 +362,7 @@ export class Stage {
         uSwing: { value: Array.from({ length: MAX_LAYERS }, () => new THREE.Vector3()) },
         uSpread: { value: new Array(MAX_LAYERS).fill(0) },
         uCenter: { value: Array.from({ length: MAX_LAYERS }, () => new THREE.Vector2()) },
-        uFxLayer: { value: 0 }, uFxCenter: { value: new THREE.Vector2() }, uFxScale: { value: 1 }, uFxLift: { value: 0 },
+        uFxLayer: { value: 0 }, uFxCenter: { value: new THREE.Vector2() }, uFxScale: { value: 1 }, uFxLift: { value: 0 }, uFxDir: { value: new THREE.Vector2(0, 0) },
         uFxAlpha: { value: 0 }, uFxRing: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uTintMix: { value: 0 },
       },
       vertexShader: effectVertexShader, fragmentShader: effectFragmentShader,

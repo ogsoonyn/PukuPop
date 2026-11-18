@@ -97,10 +97,16 @@ export class StageSwing {
         const age = (world.time - b.t) / fx.duration;
         if (age < 0 || age >= 1) continue;
         const env = effectEnvelope(age, fx.opacity, fx.spread);
-        // 切り返しは、それまで動いていた向きへ少し流しながら広げる(実験)
-        const drift = b.d ? fx.spread * 0.3 * easeOut(age) : 0, dx = (b.d?.x ?? 0) * drift, dy = (b.d?.y ?? 0) * drift;
+        if (b.d) {
+          // 切り返し・着地(実験): 手前には出さず、揺れた向きの側だけを重心から外へ広げる
+          out.push({
+            t: b.t, index: i, swing: { x: b.s.x * k, y: b.s.y * k, z: b.s.z * k }, spread: b.r, center,
+            scale: 1 + (env.scale - 1) * 1.5, dir: { x: b.d.x, y: b.d.y }, lift: 0, alpha: env.alpha, ring: fx.ring, tint, tintMix, additive: fx.blend === 'add',
+          });
+          continue;
+        }
         out.push({
-          t: b.t, index: i, swing: { x: (b.s.x + dx) * k, y: (b.s.y + dy) * k, z: b.s.z * k }, spread: b.r, center,
+          t: b.t, index: i, swing: { x: b.s.x * k, y: b.s.y * k, z: b.s.z * k }, spread: b.r, center,
           scale: env.scale, lift: env.lift * l.pop, alpha: env.alpha, ring: fx.ring, tint, tintMix, additive: fx.blend === 'add',
         });
       }

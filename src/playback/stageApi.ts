@@ -8,6 +8,8 @@ import type { CameraState, Vec3 } from '../model/project';
 export interface PlaybackEffect {
   index: number; swing: Vec3; spread: number; center: { x: number; y: number };
   scale: number; lift: number; alpha: number; ring: boolean;
+  /** 重心から見てこの向き(長さ1)の側だけを広げる。無ければ全体 */
+  dir?: { x: number; y: number };
   tint: [number, number, number]; tintMix: number; additive: boolean;
 }
 

@@ -50,10 +50,17 @@ export interface EffectState {
   dir: number;
   /** 残像のための少し前の形(実験、出し方が残像のときだけ) */
   hist: TrailSample[];
+  /** 手で揺らしたとき(実験): 最後に手で動かした時刻、1刻み前の xy の速さ、前に出してから一番速かった速さ、前に出した時刻 */
+  handT: number;
+  hv: { x: number; y: number };
+  hpk: { x: number; y: number };
+  handFire: number;
+  prevHx: number;
+  prevHy: number;
 }
 
 export function freshEffect(): EffectState {
-  return { win: -Infinity, fired: true, armAt: null, prevI: NaN, prevV: 0, bursts: [], dir: 0, hist: [] };
+  return { win: -Infinity, fired: true, armAt: null, prevI: NaN, prevV: 0, bursts: [], dir: 0, hist: [], handT: -Infinity, hv: { x: 0, y: 0 }, hpk: { x: 0, y: 0 }, handFire: -Infinity, prevHx: NaN, prevHy: NaN };
 }
 
 export function copyEffect(e: EffectState): EffectState {
@@ -61,6 +68,7 @@ export function copyEffect(e: EffectState): EffectState {
     ...e,
     bursts: e.bursts.map(b => ({ t: b.t, s: { ...b.s }, r: b.r, ...(b.d ? { d: { ...b.d } } : {}) })),
     hist: e.hist.map(h => ({ t: h.t, s: { ...h.s }, r: h.r })),
+    hv: { ...e.hv }, hpk: { ...e.hpk },
   };
 }
 
@@ -87,10 +95,11 @@ export const effectWindow = (period: number): number => Math.max(EFFECT_WINDOW, 
  * 1刻み進めた後に呼ぶ。t0 は刻みの前の時刻、t1 は後の時刻。s, r は進めた後のずれと広がり、pop はポップ量(正規化座標)。
  * 自動揺らしが切れているとき・押し出す時刻の無い揺らし方では新しく出さない(出したものは消えるまで残す)
  */
-export function stepEffect(e: EffectState, layer: Layer, auto: AutoSwing, t0: number, t1: number, s: Vec3, r: number, pop: number): void {
+export function stepEffect(e: EffectState, layer: Layer, auto: AutoSwing, t0: number, t1: number, s: Vec3, r: number, pop: number, hand = false): void {
   const fx = layer.effect, motion = layer.physics.motion;
   // 消えるまでの時間を過ぎたものを捨てる
   if (e.bursts.length) e.bursts = e.bursts.filter(b => t1 - b.t < fx.duration);
+  if (fx.style !== 'trail') stepHand(e, motion, auto, t0, t1, s, r, hand);
   if (fx.style === 'trail') {
     // 残像: 少し前の形を覚えておくだけ(描き方は playback/stageSwing.ts)
     e.hist.push({ t: t1, s: { ...s }, r });
@@ -142,9 +151,42 @@ function stepTurn(e: EffectState, turns: readonly { u: number; axis: 'x' | 'y'; 
     if (!e.fired && e.armAt !== null) e.armAt = Math.max(e.armAt, v * e.dir);
     if (!e.fired && t1 - e.win < len && (e.armAt ?? 0) > TURN_SPEED && e.prevV * e.dir > 0 && v * e.dir <= 0) {
       e.fired = true;
-      e.bursts.push({ t: t1, s: { ...s }, r, d: axis === 'x' ? { x: e.dir, y: 0, z: 0 } : undefined });
+      e.bursts.push({ t: t1, s: { ...s }, r, d: axis === 'x' ? { x: e.dir, y: 0, z: 0 } : { x: 0, y: e.dir, z: 0 } });
       if (e.bursts.length > MAX_BURSTS) e.bursts.shift();
     }
   }
   e.prevI = I; e.prevV = v;
 }
+
+/** 手で揺らしたあと、これだけの間(秒)は揺れの勢いで出す */
+const HAND_KEEP = 1.5;
+/** 手で揺らしたときに出す速さの下限(正規化座標/秒)と、続けて出さない間(秒) */
+const HAND_SPEED = 0.35;
+const HAND_GAP = 0.25;
+
+/**
+ * 手で揺らしたとき(つかむ・視点を動かす。実験)。自動揺らしの時刻が無いので、揺れの結果だけで決める:
+ * 前に出してから一番速かった速さが HAND_SPEED を越え、その向きと逆へ動き出した所(切り返し)で出す。
+ * 自動揺らしが入っている間は、手で動かしてから HAND_KEEP 秒の間だけ(自動揺らしの分と重ならないよう、最後に出してから HAND_GAP 秒は空ける)
+ */
+function stepHand(e: EffectState, motion: MotionPattern, auto: AutoSwing, t0: number, t1: number, s: Vec3, r: number, hand: boolean): void {
+  if (hand) e.handT = t1;
+  const dt = Math.max(t1 - t0, 1e-6);
+  const v = { x: Number.isNaN(e.prevHx) ? 0 : (s.x - e.prevHx) / dt, y: Number.isNaN(e.prevHy) ? 0 : (s.y - e.prevHy) / dt };
+  e.prevHx = s.x; e.prevHy = s.y;
+  const autoOn = auto.enabled && auto.strength > 0;
+  if (autoOn && t1 - e.handT > HAND_KEEP) { e.hpk = { x: 0, y: 0 }; e.hv = v; return; }
+  if (Math.hypot(v.x, v.y) > Math.hypot(e.hpk.x, e.hpk.y)) e.hpk = { ...v };
+  const pk = Math.hypot(e.hpk.x, e.hpk.y);
+  // 一番速かった向きへの速さが 0 以下になったら切り返し
+  if (pk > HAND_SPEED && v.x * e.hpk.x + v.y * e.hpk.y <= 0 && t1 - e.handFire > HAND_GAP && t1 - (e.bursts.at(-1)?.t ?? -Infinity) > HAND_GAP) {
+    const side = Math.abs(e.hpk.x) >= Math.abs(e.hpk.y);
+    // 膨らむ揺らし方は今までと同じく手前へ広げ、そのほかは動いていた向きへ飛び出す
+    const d = PUSH_MOTIONS(motion) ? undefined : side ? { x: Math.sign(e.hpk.x), y: 0, z: 0 } : { x: 0, y: Math.sign(e.hpk.y), z: 0 };
+    e.bursts.push({ t: t1, s: { ...s }, r, d });
+    if (e.bursts.length > MAX_BURSTS) e.bursts.shift();
+    e.handFire = t1; e.hpk = { x: 0, y: 0 };
+  }
+  e.hv = v;
+}
+const PUSH_MOTIONS = (m: MotionPattern) => motionPushes(m).length > 0;
