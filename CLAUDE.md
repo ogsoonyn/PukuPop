@@ -24,7 +24,7 @@ npm run pack:player        # dist-player/ を npm pack して、直下に pukupo
 npm run check:player-pack  # .tgz を OS の一時ディレクトリの空のプロジェクトに入れ、Node で import し、README のコードを型検査する
 ```
 
-- 配り方: npm には公開しない。`main` のコミットに `player-v<版>` のタグを打って push すると、`.github/workflows/release-player.yml` が確かめのあと GitHub のリリースを作り、`.tgz` を添付する。使う側は `package.json` の依存に tarball の URL を書く。
+- 配り方: npm には公開しない。`main` のコミットに `player-v<版>` のタグを打って push するか、`.github/workflows/release-player.yml` を手動実行(`main` を選び、版を入れる)すると、確かめのあと GitHub のリリースを作り、`.tgz` を添付する(手動実行ではワークフローが `main` の今のコミットにタグを打つ)。どちらも押したとき・タグを打ったときだけ動き、`main` への push(リリース PR のマージ・Pages の公開)では動かない。使う側は `package.json` の依存に tarball の URL を書く。
 - 同じタグのリリースの `.tgz` は差し替えない(使う側の `package-lock.json` の integrity と食い違う)。直すときは版を上げて新しいタグを打つ。ワークフローも、同じタグのリリースがあれば失敗する。
 - 版の元は `packages/player/package.json` の `version` だけ(アプリの `package.json` の版とも、保存形式の `FORMAT_VERSION` とも別)。semver で、0.x の間は API を変えるときに真ん中の数字を上げる。上げたら `packages/player/README.md` の入れ方の URL も直す(`tests/unit/playerDts.test.ts` が確かめる)。
 - 型定義は手書き(`packages/player/index.d.ts`。内部の型・`inspect` を載せない)。実装と食い違うと、`npm run typecheck` が `tests/types/player-dts.ts` で、入口の名前の一覧の食い違いは `tests/unit/playerDts.test.ts` が見つける。Player の API を変えたら、d.ts・README・型のコメントを一緒に直す。
@@ -85,7 +85,7 @@ npm run check:editor-pack  # .tgz を空のプロジェクトに入れ、.zip �
 - 実装が済んだら別のエージェントにレビューさせる。PR 前のレビューの指摘は、その PR の中で直す。直したら `develop` 向けの PR を作り、報告する。許可があれば、 `gh pr merge --merge` でマージする。
 - 頼まれたレビューで見つけた課題と、作業の範囲の外で見つけた課題は Issue に立てる。`develop` にマージして直った Issue は、PR の番号をコメントに書いて閉じてよい。
 - `main` へは `develop` からのリリース PR(タイトルは「リリース: …」)だけを、頼まれたときに作る。`main` への push はそのまま GitHub Pages への公開になる。
-- Player・埋め込み用の編集画面のリリースも頼まれたときだけ行う(編集画面はタグが `editor-v<版>`、版の元が `packages/editor/package.json` で、手順は Player と同じ)。`packages/player/package.json` の版(と README の URL)を上げた変更を `develop` → `main` のリリース PR で入れたあと、`main` のそのコミットに `player-v<版>` のタグを打って push する(`git tag player-v0.1.0 <main のコミット>` → `git push origin player-v0.1.0`)。タグは1つずつ push する(`git push --tags` などでまとめて push しない。GitHub は一度に3つを超えるタグの push ではワークフローを動かさない)。タグが `main` の履歴に無い・版が食い違う・形が違うと、ワークフローはリリースを作らずに失敗する。
+- Player・埋め込み用の編集画面のリリースも頼まれたときだけ行う(編集画面はタグが `editor-v<版>`、版の元が `packages/editor/package.json` で、手順は Player と同じ)。`packages/player/package.json` の版(と README の URL)を上げた変更を `develop` → `main` のリリース PR で入れたあと、`main` のそのコミットに `player-v<版>` のタグを打って push する(`git tag player-v0.1.0 <main のコミット>` → `git push origin player-v0.1.0`)。タグは1つずつ push する(`git push --tags` などでまとめて push しない。GitHub は一度に3つを超えるタグの push ではワークフローを動かさない)。タグが `main` の履歴に無い・版が食い違う・形が違うと、ワークフローはリリースを作らずに失敗する。クラウドのセッションはタグを push できない(作業用のブランチにしか push できない)ので、代わりに GitHub の MCP の `actions_run_trigger` で `release-player.yml`(編集画面は `release-editor.yml`)を `ref: main`・`inputs: {version: <版>}` で手動実行する。手動実行は、`main` のワークフローのファイルに `workflow_dispatch` が入ってから使える。タグの作成をルールセットで制限するときは、github-actions を bypass に入れる(ワークフローの権限でタグを打つため)。
 - PR の本文には、変えたこと、動きが変わるところ、確認したこと(テストの件数と、落ちたテストとその理由)を書く。
 
 ## 手元の動作確認を乱さない
