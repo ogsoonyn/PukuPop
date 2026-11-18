@@ -1,4 +1,8 @@
-# 埋め込み用の編集画面(Issue #146)のリリース。editor-v<版> のタグを main のコミットに打って push すると動く。
+# 埋め込み用の編集画面(Issue #146)のリリース。editor-v<版> のタグを main のコミットに打って push するか、
+# 手動実行(Actions の「Run workflow」。main を選び、packages/editor/package.json の版を入れる)で動く。
+# 手動実行では、確かめが通ったあとにワークフローが main の今のコミットへ editor-v<版> のタグを打ってからリリースを作る
+# (クラウドのエージェントなど、タグを push できないところからもリリースできるようにするため)。
+# どちらも、押したとき・タグを打ったときだけ動く。main への push(リリース PR のマージ)では動かない。
 # 確かめ(タグの形・版・main の履歴・型検査・単体テスト・ビルド・npm pack と zip・空のプロジェクトでの確かめ)が通ったら、
 # GitHub のリリースを作り、pukupop-editor-<版>.tgz と pukupop-editor-<版>.zip を添付する。
 # アプリの公開(deploy-pages.yml。main への push)・Player のリリース(release-player.yml)とは別。仕組みは release-player.yml にそろえる。
@@ -14,13 +18,20 @@ name: Release Editor
 on:
   push:
     tags: ['editor-v*']
+  # 手動実行。打ち間違い・押し間違いでリリースしないよう、版を入れてもらい package.json の版と突き合わせる
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'リリースする版(packages/editor/package.json の version と同じもの。例: 0.2.0)'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
-# タグごとに1つ。実行中のリリースは途中で止めない
+# タグごとに1つ(手動実行も、入れた版のタグと同じ組にする)。実行中のリリースは途中で止めない
 concurrency:
-  group: release-editor-${{ github.ref }}
+  group: release-editor-${{ github.event_name == 'workflow_dispatch' && format('refs/tags/editor-v{0}', inputs.version) || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -30,10 +41,9 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.tag.outputs.version }}
+      tag: ${{ steps.name.outputs.tag }}
       sha256: ${{ steps.pack.outputs.sha256 }}
       zip_sha256: ${{ steps.pack.outputs.zip_sha256 }}
-    env:
-      TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,9 +55,53 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # タグの名前を決める。タグの push ならそのタグ。手動実行なら main からだけ受け、入れた版と package.json の版が同じことを確かめて
+      # editor-v<版> にする(タグがもうあれば、今のコミットを指すときだけ続ける。リリースのジョブが失敗したあとのやり直しのため)
+      - id: name
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            if [ "$REF" != refs/heads/main ]; then
+              echo "::error::手動実行は main を選んで動かしてください(今は $REF_NAME)。リリースは作りません"
+              exit 1
+            fi
+            pkg=$(node -p "require('./packages/editor/package.json').version")
+            if [ "$INPUT_VERSION" != "$pkg" ]; then
+              echo "::error::入れた版($INPUT_VERSION)が main の packages/editor/package.json の version($pkg)と違います。リリースは作りません"
+              exit 1
+            fi
+            tag="editor-v$pkg"
+            remote=$(git ls-remote origin "refs/tags/$tag" "refs/tags/$tag^{}")
+            if [ -n "$remote" ]; then
+              tagged=$(printf '%s\n' "$remote" | awk -v ref="refs/tags/$tag^{}" '$2 == ref { print $1 }')
+              if [ -z "$tagged" ]; then
+                tagged=$(printf '%s\n' "$remote" | awk -v ref="refs/tags/$tag" '$2 == ref { print $1 }')
+              fi
+              if [ "$tagged" != "$GITHUB_SHA" ]; then
+                echo "::error::タグ $tag はもうあり、別のコミット($tagged)を指しています。新しい版なら版を上げてください。前の実行が途中で失敗したやり直しなら、その実行を Actions の「Re-run failed jobs」で動かし直すか、タグを消してください。リリースは作りません"
+                exit 1
+              fi
+            fi
+          else
+            tag="$REF_NAME"
+          fi
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       # タグの形(editor-v<semver>)・版の一致・main の履歴に含まれること。通らなければリリースを作らない
+      # 手動実行ではタグがまだ無いこともあるので、確かめるコミットを --sha で渡す(main の今のコミット)
       - id: tag
-        run: node scripts/editor-release-check.mjs --main origin/main
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            node scripts/editor-release-check.mjs --main origin/main --sha "$GITHUB_SHA"
+          else
+            node scripts/editor-release-check.mjs --main origin/main
+          fi
       # 依存のインストールのスクリプトは流さない(release のジョブと同じ入れ方にして、作る .tgz・.zip をそろえる)
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
@@ -64,7 +118,7 @@ jobs:
     permissions:
       contents: write
     env:
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ needs.verify.outputs.tag }}
       VERSION: ${{ needs.verify.outputs.version }}
       EXPECTED_SHA256: ${{ needs.verify.outputs.sha256 }}
       EXPECTED_ZIP_SHA256: ${{ needs.verify.outputs.zip_sha256 }}
@@ -97,10 +151,17 @@ jobs:
           TGZ: ${{ steps.pack.outputs.tgz }}
           ZIP: ${{ steps.pack.outputs.zip }}
           COMMIT_SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
         run: |
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "::error::リリース $TAG はもうあります。同じタグの .tgz・.zip は差し替えません。直すときは版を上げて新しいタグを打ってください"
             exit 1
+          fi
+          # 手動実行では、ここでタグを打つ(確かめたコミットに軽量タグ。もうあれば打たない。verify で同じコミットを指すことを確かめてある)。
+          # ワークフローの権限で打ったタグでは、タグの push で動くワークフロー(このファイル)はもう一度は動かない
+          if [ "$EVENT" = workflow_dispatch ] && [ -z "$(git ls-remote origin "refs/tags/$TAG")" ]; then
+            gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$COMMIT_SHA" > /dev/null
+            echo "タグ $TAG を $COMMIT_SHA に打ちました"
           fi
           # リモートのタグが今のコミットを指していることを確かめる(動いている間にタグを打ち直されていたら作らない)。
           # 注釈付きタグは ^{} の行がコミットを指すので、それがあればそちらを使う
