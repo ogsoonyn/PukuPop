@@ -17,7 +17,7 @@ npm には公開していません。GitHub のリリースに、同じ中身を
 ```json
 {
   "dependencies": {
-    "pukupop-editor": "https://github.com/ogsoonyn/PukuPop/releases/download/editor-v0.1.0/pukupop-editor-0.1.0.tgz"
+    "pukupop-editor": "https://github.com/ogsoonyn/PukuPop/releases/download/editor-v0.2.0/pukupop-editor-0.2.0.tgz"
   }
 }
 ```
@@ -30,7 +30,7 @@ app.use('/pukupop', express.static('node_modules/pukupop-editor/app'));
 
 ### 静的ファイルを置くだけのサーバー(`.zip`)
 
-`pukupop-editor-0.1.0.zip` を展開し、`pukupop-editor-0.1.0/app/` の中身を、配信したいパス(例: `/pukupop/`)に置きます。
+`pukupop-editor-0.2.0.zip` を展開し、`pukupop-editor-0.2.0/app/` の中身を、配信したいパス(例: `/pukupop/`)に置きます。
 
 同じ版(同じタグ)の `.tgz`・`.zip` は差し替えません。不具合を直したものは新しい版として出すので、URL の版を上げて入れ直してください。
 
