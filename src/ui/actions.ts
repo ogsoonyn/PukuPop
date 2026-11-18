@@ -43,6 +43,8 @@ export interface ActionDeps {
   openRecent: () => unknown;
   openExport: () => unknown;
   openBlur: () => unknown;
+  /** レイヤーの結合(重ね方を選ぶダイアログ) */
+  openMerge: () => unknown;
   openSettings: () => unknown;
   /** キーフレームの部品(右パネルの「アニメーション」タブ)を出す */
   showKeyFrames: () => unknown;
@@ -177,6 +179,12 @@ function defineActions(app: App, d: ActionDeps) {
     addLayer: { label: '新規レイヤー', run: () => app.addLayer(), enabled: () => !!app.doc },
     duplicateLayer: { label: '複製', run: () => app.duplicateLayer(), enabled: layer },
     deleteLayer: { label: '削除', run: () => app.deleteLayer(), enabled: () => (app.doc?.layers.length ?? 0) > 1 },
+    // 1枚のときはすぐ下のレイヤーへ、複数を選んでいるときは選んだ全部を一番下のレイヤーへまとめる
+    mergeLayers: {
+      label: '結合', desc: '選んでいるレイヤーを、すぐ下のレイヤーにまとめる(複数を選んでいるときは、選んだ全部を一番下のレイヤーへ)',
+      run: d.openMerge, enabled: () => app.mergeTargets.length >= 2,
+      blocked: () => (app.mergeTargets.length < 2 && (app.doc?.layers.length ?? 0) > 1 ? '一番下のレイヤーは、下にまとめる先がありません。上のレイヤーを選ぶか、複数のレイヤーを選んでください' : null),
+    },
     // 並べ替えは1枚ずつ(複数を選んでいるときは使えない)
     layerUp: { label: '上へ', run: () => app.moveLayer(1), enabled: () => !app.multiSelected && app.activeIndex >= 0 && app.activeIndex < (app.doc?.layers.length ?? 0) - 1 },
     layerDown: { label: '下へ', run: () => app.moveLayer(-1), enabled: () => !app.multiSelected && app.activeIndex > 0 },

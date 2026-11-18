@@ -6,6 +6,7 @@ import { bindPanels } from './ui/panels';
 import { bindActions } from './ui/actions';
 import { bindExportDialog } from './ui/exportDialog';
 import { bindBlurDialog } from './ui/blurDialog';
+import { bindMergeDialog } from './ui/mergeDialog';
 import { bindInflateDialog } from './ui/inflateDialog';
 import { bindFloatPanels } from './ui/floatPanel';
 import { bindToolOptions } from './ui/toolOptions';
@@ -125,6 +126,7 @@ app.store.on('project', ({ keys }) => {
 });
 const exportDialog = bindExportDialog(app);
 const blurDialog = bindBlurDialog(app);
+const mergeDialog = bindMergeDialog(app);
 const recentDialog = bindRecentDialog(app);
 bindInflateDialog(app);
 bindFloatPanels([{ dialog: ui.blurDialog, handle: ui.blurTitle }, { dialog: ui.inflateDialog, handle: ui.inflHead }]);
@@ -158,6 +160,7 @@ bindActions(app, {
   openRecent: () => recentDialog.open(),
   openExport: () => exportDialog.open(),
   openBlur: () => blurDialog.open(),
+  openMerge: () => mergeDialog.open(),
   openSettings: () => settingsDialog.open(),
   // キーフレームの重ね表示は「アニメーション」タブを開いている間だけ出るので、左のツールバーなどで入れたらタブを開く
   showKeyFrames: () => { app.setPanelClosed(false); selectPanelTab('anim'); },
