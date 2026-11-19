@@ -62,7 +62,13 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 1500,
       // 揺らし方図鑑(guide.html、ヘルプからリンク)は公開版にだけ入れる。埋め込み用の配布物には入れない(リンクも noGuideLink が外す)。
       // 本体の入口の名前は index のまま(出力が index-*.js になる。public/sw.js が古いものを消すときに名前で見分ける)
-      ...(embed ? { outDir: 'dist-editor/app', emptyOutDir: true } : { rollupOptions: { input: { index: 'index.html', guide: 'guide.html' } } }),
+      ...(embed ? { outDir: 'dist-editor/app', emptyOutDir: true } : {
+        rollupOptions: {
+          input: { index: 'index.html', guide: 'guide.html' },
+          // 入口どうしで共有する部品は shared- を付ける(public/sw.js が、古いものを名前で見分けてキャッシュから消す)。動的に読む部品はそのまま
+          output: { chunkFileNames: (c: { isDynamicEntry: boolean }) => c.isDynamicEntry ? 'assets/[name]-[hash].js' : 'assets/shared-[name]-[hash].js' },
+        },
+      }),
     },
     test: {
       include: ['tests/unit/**/*.test.ts'],

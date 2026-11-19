@@ -26,8 +26,11 @@ test('ヘルプから揺らし方図鑑へリンクし、図鑑はどの揺ら�
     await guide.evaluate(m => (window as any).pukupopGuide.setMotion(m), m);
     await expect.poll(() => guide.evaluate(() => (window as any).pukupopGuide.current())).toBe(m);
   }
-  // 横にはみ出さない
-  expect(await guide.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  // PC の幅でもスマホの幅でも横にはみ出さない
+  const overflow = () => guide.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(await overflow()).toBeLessThanOrEqual(0);
+  await guide.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(overflow).toBeLessThanOrEqual(0);
   expect(errors).toEqual([]);
 });
 

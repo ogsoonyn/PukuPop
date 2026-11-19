@@ -21,10 +21,10 @@ import { motionAnchor, motionPushes, motionSpread } from './motion';
 export const EFFECT_WINDOW = 0.4;
 /** 1レイヤーで同時に出しておく数の上限(古いものから捨てる) */
 export const MAX_BURSTS = 3;
-/** 受け付けを始めたときに土台の膨らみを調べる数 */
-const LOOK = 24;
-/** 土台がこの割合まで膨らんだら構える */
-const ARM = 0.25;
+/** 受け付けを始めたときに土台の膨らみを調べる数(揺らし方図鑑もグラフに使う) */
+export const EFFECT_LOOK = 24;
+/** 土台がこの割合まで膨らんだら構える(揺らし方図鑑もグラフに使う) */
+export const EFFECT_ARM = 0.25;
 
 /** 出したエフェクト1つ。t は出した物理の時刻、s と r はそのときのずれ(正規化座標)と広がり */
 export interface Burst { t: number; s: Vec3; r: number }
@@ -51,12 +51,12 @@ export function copyEffect(e: EffectState): EffectState {
 }
 
 /** [u0, u1) の中に位相 p があるか(周期で一周するのも含む) */
-function crossed(u0: number, u1: number, p: number): boolean {
+export function crossed(u0: number, u1: number, p: number): boolean {
   return u0 <= u1 ? u0 <= p && p < u1 : p >= u0 || p < u1;
 }
 
 /** 膨らみの量。手前(ふわっと膨らむは上も)へのずれをポップ量で割ったものと、広がりの和 */
-const inflation = (motion: MotionPattern, s: Vec3, r: number, pop: number) => (s.z + (motion === 'puff' ? s.y : 0)) / Math.max(pop, 0.05) + r;
+export const inflation = (motion: MotionPattern, s: Vec3, r: number, pop: number) => (s.z + (motion === 'puff' ? s.y : 0)) / Math.max(pop, 0.05) + r;
 
 const tmp: Vec3 = { x: 0, y: 0, z: 0 };
 /** 時刻 t の土台の膨らみの量 */
@@ -87,8 +87,8 @@ export function stepEffect(e: EffectState, layer: Layer, auto: AutoSwing, t0: nu
       // 受け付けを始める。この後の土台の膨らみの伸びを調べ、構える高さを決める
       const a0 = anchorInflation(layer, auto, t1, pop);
       let top = a0;
-      for (let k = 1; k <= LOOK; k++) top = Math.max(top, anchorInflation(layer, auto, t1 + (len * k) / LOOK, pop));
-      e.win = t1; e.fired = top - a0 <= 1e-6; e.armAt = a0 + (top - a0) * ARM;
+      for (let k = 1; k <= EFFECT_LOOK; k++) top = Math.max(top, anchorInflation(layer, auto, t1 + (len * k) / EFFECT_LOOK, pop));
+      e.win = t1; e.fired = top - a0 <= 1e-6; e.armAt = a0 + (top - a0) * EFFECT_ARM;
     }
     if (!e.fired && t1 - e.win < len) {
       if (e.armAt !== null && anchorInflation(layer, auto, t1, pop) >= e.armAt) e.armAt = null;

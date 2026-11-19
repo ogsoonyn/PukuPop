@@ -221,7 +221,7 @@ UTF-8 の JSON です(編集アプリは2文字の字下げで書きます)。�
 | `mass` | 数 | 質量(0〜1) | 0〜1、既定 0.04 |
 | `weight` | 数 | 重さ(重力の効き。0〜1) | 0〜1、既定 0.15 |
 | `damping` | 数 | おさまり(減衰。0〜1) | 0〜1、既定 0.13 |
-| `motion` | 文字列 | 揺らし方。`jiggle`・`jump`・`bounce`・`piston`・`shiver`・`float`・`sway`・`shake`・`circle`・`heartbeat`・`charge2`(ためて膨らむ)・`swell`(ゆっくり膨らむ)・`stretch`・`puff`・`pulse`・`none`。後から足した項目 | 無い・知らない値は、プリセットの揺らし方(`custom` なら `shake`)。このときプリセットに固有設定があれば、`motionParams` に無い項目だけ補う。前の版の `charge`(統合した前の「ためて膨らむ」)は `charge2` として読み、`charge.depth`・`charge.time`・`charge.bulge` を `charge2.` の同じ項目へ移し(`charge2.` の同じ項目は、`charge.` の値か、無ければ既定値にする)、`charge2.spread` を 0 にする(前と同じ動き) |
+| `motion` | 文字列 | 揺らし方。`jiggle`・`jump`・`bounce`・`piston`・`shiver`・`float`・`sway`・`shake`・`circle`・`heartbeat`・`charge2`(ためて膨らむ)・`swell`(ゆっくり膨らむ)・`stretch`・`puff`・`pulse`・`none`。後から足した項目 | 無い・知らない値は、プリセットの揺らし方(`custom` なら `shake`)。このとき、プリセットが `tame`(ためてぼよん)なら、`motionParams` に無ければ `charge2.spread` を 0 にする(前と同じ動きにするため。ほかのプリセットの固有設定は補わない)。前の版の `charge`(統合した前の「ためて膨らむ」)は `charge2` として読み、`charge.depth`・`charge.time`・`charge.bulge` を `charge2.` の同じ項目へ移し(`charge2.` の同じ項目は、`charge.` の値か、無ければ既定値にする)、`charge2.spread` を 0 にする(前と同じ動き) |
 | `motionParams` | オブジェクト | 揺らし方ごとの細かい設定。キーは `揺らし方.項目`(例: `jump.height`)、値は数。書いていない項目は既定値 | 知らないキー・数でない値は捨てる。範囲の外は丸め、選択式の項目は選択肢に無い値を捨てる。項目と範囲は `src/model/project.ts` の `MOTION_PARAMS` |
 
 #### エフェクト(`effect`)

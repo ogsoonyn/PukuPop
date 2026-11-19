@@ -8,10 +8,10 @@ describe('揺らし方図鑑(guide.html)の説明', () => {
     expect(Object.keys(GUIDE).sort()).toEqual([...motions].sort());
   });
 
-  it('説明する固有設定は、本体にある項目だけ(名前を変えたら図鑑も直す)', () => {
+  it('固有設定は残らず説明し、本体に無い項目は説明しない(足したら図鑑にも足し、名前を変えたら図鑑も直す)', () => {
     for (const [m, g] of Object.entries(GUIDE)) {
       const keys = (MOTION_PARAMS[m as MotionPattern] ?? []).map(d => d.key);
-      for (const k of Object.keys(g.notes)) expect(keys, `${m}.${k}`).toContain(k);
+      expect(Object.keys(g.notes).sort(), m).toEqual([...keys].sort());
     }
   });
 });

@@ -114,7 +114,7 @@ describe('揺れの物理', () => {
     expect(crossings(ys, rest)).toBeGreaterThanOrEqual(6);
   });
 
-  it('ばいんばいん: 跳び上がり、着地で静止位置より沈み込んでから上下に弾む', () => {
+  it('ぴょーん(bain): 跳び上がり、着地で静止位置より沈み込んでから上下に弾む', () => {
     const { xs, ys, rest } = cycle('bain');
     expect(Math.max(...xs.map(Math.abs))).toBeLessThan(1e-9);
     expect(Math.max(...ys)).toBeGreaterThan(0.08);           // 跳ぶ

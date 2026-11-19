@@ -32,7 +32,7 @@ const spreadCycle = (l: Layer, T: number) => {
   return rs;
 };
 
-describe('ためて膨らむ2(塗った範囲も横に広がる)', () => {
+describe('ためて膨らむ(charge2。塗った範囲も横に広がる)', () => {
   it('広がりの土台: ためている間は内へ縮め、離した瞬間に外へ広げ、周期 T で元に戻る', () => {
     const T = 2, at = (u: number, p?: Record<string, number>) => motionSpread('charge2', u * T, T, STRENGTH, p);
     expect(at(0)).toBeCloseTo(0, 12);
@@ -94,7 +94,7 @@ describe('ためて膨らむ2(塗った範囲も横に広がる)', () => {
     expect(Math.abs(w.spread(l.id))).toBeLessThan(1e-4);
   });
 
-  it('広げる揺らし方のほかは塗った範囲の大きさを変えない。ためて膨らむ2 の広がりの計測値の回帰チェック', () => {
+  it('広げる揺らし方のほかは塗った範囲の大きさを変えない。ためて膨らむの広がりの計測値の回帰チェック', () => {
     for (const [preset, T] of [['tame', 1.2], ['tame', 2], ['puru', 1.2]] as const) {
       for (const m of Object.keys(MOTIONS) as MotionPattern[]) {
         const rs = spreadCycle(layerOf(preset, m), T);

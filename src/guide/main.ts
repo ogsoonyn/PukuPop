@@ -11,7 +11,7 @@ import { defaultPhysics, type PhysicsParams,
 import { WeightMap } from '../model/weightmap';
 import { motionAnchor, motionSpread, motionPushes } from '../physics/motion';
 import { PhysicsWorld, PHYSICS_DT, coefficients } from '../physics/world';
-import { effectWindow, MAX_BURSTS, type Burst } from '../physics/effect';
+import { effectWindow, MAX_BURSTS, EFFECT_ARM, EFFECT_LOOK, crossed, inflation as inflationOf, type Burst } from '../physics/effect';
 import { effectEnvelope } from '../playback/stageSwing';
 import { GUIDE, type GuideAxis } from './info';
 type Material = Pick<PhysicsParams, 'hardness' | 'mass' | 'damping' | 'weight'>;
@@ -24,14 +24,14 @@ const TAU = Math.PI * 2;
 const DT = PHYSICS_DT;
 /** 画像の長辺を 1024px とみなす(正規化座標の 1 = 512px) */
 const UNIT = 512;
-/** エフェクトの受け付けで、土台がこの割合まで膨らんだら構える(physics/effect.ts と同じ値。グラフに線を引くためだけに使う) */
-const ARM = 0.25, LOOK = 24;
 
 const ORDER = (Object.keys(MOTIONS) as MotionPattern[]).filter((m): m is Motion => m !== 'none');
 const FX_ORDER = ORDER.filter(m => EFFECT_MOTIONS.has(m));
-/** 揺らし方ごとの代表のプリセット(先に出てくるもの) */
+/** 揺らし方ごとの代表のプリセット(ほかは先に出てくるもの) */
 const PRESET_OF = {} as Record<Motion, PresetKey>;
 for (const [k, p] of Object.entries(PRESETS) as [PresetKey, (typeof PRESETS)[PresetKey]][]) if (p.motion !== 'none' && !PRESET_OF[p.motion]) PRESET_OF[p.motion] = k;
+// ためて膨らむは、横にも広がる「ぷくっ」を見本にする(先に出てくる「ためてぼよん」は横の広がり 0%)
+PRESET_OF.charge2 = 'puku';
 const presetOf = (m: Motion) => PRESETS[PRESET_OF[m]];
 const defParams = (m: Motion): Record<string, number> => Object.fromEntries(MOTION_PARAMS[m].map(d => [d.key, d.def]));
 
@@ -60,8 +60,8 @@ function guideLayer(st: State): Layer {
     weights: new WeightMap(1, 1),
   };
 }
-/** 膨らみの量(physics/effect.ts と同じ測り方)。手前へのずれ ÷ ポップ量(ふわっと膨らむは上も)+ 広がり */
-const inflation = (m: Motion, sz: number, sy: number, r: number, pop: number) => (sz + (m === 'puff' ? sy : 0)) / Math.max(pop, 0.05) + r;
+/** 膨らみの量(physics/effect.ts の測り方をそのまま使う)。手前へのずれ ÷ ポップ量(ふわっと膨らむは上も)+ 広がり */
+const inflation = (m: Motion, sz: number, sy: number, r: number, pop: number) => inflationOf(m, { x: 0, y: sy, z: sz }, r, pop);
 
 interface Rec {
   n: number; len: number; T: number;
@@ -82,7 +82,6 @@ function simulate(st: State, recPeriods = 2): Rec {
   const anchorI = (t: number) => { motionAnchor(m, t, T, S, tmp, pop, mp); return inflation(m, tmp.z, tmp.y, motionSpread(m, t, T, S, mp), pop); };
   const pushes = fxActive(st) ? motionPushes(m, mp) : [], wlen = effectWindow(T);
   const frac = (t: number) => (((t / T) % 1) + 1) % 1;
-  const crossed = (u0: number, u1: number, p: number) => u0 <= u1 ? u0 <= p && p < u1 : p >= u0 || p < u1;
   const seen = new Set<number>();
   for (let i = 0; i < steps; i++) {
     const t0 = world.time;
@@ -92,8 +91,8 @@ function simulate(st: State, recPeriods = 2): Rec {
     for (const p of pushes) {
       if (!crossed(frac(t0), frac(t1), p) || t1 < warm - wlen) continue;
       const a0 = anchorI(t1); let top = a0;
-      for (let q = 1; q <= LOOK; q++) top = Math.max(top, anchorI(t1 + (wlen * q) / LOOK));
-      rec.windows.push({ t: t1 - warm, len: wlen, arm: a0 + (top - a0) * ARM });
+      for (let q = 1; q <= EFFECT_LOOK; q++) top = Math.max(top, anchorI(t1 + (wlen * q) / EFFECT_LOOK));
+      rec.windows.push({ t: t1 - warm, len: wlen, arm: a0 + (top - a0) * EFFECT_ARM });
     }
     for (const b of world.bursts(layer.id)) if (!seen.has(b.t)) { seen.add(b.t); if (b.t >= warm - st.fx.duration - 1) rec.bursts.push({ t: b.t - warm, s: { ...b.s }, r: b.r }); }
     if (i < recStart) continue;
