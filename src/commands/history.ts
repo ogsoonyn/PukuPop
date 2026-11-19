@@ -10,7 +10,8 @@ export interface Command {
   /** 保持しているデータ量の目安(バイト) */
   readonly bytes: number;
   /**
-   * やり直したあとに選ぶレイヤー(選んでいたレイヤーを消す操作で使う)。History は `redo` で知らせるだけで、選ぶのは受けた側(App)。
+   * やり直しで選んでいたレイヤーが消えたときに選ぶレイヤー(レイヤーを消す操作で、実行したときに選んだもの)。
+   * History は `redo` で知らせるだけで、消えたかを見て選ぶのは受けた側(App)。
    * 選ぶものはモデルに無いので、ここでは id だけを持つ
    */
   readonly selectAfter?: string;

@@ -365,6 +365,11 @@ test('削除・結合をやり直すと、実行したときと同じレイヤ�
   await app(page, a => a.history.redo());
   expect(await names()).toEqual(['A', 'C']);
   expect(await selected(page)).toEqual(['C']);
+  // 選び直したレイヤーが残るときは、それを変えない
+  await app(page, a => a.history.undo());
+  await row(page, 'A').click();
+  await app(page, a => a.history.redo());
+  expect(await selected(page)).toEqual(['A']);
   await app(page, a => a.history.undo());
   // 結合: C をすぐ下の B へまとめると B を選ぶ。元に戻して C を選び直してからやり直しても B を選ぶ
   await row(page, 'C').click();
@@ -410,8 +415,11 @@ test('結合: 離れた3枚を選んでもまとめて1手で戻り、やり直�
   expect(await names()).toEqual(['A', 'B', 'C', 'D', 'E']);
   expect(await app(page, a => a.doc.layers.map((l: any) => [l.pop, l.weights.data[0]]))).toEqual([[100, 200], [100, 0], [100, 200], [100, 0], [100, 200]]);
   expect(await favPops()).toEqual([100, 100, 100, 100, 100]);
+  // 結合で消える E を選んでからやり直しても、まとめた先の A を選ぶ(Issue #175)
+  await row(page, 'E').click();
   await app(page, a => a.history.redo());
   expect(await app(page, a => [a.doc.layers.map((l: any) => l.name), a.doc.layers[0].pop, a.doc.layers[0].weights.data[0]])).toEqual(merged);
+  expect(await selected(page)).toEqual(['A']);
   // 当てても A の高さは変わらない(消えたレイヤーは飛ばす)
   await app(page, a => a.applyFavorite(a.project.favorites[0].id));
   expect(await app(page, a => a.doc.layers[0].pop)).toBe(236);
