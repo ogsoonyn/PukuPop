@@ -383,6 +383,33 @@ test('削除・結合をやり直すと、実行したときと同じレイヤ�
   expect(await selected(page)).toEqual(['B']);
 });
 
+test('追加・複製を元に戻すと、その前に選んでいたレイヤーを選ぶ(一番下へ飛ばない。Issue #177)', async ({ page }) => {
+  await threeLayers(page);
+  await openTab(page, 'layer');
+  const names = () => app(page, a => a.doc.layers.map((l: any) => l.name));
+  // 追加: C の上に足して選ぶ。元に戻すと C
+  await row(page, 'C').click();
+  await page.locator('button.btn-square[data-cmd=addLayer]').click();
+  expect(await names()).toHaveLength(4);
+  expect(await selected(page)).not.toEqual(['C']);
+  await app(page, a => a.history.undo());
+  expect(await names()).toEqual(['A', 'B', 'C']);
+  expect(await selected(page)).toEqual(['C']);
+  // 複製: B と C を選び(最後に押したのは B)、複製したものを選ぶ。元に戻すと B
+  await row(page, 'C').click();
+  await row(page, 'B').click({ modifiers: ['Control'] });
+  await page.locator('button.btn-square[data-cmd=duplicateLayer]').click();
+  expect(await selected(page)).toEqual(['B のコピー', 'C のコピー']);
+  await app(page, a => a.history.undo());
+  expect(await names()).toEqual(['A', 'B', 'C']);
+  expect(await selected(page)).toEqual(['B']);
+  // やり直して、残るレイヤーを選び直してから元に戻すと、選び直したものは変えない
+  await app(page, a => a.history.redo());
+  await row(page, 'A').click();
+  await app(page, a => a.history.undo());
+  expect(await selected(page)).toEqual(['A']);
+});
+
 test('結合: 離れた3枚を選んでもまとめて1手で戻り、やり直せる。お気に入りのポップ量も合わせる', async ({ page }) => {
   await threeLayers(page);
   // 5枚(下から A・B・C・D・E)。A・C・E を選んで加算で結合する

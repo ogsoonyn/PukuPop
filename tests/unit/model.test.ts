@@ -177,19 +177,23 @@ describe('History', () => {
     expect(doc.layers).toEqual([a]);
   });
 
-  it('やり直すと redo でそのコマンドを知らせる(選ぶレイヤーを持つ Batch。Issue #175)。実行・元に戻すでは知らせない', () => {
+  it('元に戻す・やり直すと undo / redo でそのコマンドを change より先に知らせる(選ぶレイヤーを持つ Batch。Issue #175、#177)。実行では知らせない', () => {
     const store = makeStore(), h = new History(store), doc = store.doc!;
     const a = doc.layers[0], b = createLayer(doc, 'B');
-    h.execute(new InsertLayer('追加', doc.id, b, 1));
     const seen: (string | undefined)[] = [];
-    h.on('redo', c => seen.push(c.selectAfter));
-    h.execute(new Batch('削除', [new RemoveLayer(store, b.id)], a.id));
-    h.undo();
+    h.on('undo', c => seen.push(`undo:${c.select?.undo}`));
+    h.on('redo', c => seen.push(`redo:${c.select?.redo}`));
+    h.execute(new Batch('追加', [new InsertLayer('追加', doc.id, b, 1)], { undo: a.id }));
+    h.execute(new Batch('削除', [new RemoveLayer(store, b.id)], { redo: a.id }));
     expect(seen).toEqual([]);
-    // redo は change より先に出す(App は change で「選んでいたレイヤーが消えた」印を下ろすので、その前に読む)
+    // App は change で「選んでいたレイヤーが消えた」印を下ろすので、その前に知らせる
     h.on('change', () => seen.push('change'));
-    h.redo();
-    expect(seen).toEqual([a.id, 'change']);
+    h.undo(); h.undo();
+    expect(seen).toEqual(['undo:undefined', 'change', `undo:${a.id}`, 'change']);
+    expect(doc.layers).toEqual([a]);
+    seen.length = 0;
+    h.redo(); h.redo();
+    expect(seen).toEqual(['redo:undefined', 'change', `redo:${a.id}`, 'change']);
     expect(doc.layers).toEqual([a]);
   });
 });
