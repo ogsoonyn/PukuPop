@@ -263,11 +263,11 @@ export class App extends Emitter<AppEvents> {
     this.stage.onContextChange = lost => this.onContextChange(lost);
     this.wireStore();
     this.history.on('change', () => { this.activeLost = false; this.trimHiddenHistory(); });
-    // レイヤーを消す操作をやり直して、選んでいたレイヤーが消えたときは、実行したときと同じレイヤーを選ぶ(一番下へ飛ばないように)。
+    // 元に戻す・やり直すで選んでいたレイヤーが消えたときは、コマンドが持つレイヤーを選ぶ(一番下へ飛ばないように。LayerSelect)。
     // 選んでいたレイヤーが残るときは、ユーザーが選び直したものを変えない
-    this.history.on('redo', cmd => {
-      if (this.activeLost && cmd.selectAfter && this.store.findLayer(cmd.selectAfter)) this.setActiveLayer(cmd.selectAfter);
-    });
+    const reselect = (id: string | undefined) => { if (this.activeLost && id && this.store.findLayer(id)) this.setActiveLayer(id); };
+    this.history.on('undo', cmd => reselect(cmd.select?.undo));
+    this.history.on('redo', cmd => reselect(cmd.select?.redo));
   }
 
   get doc(): Document | undefined { return this.store.doc; }
@@ -433,7 +433,7 @@ export class App extends Emitter<AppEvents> {
 
   /**
    * 選んでいたレイヤーが消えて、レイヤー構成の受け口が一番下を選び直したか。レイヤーを選ぶ・アンドゥの積みが動く(change)と下ろす。
-   * やり直しのときだけ見る(Command の selectAfter を当てるかどうか)
+   * 元に戻す・やり直すのときだけ見る(Command の select を当てるかどうか)
    */
   private activeLost = false;
 
@@ -1103,7 +1103,8 @@ export class App extends Emitter<AppEvents> {
     if (doc.layers.length >= LIMITS.maxLayers) { toast(`レイヤーは最大 ${LIMITS.maxLayers} 枚です。`, 'warning'); return; }
     const layer = createLayer(doc, nextLayerName(doc));
     const index = this.activeIndex >= 0 ? this.activeIndex + 1 : doc.layers.length;
-    this.history.execute(new InsertLayer('レイヤーを追加', doc.id, layer, index));
+    // 元に戻したら、足す前に選んでいたレイヤーを選ぶ
+    this.history.execute(new Batch('レイヤーを追加', [new InsertLayer('レイヤーを追加', doc.id, layer, index)], { undo: this.activeLayerId ?? undefined }));
     this.setActiveLayer(layer.id);
   }
 
@@ -1120,7 +1121,8 @@ export class App extends Emitter<AppEvents> {
       ids.push(copy.id);
       if (l.id === this.activeLayerId) primary = copy.id;
     }
-    this.history.execute(cmds.length === 1 ? cmds[0] : new Batch(countLabel('レイヤーを複製', cmds.length), cmds));
+    // 元に戻したら、最後に押していた元のレイヤーを選ぶ
+    this.history.execute(new Batch(countLabel('レイヤーを複製', cmds.length), cmds, { undo: this.activeLayerId ?? undefined }));
     this.selectLayers(ids, primary || ids[0]);
   }
 
@@ -1133,7 +1135,7 @@ export class App extends Emitter<AppEvents> {
     const next = rest.find(l => doc.layers.indexOf(l) > i) ?? rest[rest.length - 1];
     const cmds = layers.map(l => new RemoveLayer(this.store, l.id));
     // 上から消すと、残りのレイヤーの位置がずれない(元に戻すときは下から入れ直す)。やり直したときも next を選ぶ
-    this.history.execute(new Batch(countLabel('レイヤーを削除', cmds.length), cmds.reverse(), next.id));
+    this.history.execute(new Batch(countLabel('レイヤーを削除', cmds.length), cmds.reverse(), { redo: next.id }));
     this.setActiveLayer(next.id);
   }
 
@@ -1172,7 +1174,7 @@ export class App extends Emitter<AppEvents> {
     }
     // 上から消すと、残りのレイヤーの位置がずれない(元に戻すときは下から入れ直す)
     for (const l of [...rest].reverse()) cmds.push(new RemoveLayer(this.store, l.id));
-    this.history.execute(new Batch(label, cmds, base.id));
+    this.history.execute(new Batch(label, cmds, { redo: base.id }));
     this.setActiveLayer(base.id);
     if (r.clipped) toast(`足した高さがポップ量の上限(${LIMITS.pop.max}px)を超えた所は、上限で切りました。`, 'warning', 5000);
     // 揺れのずれはウェイトに比例するので、ポップ量を上げると、元のレイヤーの所はウェイトが縮んだぶん揺れも小さくなる

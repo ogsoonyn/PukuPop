@@ -10,7 +10,7 @@
  * App とは InflateHost の分だけでつながる。始まり・変更の知らせと、始めてよいかの確かめは App が受け持つ。
  */
 import { createLayer, LIMITS, type Store, type Document, type Layer, type BlendMode } from '../model/project';
-import { InsertLayer, PatchLayer, WeightEdit, diffTiles } from '../commands/commands';
+import { Batch, InsertLayer, PatchLayer, WeightEdit, diffTiles } from '../commands/commands';
 import type { History } from '../commands/history';
 import { isFlatWarp, type Warp } from '../paint/shapeWarp';
 import { inflateShape, INFLATE_KINDS, type InflateKind, type InflateProfile, type InflateBlend } from '../paint/inflate';
@@ -218,7 +218,9 @@ export class InflatePreview {
     if (newLayer) {
       // 仮に入れたレイヤーをそのまま正式に追加する。戻すとレイヤーごと消え、元のレイヤーは触れていないので元どおり
       const index = doc.layers.indexOf(newLayer);
-      h.history.push(new InsertLayer(`膨らませる(${shape}・高さ ${st.height}px・新しいレイヤー「${newLayer.name}」)`, doc.id, newLayer, index));
+      // 元に戻したら、範囲を描いたレイヤーを選ぶ
+      const label = `膨らませる(${shape}・高さ ${st.height}px・新しいレイヤー「${newLayer.name}」)`;
+      h.history.push(new Batch(label, [new InsertLayer(label, doc.id, newLayer, index)], { undo: s.layerId }));
       store.emit('change', undefined);
       h.setActiveLayer(newLayer.id);
     } else {
