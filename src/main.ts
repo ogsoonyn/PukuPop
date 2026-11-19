@@ -33,7 +33,7 @@ import { autosave } from './storage/autosave';
 import { QUOTA_MESSAGE } from './storage/persist';
 import { prefs, persistControls } from './storage/prefs';
 import { bindErrorReport, reportError } from './ui/errorReport';
-import { IMAGE_TYPES, isImageFile, isProjectFile, pastedImageFile } from './ui/imageio';
+import { isImageFile, isImageMime, isProjectFile, pastedImageFile } from './ui/imageio';
 import { bindEmbed } from './ui/embedSession';
 
 // 画面の要素をまとめて取る(index.html と ui/ids.ts の一覧が合わなければ、ここで止まる)
@@ -205,7 +205,7 @@ window.addEventListener('drop', e => {
 // コピーした画像(スクリーンショットなど)を Ctrl+V で新しいタブに開く。ボタンは置かない(クリップボードの読み取りに許可の確認が出るため)
 window.addEventListener('paste', e => {
   if (embed || isTyping(e)) return;
-  const f = [...(e.clipboardData?.files ?? [])].find(f => f.type in IMAGE_TYPES);
+  const f = [...(e.clipboardData?.files ?? [])].find(f => isImageMime(f.type));
   if (!f) return;
   e.preventDefault();
   if (anyDialogOpen()) { toast('ダイアログを閉じてから、もう一度貼り付けてください。', 'warning'); return; }

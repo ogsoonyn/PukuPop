@@ -352,6 +352,32 @@ test('結合: 1枚ならすぐ下へ、複数なら一番下へまとめる。�
   expect(await app(page, a => a.doc.layers.length)).toBe(3);
 });
 
+test('削除・結合をやり直すと、実行したときと同じレイヤーを選ぶ(一番下へ飛ばない。Issue #175)', async ({ page }) => {
+  await threeLayers(page);
+  await openTab(page, 'layer');
+  const names = () => app(page, a => a.doc.layers.map((l: any) => l.name));
+  // 削除: B を消すとすぐ上の C を選ぶ。元に戻して B を選び直してからやり直しても C を選ぶ
+  await row(page, 'B').click();
+  await page.locator('button.btn-square[data-cmd=deleteLayer]').click();
+  expect(await selected(page)).toEqual(['C']);
+  await app(page, a => a.history.undo());
+  await row(page, 'B').click();
+  await app(page, a => a.history.redo());
+  expect(await names()).toEqual(['A', 'C']);
+  expect(await selected(page)).toEqual(['C']);
+  await app(page, a => a.history.undo());
+  // 結合: C をすぐ下の B へまとめると B を選ぶ。元に戻して C を選び直してからやり直しても B を選ぶ
+  await row(page, 'C').click();
+  await page.locator('button.btn-square[data-cmd=mergeLayers]').click();
+  await page.locator('#mergeApply').click();
+  expect(await selected(page)).toEqual(['B']);
+  await app(page, a => a.history.undo());
+  await row(page, 'C').click();
+  await app(page, a => a.history.redo());
+  expect(await names()).toEqual(['A', 'B']);
+  expect(await selected(page)).toEqual(['B']);
+});
+
 test('結合: 離れた3枚を選んでもまとめて1手で戻り、やり直せる。お気に入りのポップ量も合わせる', async ({ page }) => {
   await threeLayers(page);
   // 5枚(下から A・B・C・D・E)。A・C・E を選んで加算で結合する
