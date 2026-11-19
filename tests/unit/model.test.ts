@@ -186,8 +186,10 @@ describe('History', () => {
     h.execute(new Batch('削除', [new RemoveLayer(store, b.id)], a.id));
     h.undo();
     expect(seen).toEqual([]);
+    // redo は change より先に出す(App は change で「選んでいたレイヤーが消えた」印を下ろすので、その前に読む)
+    h.on('change', () => seen.push('change'));
     h.redo();
-    expect(seen).toEqual([a.id]);
+    expect(seen).toEqual([a.id, 'change']);
     expect(doc.layers).toEqual([a]);
   });
 });

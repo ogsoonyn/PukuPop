@@ -415,7 +415,8 @@ test('結合: 離れた3枚を選んでもまとめて1手で戻り、やり直�
   expect(await names()).toEqual(['A', 'B', 'C', 'D', 'E']);
   expect(await app(page, a => a.doc.layers.map((l: any) => [l.pop, l.weights.data[0]]))).toEqual([[100, 200], [100, 0], [100, 200], [100, 0], [100, 200]]);
   expect(await favPops()).toEqual([100, 100, 100, 100, 100]);
-  // 結合で消える E を選んでからやり直しても、まとめた先の A を選ぶ(Issue #175)
+  // 結合で消える E を選んでからやり直しても、まとめた先の A を選ぶ。A は一番下でもあるので、修正の有無は見分けない
+  // (見分けるのは「削除・結合をやり直すと…」のテスト)
   await row(page, 'E').click();
   await app(page, a => a.history.redo());
   expect(await app(page, a => [a.doc.layers.map((l: any) => l.name), a.doc.layers[0].pop, a.doc.layers[0].weights.data[0]])).toEqual(merged);
