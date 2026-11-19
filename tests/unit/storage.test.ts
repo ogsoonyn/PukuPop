@@ -187,6 +187,29 @@ describe('.pukupop', () => {
     expect((await deserializeProject(zipSync(files))).project.keyframes).toEqual([]);
   });
 
+  it('読み込みでレイヤーの ID を振り直したら、記録(今の記録・お気に入りの記録)のつかみの効き具合の ID も合わせる(Issue #59)', async () => {
+    const p = makeProject(), doc = p.documents[0], [l1, l2] = doc.layers;
+    const key = (yaw: number) => ({ view: { yaw, pitch: 0, roll: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } }, seconds: 1, mode: 'smooth' as const });
+    const withGains = (yaw: number) => ({
+      samples: takeFromKeys([key(0), key(yaw)], p.camera.fov)!.samples.map(s => ({ ...s, grabGains: [[l1.id, 0.25], [l2.id, 0.75]] as [string, number][] })),
+    });
+    p.take = withGains(1);
+    // 今の記録とは別の記録を持つお気に入り(motion/favorite-1.json)
+    p.favorites = [{ ...captureFavorite(p, doc, { name: 'a', playing: false }), take: withGains(2) }];
+    // 細工したファイル: 1枚目のレイヤーの ID をドキュメントの ID と同じにする(読み込みで振り直される)
+    const files = unzipSync(serializeProject(p));
+    for (const path of ['project.json', 'motion/take.json', 'motion/favorite-1.json']) {
+      expect(files[path]).toBeDefined();
+      files[path] = strToU8(strFromU8(files[path]).replaceAll(l1.id, doc.id));
+    }
+    const q = (await deserializeProject(zipSync(files))).project;
+    const [m1, m2] = q.documents[0].layers;
+    expect(m1.id).not.toBe(doc.id);
+    expect(m2.id).toBe(l2.id);
+    for (const t of [q.take!, q.favorites[0].take!]) expect(t.samples[0].grabGains).toEqual([[m1.id, 0.25], [m2.id, 0.75]]);
+    expect(q.favorites[0].layers.map(l => l.id)).toEqual([m1.id, m2.id]);
+  });
+
   it('3面図の自由角度の視点を保存して戻す。古いファイルや不正な値では初めの視点・範囲内にする', async () => {
     const p = makeProject();
     p.multiCamera = { fov: 30, yaw: -1.2, pitch: 0.3, roll: 0, zoom: 2.5, target: { x: 12, y: -4, z: 7 } };

@@ -51,6 +51,23 @@ describe('図形で膨らませる', () => {
     expect(at(b, 32 + 14, 32 - 14)).toBe(0); expect(at(b, 32 - 14, 32 + 14)).toBe(0);
   });
 
+  it('縦横の倍率が違うウェイトでも、傾けた形は画像の上で剪断されない(Issue #63)', () => {
+    // 100×100 の画像を 100×50 のウェイトに縮めたとする(縦の倍率 0.5)。画像の上で 40px 角の正方形を 45° 傾けるとひし形になる
+    const wm = new WeightMap(100, 50);
+    const r = inflateShape(wm, wm.data.slice(), { kind: 'rect', cx: 50, cy: 25, rx: 20, ry: 10, angle: Math.PI / 4, aspect: 0.5 }, params({ profile: 'cone' }))!;
+    // ひし形の頂点は横に 20√2、縦に 10√2(ウェイトのピクセル)。縦を割らずに測ると、20×10 の長方形を傾けた形(縦横とも約 16)になる
+    expect(r).toEqual({ x: 21, y: 10, w: 58, h: 30 });
+    // 画像の上で 90° 回しても同じ形なので、中心から右へ 20px と下へ 20px(ウェイトでは 10px)は同じくらいの高さ
+    const right = at(wm, 70, 25), down = at(wm, 50, 35);
+    expect(right).toBeGreaterThan(0);
+    expect(Math.abs(right - down)).toBeLessThanOrEqual(8);
+    // aspect を省略すると前と同じ(ウェイトのピクセルで測る)
+    const a = new WeightMap(64, 64), b = new WeightMap(64, 64), shape = { kind: 'ellipse' as const, cx: 32, cy: 32, rx: 24, ry: 6, angle: Math.PI / 4 };
+    inflateShape(a, a.data.slice(), shape, params());
+    inflateShape(b, b.data.slice(), { ...shape, aspect: 1 }, params());
+    expect(a.data).toEqual(b.data);
+  });
+
   it('なだらかさ 0 は平らな台になる', () => {
     const wm = new WeightMap(64, 64), base = wm.data.slice();
     inflateShape(wm, base, { kind: 'rect', cx: 32, cy: 32, rx: 20, ry: 10 }, params({ softness: 0 }));
