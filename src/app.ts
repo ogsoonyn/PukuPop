@@ -8,7 +8,8 @@ import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegm
 import { projectDataBytes, sumMemory, type MemoryUsage, type TabMemory } from './model/memory';
 import { History, emptyHistory } from './commands/history';
 import type { Rect } from './model/weightmap';
-import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation } from './commands/commands';
+import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation, diffTiles } from './commands/commands';
+import { mergeHeights, scaleFavoritePops, MERGE_MODES, MERGE_HIDDEN_NOTE, type MergeMode } from './model/merge';
 import type { Command } from './commands/history';
 import { captureFavorite, favoriteChanges, nextFavoriteName, applyView, FAVORITE_NAME_MAX } from './model/favorites';
 import { Stage, type ViewOptions } from './stage/stage';
@@ -1118,6 +1119,48 @@ export class App extends Emitter<AppEvents> {
     // 上から消すと、残りのレイヤーの位置がずれない(元に戻すときは下から入れ直す)
     this.history.execute(cmds.length === 1 ? cmds[0] : new Batch(countLabel('レイヤーを削除', cmds.length), cmds.reverse()));
     this.setActiveLayer(next.id);
+  }
+
+  /**
+   * 結合するレイヤー(一覧の下から順)。複数を選んでいるときは選んだ全部、1枚のときはそれとすぐ下のレイヤー。
+   * 結合できない(1枚だけ選んでいて一番下)ときは空
+   */
+  get mergeTargets(): Layer[] {
+    const doc = this.doc; if (!doc) return [];
+    if (this.multiSelected) return this.selectedLayers;
+    const i = this.activeIndex;
+    return i > 0 ? [doc.layers[i - 1], doc.layers[i]] : [];
+  }
+
+  /**
+   * 結合する(mergeTargets を、その一番下のレイヤーへまとめる)。高さ(ウェイト × ポップ量)を mode で合わせ(model/merge.ts)、
+   * 揺れ・重ね方・名前・エフェクトは一番下のレイヤーのものを残す。ほかのレイヤーは消す。まとめて1手
+   */
+  mergeLayers(mode: MergeMode): void {
+    const doc = this.doc, ls = this.mergeTargets;
+    if (!doc || ls.length < 2 || this.previewing || this.stroking) return;
+    // 非表示のレイヤーは高さに入っていないので、結合すると見た目が変わる。どちらに倒すかを決めずに断る(コマンドの表でも止める)
+    if (ls.some(l => !l.visible)) { toast(MERGE_HIDDEN_NOTE, 'warning'); return; }
+    const [base, ...rest] = ls, fromPop = base.pop;
+    const r = mergeHeights(ls, mode);
+    // 枚数は、複数を選んで結合したときだけ付ける(下へ結合するのはいつも2枚)
+    const label = countLabel(`${MERGE_MODES[mode].label}でレイヤーを結合`, this.multiSelected ? ls.length : 1);
+    const cmds: Command[] = [];
+    const tiles = diffTiles(base.weights.data, r.weights);
+    if (tiles.length) cmds.push(new WeightEdit(label, base.id, tiles));
+    if (r.pop !== base.pop) {
+      cmds.push(PatchLayer.from(this.store, base.id, { pop: r.pop }, label));
+      // お気に入りのポップ量も合わせる(ウェイトは新しいポップ量に合わせて縮むので、そのままだと当てたときに高さが崩れる)
+      const favs = this.project.favorites, scaled = scaleFavoritePops(favs, base.id, fromPop, r.pop);
+      if (scaled !== favs) cmds.push(new SetFavorites(label, favs, scaled));
+    }
+    // 上から消すと、残りのレイヤーの位置がずれない(元に戻すときは下から入れ直す)
+    for (const l of [...rest].reverse()) cmds.push(new RemoveLayer(this.store, l.id));
+    this.history.execute(new Batch(label, cmds));
+    this.setActiveLayer(base.id);
+    if (r.clipped) toast(`足した高さがポップ量の上限(${LIMITS.pop.max}px)を超えた所は、上限で切りました。`, 'warning', 5000);
+    // 揺れのずれはウェイトに比例するので、ポップ量を上げると、元のレイヤーの所はウェイトが縮んだぶん揺れも小さくなる
+    else if (r.pop > fromPop && fromPop > 0) toast(`「${base.name}」のポップ量を ${fromPop}px から ${r.pop}px にしました。元の「${base.name}」の所は、揺れが小さくなることがあります。`, 'info', 5000);
   }
 
   /** 一覧の上を手前(配列の後ろ)として並べ替える。dir: +1 で上へ */

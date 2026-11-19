@@ -46,6 +46,8 @@ export const UI_IDS = {
   // 膨らませる
   inflateDialog: 'dialog', inflHead: 'div', inflTitle: 'h3', inflCompact: 'button', inflRows: 'div', inflHeightRow: 'div', inflTarget: 'p', inflKind: 'select', inflW: 'input', inflH: 'input', inflHeight: 'input', inflHeightN: 'input',
   inflSoft: 'input', inflSoftN: 'input', inflAngle: 'input', inflAngleN: 'input', inflCorner: 'input', inflWarpReset: 'button', inflRoundRow: 'div', inflRound: 'input', inflRoundN: 'input', inflBulgeRow: 'div', inflBulge: 'input', inflBulgeN: 'input', inflBlur: 'input', inflBlurN: 'input', inflBlend: 'select', inflLayerBlend: 'select', inflNewLayer: 'input', inflNote: 'p', inflCancel: 'button', inflApply: 'button',
+  // レイヤーの結合
+  mergeDialog: 'dialog', mergeTarget: 'p', mergeMode: 'select', mergeCancel: 'button', mergeApply: 'button',
   // 確認・数値入力
   askDialog: 'dialog', askTitle: 'h3', askBody: 'p', askInputWrap: 'div', askInputLabel: 'span', askInput: 'input', askNo: 'button', askYes: 'button',
   // 設定

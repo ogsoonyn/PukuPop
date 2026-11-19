@@ -285,3 +285,108 @@ test('スマホ: 長押しで選択モードに入り、タップで足す・外
   expect(await selected(page)).toEqual(['B']);
   await expect(page.locator('#layerSelBar')).toBeHidden();
 });
+
+test('結合: 1枚ならすぐ下へ、複数なら一番下へまとめる。重ね方は高い方が既定で、加算も選べる。1手で戻る', async ({ page }) => {
+  await threeLayers(page);
+  // A: ポップ量 100・ウェイト 128、B: ポップ量 200・ウェイト 255、C: ポップ量 100・ウェイト 51
+  await app(page, a => {
+    const [l0, l1, l2] = a.doc.layers;
+    l0.weights.data.fill(128); l1.weights.data.fill(255); l2.weights.data.fill(51);
+    a.store.patchLayer(l2.id, { pop: 100 });
+    for (const l of a.doc.layers) a.store.weightsChanged(l.id, l.weights.fullRect);
+    a.history.clear();
+  });
+  const merge = page.locator('button.btn-square[data-cmd=mergeLayers]');
+  const state = () => app(page, a => a.doc.layers.map((l: any) => [l.name, l.pop, l.weights.data[0], l.blend, l.physics.motion]));
+  const before = await state();
+  // 一番下だけを選んでいるときは、下にまとめる先が無い
+  await row(page, 'A').click();
+  await expect(merge).toBeDisabled();
+  // B をすぐ下の A へ。重ね方は高い方から始まる。揺れ・重ね方・名前は A のものが残る
+  await row(page, 'B').click();
+  await merge.click();
+  await expect(page.locator('#mergeDialog')).toBeVisible();
+  await expect(page.locator('#mergeTarget')).toHaveText('「B」を、すぐ下の「A」にまとめます。');
+  await expect(page.locator('#mergeMode')).toHaveValue('max');
+  await page.locator('#mergeApply').click();
+  await expect(page.locator('#mergeDialog')).toBeHidden();
+  // 高さは A が 100 × 128/255、B が 200 → 高い方の 200 で、ポップ量は大きい方の 200
+  const merged = [['A', 200, 255, 'add', before[0][4]], before[2]];
+  expect(await state()).toEqual(merged);
+  expect(await selected(page)).toEqual(['A']);
+  expect(await app(page, a => a.history.undoLabel)).toBe('高い方でレイヤーを結合');
+  // ポップ量を上げたことを知らせる
+  await expect(page.locator('#toasts')).toContainText('「A」のポップ量を 100px から 200px にしました');
+  await app(page, a => a.history.undo());
+  expect(await state()).toEqual(before);
+  await app(page, a => a.history.redo());
+  expect(await state()).toEqual(merged);
+  await app(page, a => a.history.undo());
+  expect(await state()).toEqual(before);
+  // 離れた A と C を選んで加算: 高さ 100 × 128/255 + 100 × 51/255 → ポップ量 100 のままウェイト 179
+  await row(page, 'A').click();
+  await row(page, 'C').click({ modifiers: ['Control'] });
+  await merge.click();
+  await expect(page.locator('#mergeTarget')).toHaveText('選んでいる2枚(「C」「A」)を、一番下の「A」にまとめます。');
+  await page.locator('#mergeMode').selectOption('add');
+  await page.locator('#mergeApply').click();
+  expect(await state()).toEqual([['A', 100, 179, 'add', before[0][4]], before[1]]);
+  expect(await app(page, a => a.history.undoLabel)).toBe('加算でレイヤーを結合(2枚)');
+  await app(page, a => a.history.undo());
+  expect(await state()).toEqual(before);
+  // 結合したあとは一番下の A を選んでいる(アンドゥしても)。C を選んで開き直すと、重ね方は高い方に戻っている。キャンセルでは何も変えない
+  expect(await selected(page)).toEqual(['A']);
+  await row(page, 'C').click();
+  await merge.click();
+  await expect(page.locator('#mergeTarget')).toHaveText('「C」を、すぐ下の「B」にまとめます。');
+  await expect(page.locator('#mergeMode')).toHaveValue('max');
+  await page.locator('#mergeCancel').click();
+  expect(await state()).toEqual(before);
+  // 非表示のレイヤーを含むときは押せず、ボタンのツールチップに理由を出す
+  await row(page, 'B').locator('input[type=checkbox]').uncheck();
+  await row(page, 'B').click();
+  await expect(merge).toBeDisabled();
+  await expect(merge).toHaveAttribute('title', /非表示のレイヤーは結合できません/);
+  await row(page, 'A').click();
+  await expect(merge).toHaveAttribute('title', /一番下のレイヤーは、下にまとめる先がありません/);
+  expect(await app(page, a => a.doc.layers.length)).toBe(3);
+});
+
+test('結合: 離れた3枚を選んでもまとめて1手で戻り、やり直せる。お気に入りのポップ量も合わせる', async ({ page }) => {
+  await threeLayers(page);
+  // 5枚(下から A・B・C・D・E)。A・C・E を選んで加算で結合する
+  await app(page, a => {
+    a.addLayer(); a.addLayer();
+    const ls = a.doc.layers;
+    ['A', 'B', 'C', 'D', 'E'].forEach((name, i) => {
+      a.store.patchLayer(ls[i].id, { name, pop: 100 });
+      ls[i].weights.data.fill(i % 2 ? 0 : 200);
+      a.store.weightsChanged(ls[i].id, ls[i].weights.fullRect);
+    });
+    a.addFavorite();
+    a.history.clear();
+  });
+  const names = () => app(page, a => a.doc.layers.map((l: any) => l.name));
+  const favPops = () => app(page, a => a.project.favorites[0].layers.map((l: any) => l.pop));
+  expect(await favPops()).toEqual([100, 100, 100, 100, 100]);
+  await row(page, 'A').click();
+  await row(page, 'C').click({ modifiers: ['Control'] });
+  await row(page, 'E').click({ modifiers: ['Control'] });
+  await page.locator('button.btn-square[data-cmd=mergeLayers]').click();
+  await page.locator('#mergeMode').selectOption('add');
+  await page.locator('#mergeApply').click();
+  // 高さは 3 × 100 × 200/255 ≒ 235 → ポップ量 236、ウェイトは 254
+  const merged = await app(page, a => [a.doc.layers.map((l: any) => l.name), a.doc.layers[0].pop, a.doc.layers[0].weights.data[0]]);
+  expect(merged).toEqual([['A', 'B', 'D'], 236, 254]);
+  // お気に入りの A のポップ量も同じ比率で上げる(当てても高さが崩れない)
+  expect(await favPops()).toEqual([236, 100, 100, 100, 100]);
+  await app(page, a => a.history.undo());
+  expect(await names()).toEqual(['A', 'B', 'C', 'D', 'E']);
+  expect(await app(page, a => a.doc.layers.map((l: any) => [l.pop, l.weights.data[0]]))).toEqual([[100, 200], [100, 0], [100, 200], [100, 0], [100, 200]]);
+  expect(await favPops()).toEqual([100, 100, 100, 100, 100]);
+  await app(page, a => a.history.redo());
+  expect(await app(page, a => [a.doc.layers.map((l: any) => l.name), a.doc.layers[0].pop, a.doc.layers[0].weights.data[0]])).toEqual(merged);
+  // 当てても A の高さは変わらない(消えたレイヤーは飛ばす)
+  await app(page, a => a.applyFavorite(a.project.favorites[0].id));
+  expect(await app(page, a => a.doc.layers[0].pop)).toBe(236);
+});
