@@ -391,7 +391,7 @@ test('追加・複製を元に戻すと、その前に選んでいたレイヤ�
   await row(page, 'C').click();
   await page.locator('button.btn-square[data-cmd=addLayer]').click();
   expect(await names()).toHaveLength(4);
-  expect(await selected(page)).not.toEqual(['C']);
+  expect(await app(page, a => [a.activeIndex, a.selectedLayers.length])).toEqual([3, 1]);
   await app(page, a => a.history.undo());
   expect(await names()).toEqual(['A', 'B', 'C']);
   expect(await selected(page)).toEqual(['C']);
