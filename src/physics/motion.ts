@@ -4,7 +4,7 @@
  *
  * - 単位は「画像の長辺 = 2」の正規化座標。y が上、z が手前。
  * - どのパターンも周期 T で元に戻る(T の整数倍の長さで書き出せばループする)。
- * - 振れ幅は strength(0〜1)に比例する。「ためて膨らむ」「ためて膨らむ2」「一瞬膨らむ」の手前への動きはポップ量にも比例する(pop は正規化座標)。
+ * - 振れ幅は strength(0〜1)に比例する。「ためて膨らむ」「ゆっくり膨らむ」「一瞬膨らむ」の手前への動きはポップ量にも比例する(pop は正規化座標)。
  * - 揺らし方ごとの固有設定は params(キーは「揺らし方.項目」)。未設定は MOTION_PARAMS の既定値。
  * - 塗った範囲を広げる揺らし方(SPREAD_MOTIONS)は、土台の動き(motionAnchor)に加えて、塗った範囲の広がりの土台を motionSpread で返す。
  * - ピストンだけは土台を動かさず(motionAnchor は 0)、画像全体の位置を pistonOffset で返す。
@@ -39,6 +39,13 @@ function chargeCurve(u: number, depth: number, time: number, kick: number): numb
 const puffRise = (u: number, time: number) => bump(u, time / 4, time / 2);
 /** 一瞬膨らむの山(周期の頭から time の間)。手前への動きと横の広がりで同じ形を使い、同時に動かす */
 const pulseBump = (u: number, time: number) => bump(u, time / 2, time);
+/** ゆっくり膨らむの形。周期の頭から time をかけてなめらかに 0→1、ret をかけて 1→0 へ戻す(ret が 0 ならぱっと離す)。手前への動きと横の広がりで同じ形を使う */
+function swellCurve(u: number, time: number, ret: number): number {
+  const r = Math.min(ret, 0.98 - time);
+  return u < time ? smooth(u / time) : r > 0 && u < time + r ? 1 - smooth((u - time) / r) : 0;
+}
+/** 鼓動の2拍の形。手前への動きと横の広がりで同じ形を使う */
+const beatCurve = (u: number, second: number, gap: number) => bump(u, 0.06, 0.1) + second * bump(u, 0.06 + gap, 0.1);
 
 export function motionAnchor(
   pattern: MotionPattern, t: number, period: number, strength: number,
@@ -91,9 +98,9 @@ export function motionAnchor(
       break;
     }
     case 'heartbeat': // ドクン、ドクン、と手前にふくらむ
-      out.z = 0.22 * s * P('amp') * (bump(u, 0.06, 0.1) + P('second') * bump(u, 0.06 + P('gap'), 0.1));
+      out.z = 0.22 * s * P('amp') * beatCurve(u, P('second'), P('gap'));
       break;
-    case 'charge': case 'charge2': // ポップ量をゆっくり平らに近づけてから、ぱっと戻し、さらに押し出す
+    case 'charge2': // ポップ量をゆっくり平らに近づけてから、ぱっと戻し、さらに押し出す
       out.z = pop * chargeCurve(u, Math.min(1, P('depth') * 2 * s), P('time'), P('bulge') * 2 * s);
       break;
     case 'piston': // 土台は動かさない。画像全体を動かす(pistonOffset)
@@ -111,6 +118,9 @@ export function motionAnchor(
     }
     case 'pulse': // 周期の頭で一度だけ、手前に少し膨らんですぐ戻る
       out.z = pop * P('bulge') * 2 * s * pulseBump(u, P('time'));
+      break;
+    case 'swell': // じわじわ手前に膨らみ、しゅっと戻す
+      out.z = pop * P('bulge') * 2 * s * swellCurve(u, P('time'), P('ret'));
       break;
   }
   return out;
@@ -146,13 +156,15 @@ export function pistonReach(strength: number, params?: Record<string, number>): 
 }
 
 /** 塗った範囲を広げる揺らし方。ほかの揺らし方では motionSpread はいつも 0 */
-export const SPREAD_MOTIONS: ReadonlySet<MotionPattern> = new Set<MotionPattern>(['charge2', 'puff', 'pulse']);
+export const SPREAD_MOTIONS: ReadonlySet<MotionPattern> = new Set<MotionPattern>(['charge2', 'swell', 'puff', 'pulse', 'heartbeat']);
 
 /**
  * 塗った範囲の広がりの土台(中心からの距離に対する割合。0 で元の大きさ、0.1 で 1 割外へ)。周期 T で元に戻る。
- * - ためて膨らむ2: 手前への動きと同じ時刻に、ためている間は内へ縮め、離した瞬間に外へ押し広げる。
+ * - ためて膨らむ(charge2): 手前への動きと同じ時刻に、ためている間は内へ縮め、離した瞬間に外へ押し広げる。
+ * - ゆっくり膨らむ: 手前への動きと同じ形で、じわじわ広げてしゅっと戻す。
  * - ふわっと膨らむ: 上がるのと同時に外へ広げる。
  * - 一瞬膨らむ: 手前に膨らむのと同時に外へ広げる。
+ * - 鼓動: 2拍と同じ形で外へ広げる(既定の横の広がりは 0%。後から足した項目なので、足す前のファイルは広がらない)。
  * ほかの揺らし方は 0(広げない)。
  */
 export function motionSpread(pattern: MotionPattern, t: number, period: number, strength: number, params?: Record<string, number>): number {
@@ -161,6 +173,8 @@ export function motionSpread(pattern: MotionPattern, t: number, period: number, 
   const P = (key: string) => motionParam(params, pattern, key), a = P('spread') * 2 * strength;
   if (pattern === 'puff') return a * puffRise(u, P('time'));
   if (pattern === 'pulse') return a * pulseBump(u, P('time'));
+  if (pattern === 'swell') return a * swellCurve(u, P('time'), P('ret'));
+  if (pattern === 'heartbeat') return a * beatCurve(u, P('second'), P('gap'));
   return chargeCurve(u, a * P('pinch'), P('time'), a);
 }
 
@@ -172,7 +186,7 @@ export function motionPushes(pattern: MotionPattern, params?: Record<string, num
   const P = (key: string) => motionParam(params, pattern, key);
   switch (pattern) {
     case 'heartbeat': return [0.01, Math.min(0.99, 0.01 + P('gap'))]; // bump(u, 0.06, 0.1) の立ち上がり
-    case 'charge': case 'charge2': return [P('time')]; // ためた所から離す瞬間
+    case 'charge2': return [P('time')]; // ためた所から離す瞬間
     case 'puff': case 'pulse': return [0]; // 周期の頭で一度だけ膨らむ
     default: return [];
   }

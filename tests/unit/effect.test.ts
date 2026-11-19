@@ -40,18 +40,18 @@ function fires(w: PhysicsWorld, doc: Document, seconds: number): number[] {
 describe('膨らんだ瞬間のエフェクトを出す時刻', () => {
   it('押し出す時刻のある揺らし方だけで使える(画面が見る EFFECT_MOTIONS と揃っている)', () => {
     for (const m of Object.keys(MOTIONS) as MotionPattern[]) expect(motionPushes(m).length > 0).toBe(EFFECT_MOTIONS.has(m));
-    expect([...EFFECT_MOTIONS].sort()).toEqual(['charge', 'charge2', 'heartbeat', 'puff', 'pulse']);
-    expect(motionPushes('charge', { 'charge.time': 0.7 })).toEqual([0.7]);
+    expect([...EFFECT_MOTIONS].sort()).toEqual(['charge2', 'heartbeat', 'puff', 'pulse']);
+    expect(motionPushes('charge2', { 'charge2.time': 0.7 })).toEqual([0.7]);
   });
 
   /** 揺らし方・周期・固有設定の組み合わせ。perCycle は1周期に出る数 */
   const cases: [MotionPattern, number, number, Record<string, number>][] = [
-    ['pulse', 1, 1.2, {}], ['charge', 1, 1.2, {}], ['charge2', 1, 1.2, {}], ['puff', 1, 1.2, {}], ['heartbeat', 2, 1.2, {}],
+    ['pulse', 1, 1.2, {}], ['charge2', 1, 1.2, { 'charge2.spread': 0 }], ['charge2', 1, 1.2, {}], ['puff', 1, 1.2, {}], ['heartbeat', 2, 1.2, {}],
     // 周期が長い・短い
-    ['pulse', 1, 10, {}], ['puff', 1, 10, {}], ['heartbeat', 2, 10, {}], ['charge', 1, 10, {}], ['pulse', 1, 0.3, {}],
+    ['pulse', 1, 10, {}], ['puff', 1, 10, {}], ['heartbeat', 2, 10, {}], ['charge2', 1, 10, { 'charge2.spread': 0 }], ['pulse', 1, 0.3, {}],
     // 固有設定を端に寄せる
     ['pulse', 1, 3, { 'pulse.time': 0.6 }], ['puff', 1, 3, { 'puff.time': 0.8 }], ['puff', 1, 1.2, { 'puff.time': 0.8 }],
-    ['puff', 1, 1.2, { 'puff.spread': 0 }], ['charge', 1, 2, { 'charge.time': 0.9 }], ['charge2', 1, 2, { 'charge2.time': 0.2 }],
+    ['puff', 1, 1.2, { 'puff.spread': 0 }], ['charge2', 1, 2, { 'charge2.time': 0.9, 'charge2.spread': 0 }], ['heartbeat', 2, 1.2, { 'heartbeat.spread': 0.3 }], ['charge2', 1, 2, { 'charge2.time': 0.2 }],
   ];
   for (const [motion, perCycle, T, params] of cases) {
     for (const timing of ['burst', 'peak'] as const) {

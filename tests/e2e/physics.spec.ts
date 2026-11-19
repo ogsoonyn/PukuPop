@@ -170,19 +170,21 @@ test('揺らし方の固有設定: 選んだ揺らし方の項目が出て、変
   // 既定(ぷるぷる = 上下に小刻み)の項目
   await expect(page.locator('#motionParams label')).toHaveText(['振れ幅', '2回目の強さ', 'つつく長さ']);
   await page.selectOption('#pPreset', 'tame');
-  await expect(page.locator('#motionParams label')).toHaveText(['ためる深さ', 'ためる時間', '膨らみの強さ']);
+  await expect(page.locator('#motionParams label')).toHaveText(['ためる深さ', 'ためる時間', '膨らみの強さ', '横の広がり', '横の縮み']);
   await expect(page.locator('#mp-depth + output')).toHaveText('70%');
+  // ためてぼよんは、横の広がり 0% のためて膨らむ
+  await expect(page.locator('#mp-spread + output')).toHaveText('0%');
 
   await page.locator('#mp-depth').fill('0.95');
   await page.locator('#mp-depth').dispatchEvent('change');
   await expect(page.locator('#mp-depth + output')).toHaveText('95%');
-  expect(await params()).toEqual({ preset: 'custom', mp: { 'charge.depth': 0.95 } });
+  expect(await params()).toEqual({ preset: 'custom', mp: { 'charge2.spread': 0, 'charge2.depth': 0.95 } });
   expect(await page.evaluate(() => (window as any).popstage.history.undoLabel)).toBe('ためて膨らむ: ためる深さ');
 
   // 選択式の項目(伸びて戻るの向き)
   await page.selectOption('#pMotion', 'stretch');
   await page.selectOption('#mp-dir', '2');
-  expect((await params()).mp).toEqual({ 'charge.depth': 0.95, 'stretch.dir': 2 });
+  expect((await params()).mp).toEqual({ 'charge2.spread': 0, 'charge2.depth': 0.95, 'stretch.dir': 2 });
 
   await page.locator('#view').focus();
   await page.keyboard.press('Control+z');
@@ -351,7 +353,7 @@ test('ピストン: 3面図に上がった画像が収まり、回転・拡大�
   expect(pos[0]).toBeCloseTo(5 - 20, 6); expect(pos[1]).toBeCloseTo(0, 6); expect(pos[2]).toBeCloseTo(0, 6);
 });
 
-test('揺らし方「ためて膨らむ2」: 離した直後に、塗った範囲が画像の面内でも外へ広がる', async ({ page }) => {
+test('揺らし方「ためて膨らむ」(charge2): 離した直後に、塗った範囲が画像の面内でも外へ広がる', async ({ page }) => {
   await boot(page);
   await openTab(page, 'layer');
   // 透明な背景に半径 80px の円を描いた画像。円より広く(半径 130px まで)塗り、ポップ量は 0 にして横の広がりだけを見る
@@ -373,7 +375,7 @@ test('揺らし方「ためて膨らむ2」: 離した直後に、塗った範�
   });
   await page.locator('#physDetails summary').click();
   await page.selectOption('#pMotion', 'charge2');
-  await expect(page.locator('#physSummary')).toContainText('ためて膨らむ2');
+  await expect(page.locator('#physSummary')).toContainText('ためて膨らむ');
   await expect(page.locator('#motionParams label')).toHaveText(['ためる深さ', 'ためる時間', '膨らみの強さ', '横の広がり', '横の縮み']);
   await page.evaluate(() => (window as any).popstage.setPaused(false));
 

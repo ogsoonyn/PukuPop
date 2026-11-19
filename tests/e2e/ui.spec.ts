@@ -815,7 +815,7 @@ test('プリセットで自動揺らしの周期を変えるのは、揺れて�
   await boot(page);
   const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
   await openTab(page, 'layer');
-  // 揺れているレイヤーが1枚: 周期もおすすめの値(ばいんばいん 1.8 秒)になる
+  // 揺れているレイヤーが1枚: 周期もおすすめの値(ぴょーん 1.8 秒)になる
   await page.locator('#pPreset').selectOption('bain');
   expect(await app(a => a.project.autoSwing.period)).toBe(1.8);
   // 何も塗っていないレイヤーは、揺れているとは数えない

@@ -130,8 +130,8 @@ describe('揺れの物理', () => {
     expect(Math.min(...zs)).toBeLessThan(-0.5 * pop); // 半分以上縮む
     expect(Math.max(...zs)).toBeGreaterThan(0.3 * pop); // 離した勢いで元より 3 割以上膨らむ
     // 縮める量はポップ量に比例する
-    expect(motionAnchor('charge', 0.55, 1, 0.5, undefined, 2).z).toBeCloseTo(2 * motionAnchor('charge', 0.55, 1, 0.5, undefined, 1).z, 9);
-    expect(motionAnchor('charge', 0.55, 1, 0.5, undefined, 0).z).toBeCloseTo(0, 12);
+    expect(motionAnchor('charge2', 0.55, 1, 0.5, undefined, 2).z).toBeCloseTo(2 * motionAnchor('charge2', 0.55, 1, 0.5, undefined, 1).z, 9);
+    expect(motionAnchor('charge2', 0.55, 1, 0.5, undefined, 0).z).toBeCloseTo(0, 12);
   });
 
   it('どのプリセットも発散せず、それぞれ違う動きになる', () => {
@@ -319,14 +319,14 @@ describe('揺らし方の固有設定', () => {
   });
 
   it('ためる深さ・膨らみの強さが効く', () => {
-    expect(range('charge', {}, 'z', 1).lo).toBeCloseTo(-0.7, 2);              // 既定 70%
-    expect(range('charge', { 'charge.depth': 1 }, 'z', 1).lo).toBeCloseTo(-1, 2); // 平らまで
-    expect(range('charge', { 'charge.depth': 0.3 }, 'z', 1).lo).toBeCloseTo(-0.3, 2);
-    expect(range('charge', { 'charge.bulge': 0 }, 'z', 1).hi).toBe(0);
-    expect(range('charge', { 'charge.bulge': 1 }, 'z', 1).hi).toBeCloseTo(1, 2);
+    expect(range('charge2', {}, 'z', 1).lo).toBeCloseTo(-0.7, 2);              // 既定 70%
+    expect(range('charge2', { 'charge2.depth': 1 }, 'z', 1).lo).toBeCloseTo(-1, 2); // 平らまで
+    expect(range('charge2', { 'charge2.depth': 0.3 }, 'z', 1).lo).toBeCloseTo(-0.3, 2);
+    expect(range('charge2', { 'charge2.bulge': 0 }, 'z', 1).hi).toBe(0);
+    expect(range('charge2', { 'charge2.bulge': 1 }, 'z', 1).hi).toBeCloseTo(1, 2);
     // 物理を通しても、膨らみの強さを上げると大きく膨らむ
     const peak = (bulge: number) => {
-      const l = layerWith(); l.physics = applyPreset(l.physics, 'tame'); l.physics.motionParams['charge.bulge'] = bulge;
+      const l = layerWith(); l.physics = applyPreset(l.physics, 'tame'); l.physics.motionParams['charge2.bulge'] = bulge;
       const w = new PhysicsWorld(); w.unitPx = 512; w.autoSwing = { enabled: true, period: 2, strength: 0.5 };
       run(w, [l], 20); let hi = -1; for (let i = 0; i < 240; i++) { w.step([l]); hi = Math.max(hi, w.displacement(l.id).z); }
       return hi;
@@ -347,8 +347,10 @@ describe('揺らし方の固有設定', () => {
   });
 
   it('プリセットを当てると固有設定は既定値に戻る', () => {
-    const l = layerWith(); l.physics.motionParams = { 'charge.depth': 0.1 };
-    expect(applyPreset(l.physics, 'tame').motionParams).toEqual({});
+    const l = layerWith(); l.physics.motionParams = { 'charge2.depth': 0.1 };
+    expect(applyPreset(l.physics, 'puku').motionParams).toEqual({});
+    // プリセットに固有設定があるときは、その値だけになる(ためてぼよん = 横の広がり 0% のためて膨らむ)
+    expect(applyPreset(l.physics, 'tame').motionParams).toEqual({ 'charge2.spread': 0 });
   });
 });
 
