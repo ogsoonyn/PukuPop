@@ -89,7 +89,7 @@ function depthAt(s: InflateShape, dx: number, dy: number): number {
   return -roundRectSdf(s, dx, dy) / Math.min(s.rx, s.ry);
 }
 
-/** 図形の中の、縁からの深さ 0〜1(外は 0 以下)。x, y はピクセルの中心 */
+/** 図形の中の、縁からの深さ 0〜1(外は 0 以下)。x, y はピクセルの中心。aspect は見ない(縦横の倍率がそろった空間の形を渡す) */
 export function shapeDepth(s: InflateShape, x: number, y: number, rot = rotation(s)): number {
   const l = localPoint(s, x, y, rot);
   return l ? depthAt(s, l.dx, l.dy) : -1;
@@ -98,7 +98,7 @@ export function shapeDepth(s: InflateShape, x: number, y: number, rot = rotation
 /** 傾きの cos・sin(傾けていなければ null)。ピクセルごとに計算しないよう、先に1回だけ求める */
 const rotation = (s: InflateShape) => (s.angle ? { c: Math.cos(s.angle), n: Math.sin(s.angle) } : null);
 
-/** 傾けた形の外接矩形(中心からのピクセル。左・右・上・下) */
+/** 傾けた形の外接矩形(中心からのピクセル。左・右・上・下)。aspect は見ない(縦横の倍率がそろった空間の形を渡す) */
 export function shapeExtent(s: InflateShape): { x0: number; x1: number; y0: number; y1: number } {
   const c = Math.cos(s.angle ?? 0), n = Math.sin(s.angle ?? 0);
   const b = bulgeOf(s);

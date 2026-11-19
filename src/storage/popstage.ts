@@ -361,7 +361,8 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
         weights = WeightMap.resampled(new WeightMap(g.width, g.height, g.data), ws.w, ws.h);
       }
       const lid = uniqueId(lj.id, 'L');
-      if (typeof lj.id === 'string' && !layerIds.has(lj.id)) layerIds.set(lj.id, lid);
+      // 空の ID は何も指さない(お気に入り・記録の中の空の ID はどのレイヤーにも当てない)
+      if (typeof lj.id === 'string' && lj.id && !layerIds.has(lj.id)) layerIds.set(lj.id, lid);
       const layer: Layer = {
         id: lid, name: str(lj.name, `レイヤー${doc.layers.length + 1}`),
         visible: lj.visible !== false, pop: num(lj.pop, LIMITS.pop.min, LIMITS.pop.max, LIMITS.pop.def),

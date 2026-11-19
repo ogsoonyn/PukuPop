@@ -74,6 +74,18 @@ describe('操作の記録の保存', () => {
     expect(t.samples[0].grabGains).toBe(t.samples[1].grabGains);
   });
 
+  it('レイヤーの ID の対応表を渡すと、つかみの組の ID を当て直す。当てたあとの ID で重複を除き、長すぎる ID は当てる前に捨てる(Issue #59)', () => {
+    const row = [0, 0, 1, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0];
+    const long = 'x'.repeat(65);
+    const json = { version: 1, gainSets: [[['a', 0.1], ['b', 0.2], ['c', 0.3], [long, 0.4], ['d', 0.5]]], samples: Array.from({ length: 60 }, () => row) };
+    // b を新しい ID の c' へ、c も c' へ当てた(先の b が残る)。長すぎる ID は対応表にあっても捨てる。表に無い ID はそのまま
+    const ids = new Map([['b', "c'"], ['c', "c'"], [long, 'y']]);
+    const t = takeFromJson(json, 30, ids)!;
+    expect(t.samples[0].grabGains).toEqual([['a', 0.1], ["c'", 0.2], ['d', 0.5]]);
+    // 対応表が無ければ前と同じ
+    expect(takeFromJson(json, 30)!.samples[0].grabGains).toEqual([['a', 0.1], ['b', 0.2], ['c', 0.3], ['d', 0.5]]);
+  });
+
   it('最長を超えて積まれた記録は最長で切る', () => {
     const t = finalizeTake(Array.from({ length: seconds(60) + 11 }, (_, i) => smp(i * 0.001)))!;
     expect(t.samples.length).toBeLessThanOrEqual(seconds(60));

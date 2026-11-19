@@ -208,6 +208,19 @@ describe('.pukupop', () => {
     expect(m2.id).toBe(l2.id);
     for (const t of [q.take!, q.favorites[0].take!]) expect(t.samples[0].grabGains).toEqual([[m1.id, 0.25], [m2.id, 0.75]]);
     expect(q.favorites[0].layers.map(l => l.id)).toEqual([m1.id, m2.id]);
+
+    // 2枚が同じ ID: その ID は先に出てきたレイヤーを指す(振り直した2枚目には当てない)。
+    // 今の記録とお気に入りが同じ記録を指すときは、当て直したあとも同じ記録のまま
+    p.favorites = [captureFavorite(p, doc, { name: 'b', playing: false })];
+    const dup = unzipSync(serializeProject(p));
+    expect(JSON.parse(strFromU8(dup['project.json'])).project.favorites[0].take).toBe('motion/take.json');
+    for (const path of ['project.json', 'motion/take.json']) dup[path] = strToU8(strFromU8(dup[path]).replaceAll(l2.id, l1.id));
+    const r = (await deserializeProject(zipSync(dup))).project;
+    const [n1, n2] = r.documents[0].layers;
+    expect(n1.id).toBe(l1.id);
+    expect(n2.id).not.toBe(l1.id);
+    expect(r.take!.samples[0].grabGains).toEqual([[n1.id, 0.25]]);
+    expect(r.favorites[0].take).toBe(r.take);
   });
 
   it('3面図の自由角度の視点を保存して戻す。古いファイルや不正な値では初めの視点・範囲内にする', async () => {
