@@ -141,7 +141,7 @@ test('プリセットで材質・揺らし方・周期が変わり、1手で元�
   });
   const before = await state();
   expect(before).toMatchObject({ preset: 'puru', motion: 'jiggle' });
-  await expect(page.locator('#pPreset option')).toHaveCount(16); // 15 種類 + カスタム
+  await expect(page.locator('#pPreset option')).toHaveCount(17); // 16 種類 + カスタム
 
   await page.selectOption('#pPreset', 'bain');
   expect(await state()).toEqual({ preset: 'bain', motion: 'jump', hardness: 0.25, period: 1.8 });
@@ -190,7 +190,7 @@ test('揺らし方の固有設定: 選んだ揺らし方の項目が出て、変
   await page.keyboard.press('Control+z');
   await page.keyboard.press('Control+z');
   await page.keyboard.press('Control+z');
-  expect(await params()).toEqual({ preset: 'tame', mp: {} });
+  expect(await params()).toEqual({ preset: 'tame', mp: { 'charge2.spread': 0 } });
   await expect(page.locator('#mp-depth + output')).toHaveText('70%');
 });
 
