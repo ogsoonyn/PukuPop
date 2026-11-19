@@ -138,7 +138,8 @@ test('形を崩す: 四隅を動かすをオンにすると角を1つずつ動�
   // オフの間は、角は大きさを変える
   await expect(page.locator('#inflWarpReset')).toBeDisabled();
   await page.locator('#inflCorner').check();
-  expect(await app(page, a => a.inflateState.cornerEdit)).toBe(true);
+  // パネルの変更は次のフレームでまとめてプレビューへ当てるので、変わるのを待つ
+  await expect.poll(() => app(page, a => a.inflateState.cornerEdit)).toBe(true);
 
   // 右下の角を内へ(左上へ)寄せる。範囲の大きさ・位置は変わらない
   const br = await framePoint(page, 1, -1);

@@ -188,7 +188,7 @@ export class InflatePreview {
     const level = target.pop > 0 ? Math.min(1, st.height / target.pop) : 0;
     inflateShape(wm, base, {
       kind: st.shape, cx: (a.x / doc.image.width + 0.5) * wm.width, cy: (0.5 - a.y / doc.image.height) * wm.height, rx: a.w / 2 * kx, ry: a.h / 2 * ky,
-      angle: st.angle * Math.PI / 180, warp: a.warp, round: st.round, bulge: st.bulge,
+      angle: st.angle * Math.PI / 180, warp: a.warp, round: st.round, bulge: st.bulge, aspect: ky / kx,
     }, { level, softness: st.softness, profile: st.profile, blend: st.blend, blur: st.blur * kx });
     store.weightsChanged(target.id, wm.fullRect, false);
   }

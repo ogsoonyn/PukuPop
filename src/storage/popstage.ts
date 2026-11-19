@@ -317,25 +317,13 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
   project.multiCamera = { ...cameraOf(p.multiCamera, defaultMultiCamera()), roll: 0 };
   project.fps = 60;
   project.autoSwing = autoSwingOf(p.autoSwing);
-  // 操作の記録。読めなければ記録なしとして開く(画像やウェイトは開けるので、ファイルごと諦めない)。
-  // 同じファイルを指す記録は同じものとして読む(お気に入りの記録が今の記録と同じかを見分けられるように)
-  const takes = new Map<string, Take | null>();
-  const takeAt = (path: unknown, fov: number): Take | null => {
-    if (typeof path !== 'string' || !own(files, path)) return null;
-    if (!takes.has(path)) {
-      let t: Take | null = null;
-      try { t = takeFromJson(JSON.parse(strFromU8(files[path])), fov); } catch { t = null; }
-      takes.set(path, t);
-    }
-    return takes.get(path)!;
-  };
-  project.take = takeAt(TAKE_PATH, project.camera.fov);
-  // キーフレームの一覧。無いのは足す前のファイルで、そのときは記録がキーフレームから作ったものなら、そのキーフレームで始める
-  project.keyframes = Array.isArray(p.keyframes) ? normalizeKeys(p.keyframes) : structuredClone([...project.take?.keys ?? []]);
 
   // ID はレイヤーやドキュメントを探す鍵なので、空・重複していたら振り直す
   const seenIds = new Set<string>();
-  /** ファイルに書かれたレイヤーの ID → 読み込んだレイヤーの ID(振り直したときに、お気に入りの突き合わせも合わせる) */
+  /**
+   * ファイルに書かれたレイヤーの ID → 読み込んだレイヤーの ID(振り直したときに、お気に入りの突き合わせと記録の中の ID も合わせる)。
+   * 重複していた ID は、どちらを指すか決められないので、先に出てきたレイヤーに当てる
+   */
   const layerIds = new Map<string, string>();
   const uniqueId = (v: unknown, prefix: string) => {
     let id = typeof v === 'string' && v ? v : newId(prefix);
@@ -373,7 +361,8 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
         weights = WeightMap.resampled(new WeightMap(g.width, g.height, g.data), ws.w, ws.h);
       }
       const lid = uniqueId(lj.id, 'L');
-      if (typeof lj.id === 'string' && !layerIds.has(lj.id)) layerIds.set(lj.id, lid);
+      // 空の ID は何も指さない(お気に入り・記録の中の空の ID はどのレイヤーにも当てない)
+      if (typeof lj.id === 'string' && lj.id && !layerIds.has(lj.id)) layerIds.set(lj.id, lid);
       const layer: Layer = {
         id: lid, name: str(lj.name, `レイヤー${doc.layers.length + 1}`),
         visible: lj.visible !== false, pop: num(lj.pop, LIMITS.pop.min, LIMITS.pop.max, LIMITS.pop.def),
@@ -387,6 +376,22 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
     if (!doc.layers.length) { const l = createLayer(doc); seenIds.add(l.id); doc.layers.push(l); }
     project.documents.push(doc);
   }
+  // 操作の記録。レイヤーの ID が決まってから読む(振り直した ID を、つかみの効き具合にも当てるため)。
+  // 読めなければ記録なしとして開く(画像やウェイトは開けるので、ファイルごと諦めない)。
+  // 同じファイルを指す記録は同じものとして読む(お気に入りの記録が今の記録と同じかを見分けられるように)
+  const takes = new Map<string, Take | null>();
+  const takeAt = (path: unknown, fov: number): Take | null => {
+    if (typeof path !== 'string' || !own(files, path)) return null;
+    if (!takes.has(path)) {
+      let t: Take | null = null;
+      try { t = takeFromJson(JSON.parse(strFromU8(files[path])), fov, layerIds); } catch { t = null; }
+      takes.set(path, t);
+    }
+    return takes.get(path)!;
+  };
+  project.take = takeAt(TAKE_PATH, project.camera.fov);
+  // キーフレームの一覧。無いのは足す前のファイルで、そのときは記録がキーフレームから作ったものなら、そのキーフレームで始める
+  project.keyframes = Array.isArray(p.keyframes) ? normalizeKeys(p.keyframes) : structuredClone([...project.take?.keys ?? []]);
   project.favorites = favoritesFrom(favsJson, layerIds, takeAt, project.camera);
   return { project, thumbnail: files['thumbnail.png'] };
 }
