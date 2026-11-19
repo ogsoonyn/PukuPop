@@ -14,7 +14,7 @@ import { WeightMap, weightSizeFor } from '../model/weightmap';
 import { takeToJson, takeFromJson, normalizeKeys, type Take, type KeyFrame } from '../physics/take';
 import { FAVORITE_NAME_MAX } from '../model/favorites';
 import { encodeGrayPng, decodePngToGray, readPngSize, MAX_PNG_SIDE, type GrayImage } from './png';
-import { IMAGE_TYPES, sniffImageMime, imageOrientedSize } from './imagehead';
+import { IMAGE_TYPES, isImageMime, sniffImageMime, imageOrientedSize } from './imagehead';
 
 export const FORMAT_VERSION = 1;
 export const FILE_EXTENSION = '.pukupop';
@@ -348,7 +348,7 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
     if (!imgBytes) throw new Error(`画像 ${dj.image?.path} が見つかりません`);
     // 種類は画像の中身から決め、分からなければ mime、それも知らない種類なら PNG とする。
     // 拡張子は種類から決める(パスの末尾から取ると、変な形のパスがそのまま保存し直すファイルに書かれるため)
-    const mime = sniffImageMime(imgBytes) ?? (typeof dj.image.mime === 'string' && own(IMAGE_TYPES, dj.image.mime) ? dj.image.mime : 'image/png');
+    const mime = sniffImageMime(imgBytes) ?? (isImageMime(dj.image.mime) ? dj.image.mime : 'image/png');
     const { width, height } = imageSizeOf(dj.image, imgBytes);
     const doc: Document = {
       id: uniqueId(dj.id, 'D'), name: str(dj.name, '画像'),

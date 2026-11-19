@@ -5,7 +5,7 @@ import { serializeProject, deserializeProject, migrate, FORMAT_VERSION, UNZIP_LI
 import { createDocument, createProject, createLayer, defaultMultiCamera } from '../../src/model/project';
 import { captureFavorite } from '../../src/model/favorites';
 import { takeFromKeys } from '../../src/physics/take';
-import { imageHeaderSize, jpegOrientation, imageOrientedSize, sniffImageMime } from '../../src/storage/imagehead';
+import { imageHeaderSize, jpegOrientation, imageOrientedSize, isImageMime, sniffImageMime } from '../../src/storage/imagehead';
 
 describe('PNG', () => {
   it('グレースケールの往復', () => {
@@ -405,6 +405,11 @@ describe('.pukupop', () => {
 });
 
 describe('画像のヘッダ', () => {
+  it('扱う画像の種類は自分のプロパティだけで見分ける(constructor などを通さない。Issue #151)', () => {
+    for (const m of ['image/png', 'image/jpeg', 'image/webp']) expect(isImageMime(m)).toBe(true);
+    for (const m of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'image/gif', '', undefined, null, 1]) expect(isImageMime(m)).toBe(false);
+  });
+
   it('種類と寸法を中身から読む', () => {
     expect(sniffImageMime(encodeGrayPng(3, 2, new Uint8Array(6)))).toBe('image/png');
     expect(sniffImageMime(jpegOf(3, 2, 1))).toBe('image/jpeg');

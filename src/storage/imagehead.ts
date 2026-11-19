@@ -6,6 +6,10 @@
 /** 扱う画像の種類と、そのとき使う拡張子 */
 export const IMAGE_TYPES: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 
+/** 扱う画像の種類か。`in` はプロトタイプの `constructor` なども拾うので、自分のプロパティだけを見る */
+export const isImageMime = (mime: unknown): mime is string =>
+  typeof mime === 'string' && Object.prototype.hasOwnProperty.call(IMAGE_TYPES, mime);
+
 /** 先頭のバイトから画像の種類(PNG / JPEG / WebP)を決める。印の確かめ方は imageHeaderSize とそろえる。分からなければ null */
 export function sniffImageMime(b: Uint8Array): string | null {
   if (b.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';

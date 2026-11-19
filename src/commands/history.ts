@@ -9,6 +9,12 @@ export interface Command {
   readonly label: string;
   /** 保持しているデータ量の目安(バイト) */
   readonly bytes: number;
+  /**
+   * やり直しで選んでいたレイヤーが消えたときに選ぶレイヤー(レイヤーを消す操作で、実行したときに選んだもの)。
+   * History は `redo` で知らせるだけで、消えたかを見て選ぶのは受けた側(App)。
+   * 選ぶものはモデルに無いので、ここでは id だけを持つ
+   */
+  readonly selectAfter?: string;
   apply(store: Store): void;
   revert(store: Store): void;
 }
@@ -33,7 +39,7 @@ export function shrinkHistory(s: HistoryState, bytes: number): number {
   return freed;
 }
 
-export class History extends Emitter<{ change: void }> {
+export class History extends Emitter<{ change: void; redo: Command }> {
   private undoStack: Command[] = [];
   private redoStack: Command[] = [];
   private totalBytes = 0;
@@ -83,6 +89,7 @@ export class History extends Emitter<{ change: void }> {
     if (!cmd) return false;
     cmd.apply(this.store);
     this.undoStack.push(cmd);
+    this.emit('redo', cmd);
     this.emit('change', undefined);
     return true;
   }

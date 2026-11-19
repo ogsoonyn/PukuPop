@@ -1,15 +1,15 @@
 /** 画像のデコードとサムネイル。DOM(Canvas)を使うので Model からは分けておく。 */
 import type { ImageAsset } from '../model/project';
 import type { GrayImage } from '../storage/png';
-import { IMAGE_TYPES, imageHeaderSize, sniffImageMime } from '../storage/imagehead';
+import { IMAGE_TYPES, imageHeaderSize, isImageMime, sniffImageMime } from '../storage/imagehead';
 
-export { IMAGE_TYPES, imageHeaderSize };
+export { IMAGE_TYPES, imageHeaderSize, isImageMime };
 
-export function isImageFile(f: File): boolean { return f.type in IMAGE_TYPES || /\.(png|jpe?g|webp)$/i.test(f.name); }
+export function isImageFile(f: File): boolean { return isImageMime(f.type) || /\.(png|jpe?g|webp)$/i.test(f.name); }
 /** クリップボードの画像は名前が無いか `image.png` なので、「貼り付けた画像.png」にする(元の名前があればそのまま) */
 export function pastedImageFile(f: File): File {
   if (f.name && !/^image\.\w+$/i.test(f.name)) return f;
-  return new File([f], `貼り付けた画像.${IMAGE_TYPES[f.type] ?? 'png'}`, { type: f.type, lastModified: f.lastModified });
+  return new File([f], `貼り付けた画像.${isImageMime(f.type) ? IMAGE_TYPES[f.type] : 'png'}`, { type: f.type, lastModified: f.lastModified });
 }
 
 export function isProjectFile(f: File): boolean { return /\.(pukupop|popstage)$/i.test(f.name); }
@@ -23,7 +23,7 @@ export const MAX_IMAGE_PIXELS = 120_000_000;
  */
 export async function fileToAsset(file: File, maxDisplay: number): Promise<{ asset: ImageAsset; canvas: HTMLCanvasElement }> {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const mime = file.type in IMAGE_TYPES ? file.type : sniffImageMime(bytes);
+  const mime = isImageMime(file.type) ? file.type : sniffImageMime(bytes);
   if (!mime) throw new Error('PNG / JPEG / WebP の画像を選んでください。');
   const bmp = await decodeBitmap(bytes, mime);
   const asset: ImageAsset = { bytes, mime, ext: IMAGE_TYPES[mime], width: bmp.width, height: bmp.height };
