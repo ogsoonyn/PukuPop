@@ -24,7 +24,7 @@ export function mountEffectLab(app: LabApp): void {
         <select id="fxLabMode" class="select select-xs"><option value="forward">手前への揺れ具合(すべての揺らし方)</option><option value="push">今の方式(膨らむ揺らし方だけ)</option></select></label>
       <div id="fxLabSliders" style="display:flex;flex-direction:column;gap:4px"></div>
       <canvas id="fxLabGraph" width="366" height="120" style="width:366px;height:120px;border-radius:6px;background:#f7f2f5"></canvas>
-      <div style="opacity:.75;line-height:1.5">青: 膨らみの量(手前へのずれ ÷ ポップ量 + 広がり)。突き出しを1回ごとに測り、● 出た / ○ 出ない(跳ね返り・弱い)。下の一覧は新しい順。</div>
+      <div style="opacity:.75;line-height:1.5">青: 膨らみの量(手前へのずれ ÷ ポップ量 + 広がり)。突き出し1回ごとに1度だけ決め、● 出た / ○ 出ない(減衰中・弱い)。膨らみ始めは、傾きが境目(下限と、前の突き出しの一番の傾き × 割合の大きい方)を越えた瞬間に出す。下の一覧は新しい順。</div>
       <div id="fxLabLog" style="font-family:ui-monospace,monospace;font-size:11px;line-height:1.5;max-height:7.5em;overflow:auto"></div>
     </div>`;
   document.body.append(box);
@@ -35,9 +35,9 @@ export function mountEffectLab(app: LabApp): void {
   $('fxLabMin').addEventListener('click', () => { const b = $('fxLabBody'); b.hidden = !b.hidden; $('fxLabMin').textContent = b.hidden ? 'ひらく' : 'たたむ'; });
   const sliders = $('fxLabSliders');
   const defs: [keyof typeof effectLab, string, number, number, number, (v: number) => string][] = [
-    ['vmin', '膨らみ始めの下限(速さ)', 0.1, 6, 0.1, v => v.toFixed(1)],
+    ['vmin', '膨らみ始めの下限(傾き)', 0.1, 6, 0.1, v => v.toFixed(1)],
     ['amin', '一番膨らんだときの下限(量)', 0.01, 0.8, 0.01, v => v.toFixed(2)],
-    ['rebound', '跳ね返りとみなす割合', 0, 1.2, 0.05, v => `${Math.round(v * 100)}%`],
+    ['rebound', '前の突き出しに対する割合', 0, 1.2, 0.05, v => `${Math.round(v * 100)}%`],
     ['decay', '前の強さが薄れる時間', 0.1, 5, 0.1, v => `${v.toFixed(1)}秒`],
   ];
   for (const [key, label, min, max, step, fmt] of defs) {
@@ -70,7 +70,7 @@ export function mountEffectLab(app: LabApp): void {
       g.beginPath(); g.arc(X(p.t), Y(p.I), 4, 0, Math.PI * 2);
       if (p.fire) { g.fillStyle = '#e0457b'; g.fill(); } else { g.strokeStyle = '#999'; g.lineWidth = 1; g.stroke(); }
     }
-    const peak = app.activeLayer?.effect.timing === 'peak', unit = peak ? '量' : '速さ';
+    const peak = app.activeLayer?.effect.timing === 'peak', unit = peak ? '量' : '傾き';
     const rows = tr.filter(p => p.S !== undefined).slice(-12).reverse()
       .map(p => `${p.fire ? '●' : '○'} ${unit} ${p.S!.toFixed(2)} / 境目 ${p.ref!.toFixed(2)}`);
     const text = effectLab.mode === 'forward' ? (rows.join('\n') || 'まだ突き出しがありません') : '今の方式では記録しません';

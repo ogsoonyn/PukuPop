@@ -47,10 +47,13 @@ export interface EffectState {
   done: boolean;
   lastS: number;
   lastT: number;
+  /** 一番膨らんだときで前に出した量と時刻 */
+  peakS: number;
+  peakT: number;
 }
 
 export function freshEffect(): EffectState {
-  return { win: -Infinity, fired: true, armAt: null, prevI: NaN, prevV: 0, bursts: [], valley: 0, vmax: 0, done: true, lastS: 0, lastT: -Infinity };
+  return { win: -Infinity, fired: true, armAt: null, prevI: NaN, prevV: 0, bursts: [], valley: 0, vmax: 0, done: true, lastS: 0, lastT: -Infinity, peakS: 0, peakT: -Infinity };
 }
 
 export function copyEffect(e: EffectState): EffectState {
@@ -111,28 +114,39 @@ export function stepEffect(e: EffectState, layer: Layer, auto: AutoSwing, t0: nu
   e.prevI = I; e.prevV = v;
 }
 
-/** 手前への揺れ具合で決める(effectLab の forward)。自動揺らしでも手で揺らしても、揺らし方を問わず同じ */
+/**
+ * 手前への揺れ具合で決める(effectLab の forward)。自動揺らしでも手で揺らしても、揺らし方を問わず同じ。
+ * burst(膨らみ始め): 突き出しの傾き(膨らむ速さ)が、下限と「前の突き出しの一番の傾き × 割合」の両方を越えた瞬間に出す。
+ *   前の突き出しより弱い(減衰中の揺れ返し)ときは越えないので出ない。前の突き出しの傾きは時間で薄れる。
+ * peak(一番膨らんだとき): 一番膨らんだ所で、量が下限と「前に出したときの量 × 割合」の両方を越えたら出す
+ */
 function stepForward(e: EffectState, layer: Layer, t1: number, s: Vec3, r: number, I: number, v: number): void {
-  const L = effectLab, peak = layer.effect.timing === 'peak';
+  const L = effectLab, peak = layer.effect.timing === 'peak', fade = (x: number, t: number) => x * Math.exp(-(t1 - t) / Math.max(L.decay, 0.01));
   let fire = false, mS: number | undefined, mRef: number | undefined;
+  const shoot = () => {
+    fire = true;
+    e.bursts.push({ t: t1, s: { ...s }, r });
+    if (e.bursts.length > MAX_BURSTS) e.bursts.shift();
+  };
   if (!Number.isNaN(e.prevI)) {
-    // 減っていた(か止まっていた)のが増え始めたら、新しい突き出し
-    if (e.prevV <= 0 && v > 0) { e.valley = e.prevI; e.vmax = 0; e.done = false; }
+    // 減っていた(か止まっていた)のが増え始めたら、新しい突き出し。前の突き出しの一番の傾きを覚える(ごく小さい揺れは数えない)
+    if (e.prevV <= 0 && v > 0) {
+      if (e.vmax >= L.vmin * 0.3) { e.lastS = e.vmax; e.lastT = t1; }
+      e.valley = e.prevI; e.vmax = 0; e.done = false;
+    }
+    e.vmax = Math.max(e.vmax, v);
     if (!e.done) {
-      e.vmax = Math.max(e.vmax, v);
-      // burst: 速さが増えから減りに変わった所 / peak: 速さが 0 以下になった所
-      const at = peak ? e.prevV > 0 && v <= 0 : e.prevV > 0 && v < e.prevV;
-      if (at) {
-        e.done = true;
-        const S = peak ? e.prevI : e.vmax, min = peak ? L.amin : L.vmin;
-        const ref = e.lastS * Math.exp(-(t1 - e.lastT) / Math.max(L.decay, 0.01));
-        mS = S; mRef = Math.max(min, L.rebound * ref);
-        if (S >= min && S >= L.rebound * ref) {
-          fire = true;
-          e.lastS = S; e.lastT = t1;
-          e.bursts.push({ t: t1, s: { ...s }, r });
-          if (e.bursts.length > MAX_BURSTS) e.bursts.shift();
+      if (peak) {
+        if (e.prevV > 0 && v <= 0) {
+          e.done = true;
+          const S = e.prevI, ref = Math.max(L.amin, L.rebound * fade(e.peakS, e.peakT));
+          mS = S; mRef = ref;
+          if (S >= ref) { shoot(); e.peakS = S; e.peakT = t1; }
         }
+      } else {
+        const ref = Math.max(L.vmin, L.rebound * fade(e.lastS, e.lastT));
+        if (v >= ref) { e.done = true; mS = v; mRef = ref; shoot(); }
+        else if (e.prevV > 0 && v <= 0) { e.done = true; mS = e.vmax; mRef = ref; }
       }
     }
   }
