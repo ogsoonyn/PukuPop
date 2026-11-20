@@ -1,5 +1,6 @@
 /** 右パネル(レイヤー一覧とプロパティ)とツールオプション。 */
 import { countLabel, type App } from '../app';
+import { effectLab } from '../physics/effectLab';
 import { PRESETS, PRESET_ORDER, BLENDS, BLEND_ORDER, MOTIONS, MOTION_PARAMS, LIMITS, EFFECT_TIMINGS, EFFECT_COLORS, EFFECT_BLENDS, EFFECT_MOTIONS, motionParam, scalePops, layerColor, type MotionParamDef, type Layer, type LayerEffect, type EffectTiming, type EffectColor, type EffectBlend, type PhysicsParams, type PresetName, type MotionPattern, type BlendMode, type Project, type Document } from '../model/project';
 import { PatchLayer, PatchDocument, PatchProject, SetFov, Batch } from '../commands/commands';
 import type { Command } from '../commands/history';
@@ -249,7 +250,7 @@ export function bindPanels(app: App): { refresh: () => void } {
     ui.pFx.checked = on && fx.enabled; ui.pFx.indeterminate = !on;
     // 押し出す動きの無い揺らし方では出ないので、欄ごと止める(選んだレイヤーのどれかで出るなら触れる)。
     // 入れたまま揺らし方を変えたときに切れるよう、入・切だけは入っているレイヤーがあれば触れる
-    const usable = ls.some(x => EFFECT_MOTIONS.has(x.physics.motion));
+    const usable = effectLab.mode === 'forward' || ls.some(x => EFFECT_MOTIONS.has(x.physics.motion));
     ui.pFxNote.hidden = usable;
     ui.pFxNote.textContent = ls.length > 1 ? '選んだレイヤーの揺らし方では出ません。' : `揺らし方「${MOTIONS[l.physics.motion].label}」では出ません。`;
     ui.pFxBody.hidden = !ls.some(x => x.effect.enabled);

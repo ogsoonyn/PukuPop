@@ -16,6 +16,7 @@
  */
 import type { AutoSwing, Layer, MotionPattern, Vec3 } from '../model/project';
 import { motionAnchor, motionPushes, motionSpread } from './motion';
+import { effectLab, labTrace, LAB_KEEP } from './effectLab';
 
 /** 押し出す時刻から受け付ける長さの下限(秒)。周期の半分の方が長ければそちら */
 export const EFFECT_WINDOW = 0.4;
@@ -40,10 +41,16 @@ export interface EffectState {
   prevI: number;
   prevV: number;
   bursts: Burst[];
+  /** 手前への揺れ具合で決めるとき(effectLab の forward): 今の突き出しの谷の膨らみ・一番速かった速さ・もう出したか、前に出した強さと時刻 */
+  valley: number;
+  vmax: number;
+  done: boolean;
+  lastS: number;
+  lastT: number;
 }
 
 export function freshEffect(): EffectState {
-  return { win: -Infinity, fired: true, armAt: null, prevI: NaN, prevV: 0, bursts: [] };
+  return { win: -Infinity, fired: true, armAt: null, prevI: NaN, prevV: 0, bursts: [], valley: 0, vmax: 0, done: true, lastS: 0, lastT: -Infinity };
 }
 
 export function copyEffect(e: EffectState): EffectState {
@@ -79,6 +86,7 @@ export function stepEffect(e: EffectState, layer: Layer, auto: AutoSwing, t0: nu
   if (e.bursts.length) e.bursts = e.bursts.filter(b => t1 - b.t < fx.duration);
   const I = inflation(motion, s, r, pop);
   const v = Number.isNaN(e.prevI) ? 0 : (I - e.prevI) / Math.max(t1 - t0, 1e-6);
+  if (effectLab.mode === 'forward') { stepForward(e, layer, t1, s, r, I, v); return; }
   if (auto.enabled && auto.strength > 0) {
     const T = Math.max(0.05, auto.period), frac = (t: number) => (((t / T) % 1) + 1) % 1, len = effectWindow(T);
     const u0 = frac(t0), u1 = frac(t1);
@@ -99,6 +107,40 @@ export function stepEffect(e: EffectState, layer: Layer, auto: AutoSwing, t0: nu
         if (e.bursts.length > MAX_BURSTS) e.bursts.shift();
       }
     }
+  }
+  e.prevI = I; e.prevV = v;
+}
+
+/** 手前への揺れ具合で決める(effectLab の forward)。自動揺らしでも手で揺らしても、揺らし方を問わず同じ */
+function stepForward(e: EffectState, layer: Layer, t1: number, s: Vec3, r: number, I: number, v: number): void {
+  const L = effectLab, peak = layer.effect.timing === 'peak';
+  let fire = false, mS: number | undefined, mRef: number | undefined;
+  if (!Number.isNaN(e.prevI)) {
+    // 減っていた(か止まっていた)のが増え始めたら、新しい突き出し
+    if (e.prevV <= 0 && v > 0) { e.valley = e.prevI; e.vmax = 0; e.done = false; }
+    if (!e.done) {
+      e.vmax = Math.max(e.vmax, v);
+      // burst: 速さが増えから減りに変わった所 / peak: 速さが 0 以下になった所
+      const at = peak ? e.prevV > 0 && v <= 0 : e.prevV > 0 && v < e.prevV;
+      if (at) {
+        e.done = true;
+        const S = peak ? e.prevI : e.vmax, min = peak ? L.amin : L.vmin;
+        const ref = e.lastS * Math.exp(-(t1 - e.lastT) / Math.max(L.decay, 0.01));
+        mS = S; mRef = Math.max(min, L.rebound * ref);
+        if (S >= min && S >= L.rebound * ref) {
+          fire = true;
+          e.lastS = S; e.lastT = t1;
+          e.bursts.push({ t: t1, s: { ...s }, r });
+          if (e.bursts.length > MAX_BURSTS) e.bursts.shift();
+        }
+      }
+    }
+  }
+  if (L.trace) {
+    let tr = labTrace.get(layer.id);
+    if (!tr) labTrace.set(layer.id, (tr = []));
+    tr.push({ t: t1, I, v, fire, ...(mS !== undefined ? { S: mS, ref: mRef } : {}) });
+    while (tr.length && t1 - tr[0].t > LAB_KEEP) tr.shift();
   }
   e.prevI = I; e.prevV = v;
 }

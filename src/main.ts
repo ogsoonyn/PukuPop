@@ -1,3 +1,4 @@
+import { mountEffectLab } from './ui/effectLab';
 import './style.css';
 import { App, MAX_TABS } from './app';
 import { initUI, ui } from './ui/ids';
@@ -139,9 +140,14 @@ fileProject.addEventListener('change', () => { const f = fileProject.files?.[0];
 
 const IMAGE_ACCEPT = { 'image/*': ['.png', '.jpg', '.jpeg', '.webp'] };
 
+function inCrossOriginFrame(): boolean {
+  try { return window.top !== window.self && !window.top?.location.href; } catch { return true; }
+}
+
 /** Chrome 系はファイルの場所(ハンドル)ごと受け取る。最近開いたファイルから開き直すのに使う */
 async function pickAndOpen(types: FilePickerAcceptType[], fallback: HTMLInputElement): Promise<void> {
-  if (window.showOpenFilePicker) {
+  // 別のオリジンの枠の中(ほかのページに載せたとき)ではファイルの場所を受け取る画面を出せないので、ふつうのファイルの選択にする
+  if (window.showOpenFilePicker && !inCrossOriginFrame()) {
     try {
       const r = await retryWithClick(() => window.showOpenFilePicker!({ types }), 'ファイルを選ぶ…');
       if (!r) return;
@@ -173,6 +179,8 @@ bindMemoryStatus(app);
 const settingsDialog = bindSettingsDialog();
 // スマホの配置。右パネルなどの部品を移すので、ほかの部品を結び付けたあとに呼ぶ
 bindMobileLayout(app);
+// エフェクトの出し方を試すパネル(実験用のテストページ)
+if (params.has('fxlab')) mountEffectLab(app);
 // 指で触ったスライダーは、横に引いたときだけ動かす(縦はスクロール。スマホの配置ではいつも)
 bindTouchSliders(() => document.documentElement.classList.contains('mobile'));
 

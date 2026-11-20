@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { PhysicsWorld, PHYSICS_DT } from '../../src/physics/world';
 import { effectWindow } from '../../src/physics/effect';
+import { effectLab } from '../../src/physics/effectLab';
 import { motionPushes } from '../../src/physics/motion';
 import { createDocument, MOTIONS, EFFECT_MOTIONS, MAX_EFFECT_DRAWS, type Document, type MotionPattern } from '../../src/model/project';
 import { StageSwing, effectEnvelope } from '../../src/playback/stageSwing';
@@ -154,4 +155,25 @@ describe('エフェクトの描き方', () => {
     sw.applySwing(w, doc);
     expect(got.at(-1)).toEqual([]);
   });
+});
+
+describe('手前への揺れ具合で出す(テストページの forward、実験)', () => {
+  const withForward = (f: () => void) => { const m = effectLab.mode; effectLab.mode = 'forward'; try { f(); } finally { effectLab.mode = m; } };
+  it('膨らむ揺らし方は1周期に1回、左右に揺れるだけでは出ない', () => withForward(() => {
+    const T = 1.2;
+    for (const timing of ['burst', 'peak'] as const) expect(fires(worldFor(T), docWith('pulse', timing), T * 6).filter(t => t >= T * 2).length).toBe(4);
+    expect(fires(worldFor(T), docWith('sway'), T * 6)).toEqual([]);
+  }));
+  it('手で手前へ押して離すと、揺れ返しでは出さず1回だけ出す(揺らし方を問わない)', () => withForward(() => {
+    for (const motion of ['sway', 'pulse'] as MotionPattern[]) {
+      const doc = docWith(motion), w = worldFor(); w.autoSwing.enabled = false;
+      const id = doc.layers[0].id, seen = new Set<number>();
+      for (let i = 0; i < 360; i++) {
+        w.grab = i < 15 ? { x: 0, y: 0, z: -0.3 * (i / 15) } : i < 30 ? { x: 0, y: 0, z: -0.3 } : null;
+        w.step(doc.layers);
+        for (const b of w.bursts(id)) seen.add(b.t);
+      }
+      expect(seen.size).toBe(1);
+    }
+  }));
 });
