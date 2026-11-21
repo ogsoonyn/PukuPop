@@ -453,7 +453,7 @@ class Explorer {
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs muted items-center">
           <span class="font-semibold text-[13px]" style="color:var(--ink)">時間ごとのずれ(2周期分、揺れが落ち着いた後)</span>
           <span><span class="legend-dash" style="color:var(--c-anchor)"></span>土台</span><span><span class="legend-dot" style="color:var(--ink)"></span>塗った所(色は向き)</span><span data-r="lg-ghost"><span class="legend-ghost" style="color:var(--ink)"></span>既定の値のとき</span>
-          <span data-r="lg-fx" hidden><span class="legend-dot" style="color:var(--c-fx)"></span>エフェクトが出た時刻 <span class="legend-dash" style="color:var(--c-i)"></span>出るしきい値</span>
+          <span data-r="lg-fx" hidden><span class="legend-dot" style="color:var(--c-fx)"></span>エフェクトが出た時刻 <span class="legend-dash" style="color:var(--c-i)"></span>しきい値の下限</span>
           <span class="ml-auto">グラフを押すと、その時刻へ飛びます</span>
         </div>
         <div class="grid gap-3" data-r="gwrap">
@@ -536,7 +536,7 @@ class Explorer {
     fxp.appendChild(tg);
     tg.querySelector<HTMLInputElement>(`#${this.id}-fxon`)!.addEventListener('change', e => { fx.enabled = (e.target as HTMLInputElement).checked; this.recompute(); });
     tg.querySelector<HTMLInputElement>(`#${this.id}-ring`)!.addEventListener('change', e => { fx.ring = (e.target as HTMLInputElement).checked; });
-    this.slider(fxp, { key: 'fx-timing', label: '出すとき', options: [[0, '膨らみ始め(勢いが一番強いとき)'], [1, '一番膨らんだとき']], hint: '膨らみ始め: 膨らむ速さ(I の傾き)が「出る勢い」と前の膨らみの一番急な傾きの両方を越えた瞬間。一番膨らんだとき: 膨らみが止まった所で、I が下限と前に出したときの I の両方を越えていれば出す。', get: () => fx.timing === 'peak' ? 1 : 0, set: v => { fx.timing = v ? 'peak' : 'burst'; } });
+    this.slider(fxp, { key: 'fx-timing', label: '出すとき', options: [[0, '膨らみ始め'], [1, '一番膨らんだとき']], hint: '膨らみ始め: 膨らむ速さ(I の傾き)が「出る勢い」と前の膨らみの一番急な傾きの両方を越えた瞬間。一番膨らんだとき: 膨らみが止まった所で、I が下限と前に出したときの I の両方を越えていれば出す。', get: () => fx.timing === 'peak' ? 1 : 0, set: v => { fx.timing = v ? 'peak' : 'burst'; } });
     this.slider(fxp, { key: 'fx-min', label: '出る勢い', min: L.burstMin.min, max: L.burstMin.max, step: 0.1, hint: `膨らみ始めに出すときの、膨らむ速さの下限(I/秒、既定 ${L.burstMin.def})。小さいほど弱い膨らみでも出ます。グラフの点線がこの値です。`, get: () => fx.burstMin, set: v => { fx.burstMin = v; }, fmt: v => v.toFixed(1) });
     this.slider(fxp, { key: 'fx-op', label: '濃さ', min: L.opacity.min, max: L.opacity.max, step: 0.01, hint: `コピーの一番濃いときの不透明度(既定 ${pctText(L.opacity.def)})。`, get: () => fx.opacity, set: v => { fx.opacity = v; }, fmt: pctText, after: drawEnv });
     this.slider(fxp, { key: 'fx-sp', label: '広がり', min: L.spread.min, max: L.spread.max, step: 0.01, hint: `消えるまでに広がる大きさ(重心からの距離に対する割合、既定 ${pctText(L.spread.def)})。`, get: () => fx.spread, set: v => { fx.spread = v; }, fmt: pctText, after: drawEnv });
@@ -563,7 +563,7 @@ class Explorer {
       const series: Series[] = [...(ghostOn ? [{ data: gr, style: 'ghost' as const, color: c }] : []), ...(key === 'V' ? [] : [{ data: anc, style: 'dash' as const, color: col('anchor') }]), { data: res, style: 'solid', color: c }];
       let label = ax.label + (key === 'r' ? '(中心からの距離に対する %)' : key === 'I' ? '(手前のずれ÷ポップ量 + 広がり、%)' : key === 'V' ? '(I/秒)' : '(画像の長辺に対する %)');
       if (isP && key === 'y') label = '上下の位置 y(点線 = 画像全体、実線 = 塗った所の画面上の位置)';
-      const hline = key === 'V' ? { v: st.fx.burstMin, label: `出る勢い ${st.fx.burstMin.toFixed(1)}` } : key === 'I' && fxActive(st) ? { v: PEAK_MIN, label: `下限 ${pctText(PEAK_MIN)}` } : undefined;
+      const hline = key === 'V' ? { v: st.fx.burstMin, label: `出る勢い(下限) ${st.fx.burstMin.toFixed(1)}` } : key === 'I' && fxActive(st) ? { v: PEAK_MIN, label: `下限 ${pctText(PEAK_MIN)}` } : undefined;
       return { key, label, k: ax.k, series, unit: key === 'V' ? '' : '%', hline, extraRange: hline ? [0, hline.v * ax.k * 1.15] : undefined };
     });
   }

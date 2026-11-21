@@ -64,6 +64,14 @@ describe('膨らんだ瞬間のエフェクトを出す時刻', () => {
     }
   }
 
+  it('ぷくーっ(ゆっくり膨らむ): 一番膨らんだときは一番膨らんだ所で出る。膨らみ始めは膨らむ速さが出る勢いに届かず、しゅっと戻ったあとの跳ね返りで出る', () => {
+    const T = PRESETS.puu.period, time = 0.6, ret = 0.06;
+    const phase = (timing: 'burst' | 'peak') => (fires(worldFor(T), presetDoc('puu', timing), T * 4).filter(t => t >= T)[0] / T) % 1;
+    expect(phase('peak')).toBeGreaterThan(time - 0.02);
+    expect(phase('peak')).toBeLessThan(time + ret);
+    expect(phase('burst')).toBeGreaterThan(time + ret);
+  });
+
   it('一番膨らんだときは、膨らみ始めより後に出る', () => {
     const a = fires(worldFor(), presetDoc('pon', 'burst'), 1.2)[0], b = fires(worldFor(), presetDoc('pon', 'peak'), 1.2)[0];
     expect(b).toBeGreaterThan(a);
