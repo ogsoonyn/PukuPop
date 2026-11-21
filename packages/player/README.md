@@ -14,7 +14,7 @@ npm には公開していません。GitHub のリリースに添付した `.tgz
 ```json
 {
   "dependencies": {
-    "pukupop-player": "https://github.com/ogsoonyn/PukuPop/releases/download/player-v0.2.1/pukupop-player-0.2.1.tgz"
+    "pukupop-player": "https://github.com/ogsoonyn/PukuPop/releases/download/player-v0.2.2/pukupop-player-0.2.2.tgz"
   }
 }
 ```
@@ -22,7 +22,7 @@ npm には公開していません。GitHub のリリースに添付した `.tgz
 または、次のように入れます。
 
 ```sh
-npm install https://github.com/ogsoonyn/PukuPop/releases/download/player-v0.2.1/pukupop-player-0.2.1.tgz
+npm install https://github.com/ogsoonyn/PukuPop/releases/download/player-v0.2.2/pukupop-player-0.2.2.tgz
 ```
 
 `package-lock.json` に中身のハッシュ(integrity)が記録されるので、あとは `npm ci` で同じものが入ります。
