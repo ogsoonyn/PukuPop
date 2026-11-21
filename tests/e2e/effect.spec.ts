@@ -3,23 +3,29 @@ import { boot, openTab, watchGlErrors } from './helpers';
 
 watchGlErrors();
 
-test('膨らんだ瞬間のエフェクト: 押し出す揺らし方でだけ使え、自動で揺らすと出て、1手で戻せる', async ({ page }) => {
+test('膨らんだ瞬間のエフェクト: どの揺らし方でも入れられ、自動で揺らすと出て、1手で戻せる', async ({ page }) => {
   await boot(page);
   await openTab(page, 'layer');
-  // 既定(ぷるぷる = 上下に小刻み)では出ないので、欄ごと止まっている
-  await expect(page.locator('#pFx')).toBeDisabled();
-  await expect(page.locator('#pFxNote')).toBeVisible();
+  // 揺らし方を問わず入れられる(手前に膨らまない揺らし方でも、手で揺らせば出る)
+  await expect(page.locator('#pFx')).toBeEnabled();
   await expect(page.locator('#pFxBody')).toBeHidden();
 
   await page.selectOption('#pPreset', 'pon'); // 一瞬膨らむ
-  await expect(page.locator('#pFx')).toBeEnabled();
-  await expect(page.locator('#pFxNote')).toBeHidden();
   await page.locator('#pFx').check();
   await expect(page.locator('#pFxBody')).toBeVisible();
   await page.locator('#pFxRing').check();
   await page.selectOption('#pFxBlend', 'add');
   const fx = () => page.evaluate(() => (window as any).popstage.activeLayer.effect);
   expect(await fx()).toMatchObject({ enabled: true, ring: true, blend: 'add' });
+  // 出る勢い(既定 2)。一番膨らんだときに出すあいだは触れない
+  await expect(page.locator('#pFxMinO')).toHaveText('2.0');
+  await page.locator('#pFxMin').evaluate((el: HTMLInputElement) => { el.value = '40'; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); });
+  expect((await fx()).burstMin).toBe(4);
+  await page.selectOption('#pFxTiming', 'peak');
+  await expect(page.locator('#pFxMin')).toBeDisabled();
+  await page.selectOption('#pFxTiming', 'burst');
+  await expect(page.locator('#pFxMin')).toBeEnabled();
+  await page.locator('#pFxMin').evaluate((el: HTMLInputElement) => { el.value = '20'; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); });
 
   // 塗って自動で揺らすと、エフェクトが出て消える
   await page.evaluate(() => {
@@ -43,6 +49,7 @@ test('膨らんだ瞬間のエフェクト: 押し出す揺らし方でだけ使
   // 3つの変更は1手ずつ戻せる
   await page.locator('#view').focus();
   await page.keyboard.press('Control+z'); // 全塗り
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Control+z'); // 出る勢い・タイミング2回・出る勢い
   await page.keyboard.press('Control+z'); // 重ね方
   await page.keyboard.press('Control+z'); // 波紋
   await page.keyboard.press('Control+z'); // エフェクト

@@ -186,9 +186,10 @@ export interface Layer {
 }
 
 /**
- * 膨らんだ瞬間のエフェクト。押し出す時刻がある揺らし方(physics/motion.ts の motionPushes)で、自動揺らしの膨らみに合わせて、
+ * 膨らんだ瞬間のエフェクト。揺らし方を問わず、手前へ膨らんだ瞬間に(physics/effect.ts。自動揺らしでも手で揺らしても)、
  * 膨らんだ部分(ウェイト)の半透明のコピーが外へふわっと広がって消える。ring でその輪郭(波紋)も同じ時刻・同じ大きさで出す。
- * timing: burst = 膨らむ勢いが一番強いとき、peak = 一番膨らんだとき。
+ * timing: burst = 膨らみ始め(膨らむ勢いが burstMin と前の突き出しの勢いの両方を越えたとき)、peak = 一番膨らんだとき。
+ * burstMin: 膨らみ始めで出す勢いの下限(膨らみの量の傾き、1/秒。小さいほど弱い膨らみでも出る)。
  * opacity: 濃さ(0〜1)。spread: 消えるまでに広がる大きさ(重心からの距離に対する割合)。duration: 消えるまでの時間(秒)。
  * color: 色の付け方(画像の色のまま / 白っぽく / customColor に寄せる)。blend: 重ね方(ふつう / 加算)
  */
@@ -202,13 +203,14 @@ export interface LayerEffect {
   color: EffectColor;
   customColor: string;
   blend: EffectBlend;
+  burstMin: number;
 }
 export type EffectTiming = 'burst' | 'peak';
 export type EffectColor = 'image' | 'white' | 'custom';
 export type EffectBlend = 'normal' | 'add';
 
 export const EFFECT_TIMINGS: Record<EffectTiming, { label: string; desc: string }> = {
-  burst: { label: '膨らみ始め', desc: '膨らむ勢いが一番強いときに出します' },
+  burst: { label: '膨らみ始め', desc: '膨らむ勢いが「出る勢い」と前の膨らみの勢いの両方を越えたときに出します' },
   peak: { label: '一番膨らんだとき', desc: '一番膨らんだときに出します' },
 };
 export const EFFECT_COLORS: Record<EffectColor, { label: string }> = {
@@ -221,10 +223,9 @@ export const EFFECT_LIMITS = {
   opacity: { min: 0.1, max: 1, def: 0.55 },
   spread: { min: 0.05, max: 0.8, def: 0.3 },
   duration: { min: 0.2, max: 1.5, def: 0.55 },
+  burstMin: { min: 0.5, max: 12, def: 2 },
 } as const;
 
-/** エフェクトを出せる揺らし方(押し出す時刻がある。時刻は physics/motion.ts の motionPushes) */
-export const EFFECT_MOTIONS: ReadonlySet<MotionPattern> = new Set<MotionPattern>(['heartbeat', 'pulse', 'charge', 'charge2', 'puff']);
 /** 同時に描くエフェクトの数の上限(全レイヤーの合計。多いときは古いものから描かない) */
 export const MAX_EFFECT_DRAWS = 12;
 
@@ -232,7 +233,7 @@ export function defaultEffect(): LayerEffect {
   return {
     enabled: false, ring: false, timing: 'burst',
     opacity: EFFECT_LIMITS.opacity.def, spread: EFFECT_LIMITS.spread.def, duration: EFFECT_LIMITS.duration.def,
-    color: 'white', customColor: '#ff8ab8', blend: 'normal',
+    color: 'white', customColor: '#ff8ab8', blend: 'normal', burstMin: EFFECT_LIMITS.burstMin.def,
   };
 }
 

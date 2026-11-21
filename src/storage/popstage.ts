@@ -272,6 +272,7 @@ function effectFrom(v: unknown): LayerEffect {
     // CSS(色の入力)とシェーダへ入れるので、#rrggbb だけを通す
     customColor: typeof o.customColor === 'string' && /^#[0-9a-f]{6}$/i.test(o.customColor) ? o.customColor.toLowerCase() : d.customColor,
     blend: own(EFFECT_BLENDS, o.blend) ? o.blend as EffectBlend : d.blend,
+    burstMin: num(o.burstMin, L.burstMin.min, L.burstMin.max, d.burstMin),
   };
 }
 
