@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { PhysicsWorld, PHYSICS_DT } from '../../src/physics/world';
-import { motionAnchor, motionSpread, motionPushes } from '../../src/physics/motion';
-import { createDocument, applyPreset, PRESETS, EFFECT_MOTIONS, type Layer } from '../../src/model/project';
+import { motionAnchor, motionSpread } from '../../src/physics/motion';
+import { createDocument, applyPreset, PRESETS, type Layer } from '../../src/model/project';
 
 const image = { bytes: new Uint8Array(), mime: 'image/png', ext: 'png', width: 1024, height: 1024 };
 const z = (u: number, p: Record<string, number> = {}, pop = 0.2) => motionAnchor('swell', u, 1, 0.5, undefined, pop, p).z;
@@ -25,9 +25,6 @@ describe('ゆっくり膨らむ', () => {
     expect(z(0.599, { 'swell.ret': 0 })).toBeGreaterThan(0.09);
     // ポップ量に比例する
     expect(z(0.4, {}, 0.4)).toBeCloseTo(2 * z(0.4, {}, 0.2), 12);
-    // エフェクトは出さない
-    expect(motionPushes('swell')).toEqual([]);
-    expect(EFFECT_MOTIONS.has('swell')).toBe(false);
   });
 
   it('ぷくーっ: じわじわ付いていき、しゅっと戻った勢いで内へ弾む', () => {

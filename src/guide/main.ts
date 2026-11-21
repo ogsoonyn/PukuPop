@@ -5,13 +5,13 @@
  */
 import './guide.css';
 import { defaultPhysics, type PhysicsParams,
-  MOTIONS, MOTION_PARAMS, PRESETS, EFFECT_MOTIONS, EFFECT_LIMITS, defaultEffect,
+  MOTIONS, MOTION_PARAMS, PRESETS, EFFECT_LIMITS, defaultEffect,
   type MotionPattern, type Layer, type PresetName, type Vec3, type EffectTiming, type MotionParamDef,
 } from '../model/project';
 import { WeightMap } from '../model/weightmap';
-import { motionAnchor, motionSpread, motionPushes } from '../physics/motion';
+import { motionAnchor, motionSpread } from '../physics/motion';
 import { PhysicsWorld, PHYSICS_DT, coefficients } from '../physics/world';
-import { effectWindow, MAX_BURSTS, EFFECT_ARM, EFFECT_LOOK, crossed, inflation as inflationOf, type Burst } from '../physics/effect';
+import { MAX_BURSTS, PEAK_MIN, inflation as inflationOf, type Burst } from '../physics/effect';
 import { effectEnvelope } from '../playback/stageSwing';
 import { GUIDE, type GuideAxis } from './info';
 type Material = Pick<PhysicsParams, 'hardness' | 'mass' | 'damping' | 'weight'>;
@@ -26,7 +26,9 @@ const DT = PHYSICS_DT;
 const UNIT = 512;
 
 const ORDER = (Object.keys(MOTIONS) as MotionPattern[]).filter((m): m is Motion => m !== 'none');
-const FX_ORDER = ORDER.filter(m => EFFECT_MOTIONS.has(m));
+/** エフェクトが出る揺らし方: 手前へ膨らむ(手前へのずれか範囲の広がりがある)もの。左右・上下にだけ動く揺らし方では出ない */
+const FX_ORDER = ORDER.filter(m => GUIDE[m].axes.some(a => a === 'z' || a === 'r'));
+const FX_MOTIONS: ReadonlySet<Motion> = new Set(FX_ORDER);
 /** 揺らし方ごとの代表のプリセット(ほかは先に出てくるもの) */
 const PRESET_OF = {} as Record<Motion, PresetKey>;
 for (const [k, p] of Object.entries(PRESETS) as [PresetKey, (typeof PRESETS)[PresetKey]][]) if (p.motion !== 'none' && !PRESET_OF[p.motion]) PRESET_OF[p.motion] = k;
@@ -36,7 +38,7 @@ const presetOf = (m: Motion) => PRESETS[PRESET_OF[m]];
 const defParams = (m: Motion): Record<string, number> => Object.fromEntries(MOTION_PARAMS[m].map(d => [d.key, d.def]));
 
 // ───────── 設定と揺れの計算 ─────────
-interface FxState { enabled: boolean; ring: boolean; timing: EffectTiming; opacity: number; spread: number; duration: number }
+interface FxState { enabled: boolean; ring: boolean; timing: EffectTiming; opacity: number; spread: number; duration: number; burstMin: number }
 interface State {
   motion: Motion; P: Record<string, number>; period: number; strength: number;
   hardness: number; mass: number; damping: number; weight: number; popPx: number; fx: FxState;
@@ -46,17 +48,17 @@ function makeState(motion: Motion, fxOn: boolean): State {
   return {
     motion, P: { ...defParams(motion), ...(pr.params ?? {}) }, period: pr.period, strength: 0.5,
     hardness: pr.hardness, mass: pr.mass, damping: pr.damping, weight: 0.15, popPx: 80,
-    fx: { enabled: fxOn, ring: true, timing: d.timing, opacity: d.opacity, spread: d.spread, duration: d.duration },
+    fx: { enabled: fxOn, ring: true, timing: d.timing, opacity: d.opacity, spread: d.spread, duration: d.duration, burstMin: d.burstMin },
   };
 }
 const prefixed = (st: State) => Object.fromEntries(Object.entries(st.P).map(([k, v]) => [`${st.motion}.${k}`, v]));
-const fxActive = (st: State) => st.fx.enabled && EFFECT_MOTIONS.has(st.motion);
+const fxActive = (st: State) => st.fx.enabled;
 /** 揺れの計算に渡すレイヤー(塗りは使わないので 1×1) */
 function guideLayer(st: State): Layer {
   return {
     id: 'guide', name: '', visible: true, pop: st.popPx, blend: 'add',
     physics: { enabled: true, preset: 'custom', hardness: st.hardness, mass: st.mass, weight: st.weight, damping: st.damping, motion: st.motion, motionParams: prefixed(st) },
-    effect: { ...defaultEffect(), enabled: fxActive(st), ring: st.fx.ring, timing: st.fx.timing, opacity: st.fx.opacity, spread: st.fx.spread, duration: st.fx.duration },
+    effect: { ...defaultEffect(), enabled: fxActive(st), ring: st.fx.ring, timing: st.fx.timing, opacity: st.fx.opacity, spread: st.fx.spread, duration: st.fx.duration, burstMin: st.fx.burstMin },
     weights: new WeightMap(1, 1),
   };
 }
@@ -67,7 +69,9 @@ interface Rec {
   n: number; len: number; T: number;
   sx: Float32Array; sy: Float32Array; sz: Float32Array; r: Float32Array;
   bx: Float32Array; by: Float32Array; bz: Float32Array; rb: Float32Array; gy: Float32Array; I: Float32Array; Ib: Float32Array;
-  bursts: Burst[]; windows: { t: number; len: number; arm: number }[];
+  /** 膨らみの量の傾き(I/秒)。エフェクトの「膨らみ始め」はこれで決まる */
+  dI: Float32Array; dIb: Float32Array;
+  bursts: Burst[];
 }
 /** 揺れが落ち着くまで回してから、recPeriods 周期分を 1/120 秒ごとに記録する。時刻は記録の頭から */
 function simulate(st: State, recPeriods = 2): Rec {
@@ -77,23 +81,12 @@ function simulate(st: State, recPeriods = 2): Rec {
   const warm = Math.ceil(Math.max(6 * T, 8) / T) * T, recLen = recPeriods * T;
   const steps = Math.round((warm + recLen) / DT), recStart = Math.round(warm / DT), n = steps - recStart;
   const F = () => new Float32Array(n);
-  const rec: Rec = { n, len: recLen, T, sx: F(), sy: F(), sz: F(), r: F(), bx: F(), by: F(), bz: F(), rb: F(), gy: F(), I: F(), Ib: F(), bursts: [], windows: [] };
+  const rec: Rec = { n, len: recLen, T, sx: F(), sy: F(), sz: F(), r: F(), bx: F(), by: F(), bz: F(), rb: F(), gy: F(), I: F(), Ib: F(), dI: F(), dIb: F(), bursts: [] };
   const tmp: Vec3 = { x: 0, y: 0, z: 0 }, base: Vec3 = { x: 0, y: 0, z: 0 };
-  const anchorI = (t: number) => { motionAnchor(m, t, T, S, tmp, pop, mp); return inflation(m, tmp.z, tmp.y, motionSpread(m, t, T, S, mp), pop); };
-  const pushes = fxActive(st) ? motionPushes(m, mp) : [], wlen = effectWindow(T);
-  const frac = (t: number) => (((t / T) % 1) + 1) % 1;
   const seen = new Set<number>();
   for (let i = 0; i < steps; i++) {
-    const t0 = world.time;
     world.step(layers);
     const t1 = world.time;
-    // 受け付けの帯と構える高さ(グラフ用)
-    for (const p of pushes) {
-      if (!crossed(frac(t0), frac(t1), p) || t1 < warm - wlen) continue;
-      const a0 = anchorI(t1); let top = a0;
-      for (let q = 1; q <= EFFECT_LOOK; q++) top = Math.max(top, anchorI(t1 + (wlen * q) / EFFECT_LOOK));
-      rec.windows.push({ t: t1 - warm, len: wlen, arm: a0 + (top - a0) * EFFECT_ARM });
-    }
     for (const b of world.bursts(layer.id)) if (!seen.has(b.t)) { seen.add(b.t); if (b.t >= warm - st.fx.duration - 1) rec.bursts.push({ t: b.t - warm, s: { ...b.s }, r: b.r }); }
     if (i < recStart) continue;
     const j = i - recStart, s = world.displacement(layer.id), r = world.spread(layer.id);
@@ -103,6 +96,8 @@ function simulate(st: State, recPeriods = 2): Rec {
     rec.gy[j] = world.baseOffset(layers, t1, base).y;
     rec.I[j] = inflation(m, s.z, s.y, r, pop); rec.Ib[j] = inflation(m, tmp.z, tmp.y, rec.rb[j], pop);
   }
+  // 傾きは1刻み前との差。頭だけは次の刻みとの差で測る
+  for (let j = 0; j < n; j++) { const a = j ? j - 1 : 0, b = j ? j : Math.min(1, n - 1); rec.dI[j] = (rec.I[b] - rec.I[a]) / DT; rec.dIb[j] = (rec.Ib[b] - rec.Ib[a]) / DT; }
   return rec;
 }
 /** 再生の時刻 t で出ているエフェクト。記録は周期でつながるので、前後の繰り返しの分も見る */
@@ -291,8 +286,8 @@ function drawSide(cv: HTMLCanvasElement, f0: Frame, opt0: DrawOpt): void {
 }
 
 interface Series { data: ArrayLike<number>; style: 'solid' | 'dash' | 'ghost'; color: string }
-interface Lane { key: string; label: string; k: number; series: Series[]; extraRange?: number[] }
-interface GraphExtras { bursts?: Burst[]; windows?: Rec['windows']; duration?: number }
+interface Lane { key: string; label: string; k: number; series: Series[]; extraRange?: number[]; unit?: string; hline?: { v: number; label: string } }
+interface GraphExtras { bursts?: Burst[]; duration?: number }
 const niceStep = (raw: number) => { const p = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1e-6)))), m = raw / p; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p; };
 const fmtNum = (v: number, step: number) => { const d = Math.max(0, -Math.floor(Math.log10(step) + 1e-9)); return (Math.abs(v) < step / 1e6 ? 0 : v).toFixed(d); };
 const MONO = '10.5px ui-monospace, "SFMono-Regular", Consolas, monospace';
@@ -319,13 +314,13 @@ function drawGraph(cv: HTMLCanvasElement, rec: Pick<Rec, 'len' | 'T'>, lanes: La
     for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
       const yy = VY(v); ctx.strokeStyle = Math.abs(v) < 1e-9 ? alpha(col('muted'), 0.6) : col('grid'); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + pw, yy); ctx.stroke();
-      ctx.fillStyle = col('muted'); ctx.fillText(fmtNum(v, step) + '%', left - 5, yy);
+      ctx.fillStyle = col('muted'); ctx.fillText(fmtNum(v, step) + (lane.unit ?? '%'), left - 5, yy);
     }
     for (let p = 0; p <= len + 1e-9; p += rec.T) { ctx.strokeStyle = alpha(col('muted'), 0.35); ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(TX(p), y0); ctx.lineTo(TX(p), y1); ctx.stroke(); ctx.setLineDash([]); }
-    if (lane.key === 'I' && extras.windows) for (const wd of extras.windows) for (const off of [0, -len, len]) {
-      const a = TX(Math.max(0, wd.t + off)), b = TX(Math.min(len, wd.t + off + wd.len)); if (b <= a) continue;
-      ctx.fillStyle = alpha(col('i'), 0.13); ctx.fillRect(a, y0, b - a, laneH);
-      ctx.strokeStyle = alpha(col('i'), 0.8); ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(a, VY(wd.arm * lane.k)); ctx.lineTo(b, VY(wd.arm * lane.k)); ctx.stroke(); ctx.setLineDash([]);
+    if (lane.hline) {
+      const yy = VY(lane.hline.v * lane.k);
+      ctx.strokeStyle = alpha(col('i'), 0.85); ctx.lineWidth = 1.2; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + pw, yy); ctx.stroke(); ctx.setLineDash([]);
+      ctx.font = MONO; ctx.fillStyle = col('i'); ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText(lane.hline.label, left + pw - 4, yy - 2);
     }
     if (extras.bursts) for (const bt of extras.bursts) for (const off of [0, -len, len]) {
       const t = bt.t + off; if (t < 0 || t > len) continue;
@@ -383,17 +378,20 @@ const MAT = {
   weight: { label: '重さ', hint: '下へ引く力。止まっている位置が少し下がります(既定 15%)。' },
 } as const;
 type MatKey = keyof typeof MAT;
-const AXIS: Record<GuideAxis | 'I', { label: string; color: string; k: number }> = {
+type LaneKey = GuideAxis | 'I' | 'V';
+const AXIS: Record<LaneKey, { label: string; color: string; k: number }> = {
   x: { label: '左右のずれ x', color: 'x', k: 50 },
   y: { label: '上下のずれ y', color: 'y', k: 50 },
   z: { label: '手前へのずれ z', color: 'z', k: 50 },
   r: { label: '範囲の広がり r', color: 'r', k: 100 },
-  I: { label: '膨らみの量(エフェクトの判定)', color: 'i', k: 100 },
+  I: { label: '膨らみの量 I', color: 'i', k: 100 },
+  V: { label: '膨らむ速さ(I の傾き)', color: 'i', k: 1 },
 };
-function laneKeys(st: State): (GuideAxis | 'I')[] {
-  let axes: (GuideAxis | 'I')[] = GUIDE[st.motion].axes.slice();
+function laneKeys(st: State): LaneKey[] {
+  let axes: LaneKey[] = GUIDE[st.motion].axes.slice();
   if (st.motion === 'stretch') axes = [st.P.dir <= 1 ? 'y' : st.P.dir <= 3 ? 'x' : 'z'];
-  if (fxActive(st)) axes.push('I');
+  // エフェクトの判定: 膨らみ始めは I の傾き、一番膨らんだときは I で決まる
+  if (fxActive(st)) axes.push(st.fx.timing === 'peak' ? 'I' : 'V');
   return axes;
 }
 const pctText = (v: number) => Math.round(v * 100) + '%';
@@ -455,7 +453,7 @@ class Explorer {
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs muted items-center">
           <span class="font-semibold text-[13px]" style="color:var(--ink)">時間ごとのずれ(2周期分、揺れが落ち着いた後)</span>
           <span><span class="legend-dash" style="color:var(--c-anchor)"></span>土台</span><span><span class="legend-dot" style="color:var(--ink)"></span>塗った所(色は向き)</span><span data-r="lg-ghost"><span class="legend-ghost" style="color:var(--ink)"></span>既定の値のとき</span>
-          <span data-r="lg-fx" hidden><span class="legend-dot" style="color:var(--c-fx)"></span>エフェクトが出た時刻 <span class="legend-ghost" style="color:var(--c-i)"></span>受け付け中 <span class="legend-dash" style="color:var(--c-i)"></span>構える高さ</span>
+          <span data-r="lg-fx" hidden><span class="legend-dot" style="color:var(--c-fx)"></span>エフェクトが出た時刻 <span class="legend-dash" style="color:var(--c-i)"></span>出るしきい値</span>
           <span class="ml-auto">グラフを押すと、その時刻へ飛びます</span>
         </div>
         <div class="grid gap-3" data-r="gwrap">
@@ -538,7 +536,8 @@ class Explorer {
     fxp.appendChild(tg);
     tg.querySelector<HTMLInputElement>(`#${this.id}-fxon`)!.addEventListener('change', e => { fx.enabled = (e.target as HTMLInputElement).checked; this.recompute(); });
     tg.querySelector<HTMLInputElement>(`#${this.id}-ring`)!.addEventListener('change', e => { fx.ring = (e.target as HTMLInputElement).checked; });
-    this.slider(fxp, { key: 'fx-timing', label: '出すとき', options: [[0, '膨らみ始め(勢いが一番強いとき)'], [1, '一番膨らんだとき']], hint: '膨らみ始め: 膨らむ速さが増えから減りに変わった所。一番膨らんだとき: 膨らむ速さが 0 以下になった所。', get: () => fx.timing === 'peak' ? 1 : 0, set: v => { fx.timing = v ? 'peak' : 'burst'; } });
+    this.slider(fxp, { key: 'fx-timing', label: '出すとき', options: [[0, '膨らみ始め(勢いが一番強いとき)'], [1, '一番膨らんだとき']], hint: '膨らみ始め: 膨らむ速さ(I の傾き)が「出る勢い」と前の膨らみの一番急な傾きの両方を越えた瞬間。一番膨らんだとき: 膨らみが止まった所で、I が下限と前に出したときの I の両方を越えていれば出す。', get: () => fx.timing === 'peak' ? 1 : 0, set: v => { fx.timing = v ? 'peak' : 'burst'; } });
+    this.slider(fxp, { key: 'fx-min', label: '出る勢い', min: L.burstMin.min, max: L.burstMin.max, step: 0.1, hint: `膨らみ始めに出すときの、膨らむ速さの下限(I/秒、既定 ${L.burstMin.def})。小さいほど弱い膨らみでも出ます。グラフの点線がこの値です。`, get: () => fx.burstMin, set: v => { fx.burstMin = v; }, fmt: v => v.toFixed(1) });
     this.slider(fxp, { key: 'fx-op', label: '濃さ', min: L.opacity.min, max: L.opacity.max, step: 0.01, hint: `コピーの一番濃いときの不透明度(既定 ${pctText(L.opacity.def)})。`, get: () => fx.opacity, set: v => { fx.opacity = v; }, fmt: pctText, after: drawEnv });
     this.slider(fxp, { key: 'fx-sp', label: '広がり', min: L.spread.min, max: L.spread.max, step: 0.01, hint: `消えるまでに広がる大きさ(重心からの距離に対する割合、既定 ${pctText(L.spread.def)})。`, get: () => fx.spread, set: v => { fx.spread = v; }, fmt: pctText, after: drawEnv });
     this.slider(fxp, { key: 'fx-du', label: '消えるまでの時間', min: L.duration.min, max: L.duration.max, step: 0.01, hint: `出てから消えるまで(既定 ${L.duration.def} 秒)。周期より長いと、次の膨らみのコピーと重なります(1レイヤー${MAX_BURSTS}つまで)。`, get: () => fx.duration, set: v => { fx.duration = v; }, fmt: v => v.toFixed(2) + '秒', after: drawEnv });
@@ -559,14 +558,16 @@ class Explorer {
       const ax = AXIS[key], c = col(ax.color);
       const [res, anc, gr] = key === 'x' ? [rec.sx, rec.bx, gh.sx]
         : key === 'y' ? (isP ? [plus(rec.sy, rec.gy), rec.gy, plus(gh.sy, gh.gy)] : [rec.sy, rec.by, gh.sy])
-        : key === 'z' ? [rec.sz, rec.bz, gh.sz] : key === 'r' ? [rec.r, rec.rb, gh.r] : [rec.I, rec.Ib, gh.I];
-      const series: Series[] = [...(ghostOn ? [{ data: gr, style: 'ghost' as const, color: c }] : []), { data: anc, style: 'dash', color: col('anchor') }, { data: res, style: 'solid', color: c }];
-      let label = ax.label + (key === 'r' ? '(中心からの距離に対する %)' : key === 'I' ? '(手前のずれ÷ポップ量 + 広がり)' : '(画像の長辺に対する %)');
+        : key === 'z' ? [rec.sz, rec.bz, gh.sz] : key === 'r' ? [rec.r, rec.rb, gh.r] : key === 'I' ? [rec.I, rec.Ib, gh.I] : [rec.dI, rec.dIb, gh.dI];
+      // 傾きの段は、土台の線を引かない(離した瞬間などの急な所が大きく跳ねて、目盛りがつぶれるため)
+      const series: Series[] = [...(ghostOn ? [{ data: gr, style: 'ghost' as const, color: c }] : []), ...(key === 'V' ? [] : [{ data: anc, style: 'dash' as const, color: col('anchor') }]), { data: res, style: 'solid', color: c }];
+      let label = ax.label + (key === 'r' ? '(中心からの距離に対する %)' : key === 'I' ? '(手前のずれ÷ポップ量 + 広がり、%)' : key === 'V' ? '(I/秒)' : '(画像の長辺に対する %)');
       if (isP && key === 'y') label = '上下の位置 y(点線 = 画像全体、実線 = 塗った所の画面上の位置)';
-      return { key, label, k: ax.k, series };
+      const hline = key === 'V' ? { v: st.fx.burstMin, label: `出る勢い ${st.fx.burstMin.toFixed(1)}` } : key === 'I' && fxActive(st) ? { v: PEAK_MIN, label: `下限 ${pctText(PEAK_MIN)}` } : undefined;
+      return { key, label, k: ax.k, series, unit: key === 'V' ? '' : '%', hline, extraRange: hline ? [0, hline.v * ax.k * 1.15] : undefined };
     });
   }
-  graphExtras(): GraphExtras { return fxActive(this.st) ? { bursts: this.rec.bursts, windows: this.rec.windows, duration: this.st.fx.duration } : {}; }
+  graphExtras(): GraphExtras { return fxActive(this.st) ? { bursts: this.rec.bursts, duration: this.st.fx.duration } : {}; }
   drawStatic(): void {
     if (!this.rec) return;
     this.gx = drawGraph(this.graph, this.rec, this.lanes(), this.t, this.graphExtras());
@@ -617,7 +618,7 @@ const gcards: Card[] = [];
 for (const m of ORDER) {
   const pr = presetOf(m), el = document.createElement('div'), info = GUIDE[m];
   el.className = 'panel gcard p-2.5 flex flex-col gap-1.5 min-w-0'; el.tabIndex = 0; el.setAttribute('role', 'button'); el.setAttribute('aria-label', MOTIONS[m].label + 'を試す');
-  el.innerHTML = `<canvas class="cv-front rounded-md"></canvas><div class="flex items-baseline justify-between gap-1"><b class="disp text-[15px] leading-tight">${MOTIONS[m].label}</b><span class="text-[11px] muted whitespace-nowrap">${pr.label}</span></div><p class="text-[12px] muted leading-snug">${MOTIONS[m].desc}</p><canvas class="h-[34px]"></canvas><div class="text-[10.5px] muted flex flex-wrap gap-x-2">${info.axes.map(a => `<span style="color:var(--c-${a})">● ${AXIS[a].label.split(' ')[0]}</span>`).join('')}${EFFECT_MOTIONS.has(m) ? '<span class="badge badge-xs badge-warning">エフェクト可</span>' : ''}</div>`;
+  el.innerHTML = `<canvas class="cv-front rounded-md"></canvas><div class="flex items-baseline justify-between gap-1"><b class="disp text-[15px] leading-tight">${MOTIONS[m].label}</b><span class="text-[11px] muted whitespace-nowrap">${pr.label}</span></div><p class="text-[12px] muted leading-snug">${MOTIONS[m].desc}</p><canvas class="h-[34px]"></canvas><div class="text-[10.5px] muted flex flex-wrap gap-x-2">${info.axes.map(a => `<span style="color:var(--c-${a})">● ${AXIS[a].label.split(' ')[0]}</span>`).join('')}${FX_MOTIONS.has(m) ? '<span class="badge badge-xs badge-warning">エフェクト可</span>' : ''}</div>`;
   document.getElementById('gallery')!.appendChild(el);
   const [cv, sp] = el.querySelectorAll('canvas');
   const st = makeState(m, false), card: Card = { m, cv, sp, st, rec: simulate(st, 1), t: 0, visible: false };

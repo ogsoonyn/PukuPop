@@ -602,7 +602,7 @@ function webpOf(kind: 'VP8 ' | 'VP8L' | 'VP8X', w: number, h: number): Uint8Arra
 describe('膨らんだ瞬間のエフェクト(レイヤーの effect)', () => {
   it('保存して読むと戻り、項目の無い古いファイルは切ったものとして読む。形の合わない値は既定値', async () => {
     const doc = createDocument({ bytes: new Uint8Array([1, 2, 3]), mime: 'image/png', ext: 'png', width: 40, height: 20 }, 'p');
-    doc.layers[0].effect = { enabled: true, ring: true, timing: 'peak', opacity: 0.8, spread: 0.5, duration: 1.2, color: 'custom', customColor: '#12ab34', blend: 'add' };
+    doc.layers[0].effect = { enabled: true, ring: true, timing: 'peak', opacity: 0.8, spread: 0.5, duration: 1.2, color: 'custom', customColor: '#12ab34', blend: 'add', burstMin: 4.5 };
     const bytes = serializeProject(createProject(doc));
     const back = await deserializeProject(bytes);
     expect(back.project.documents[0].layers[0].effect).toEqual(doc.layers[0].effect);
@@ -614,6 +614,6 @@ describe('膨らんだ瞬間のエフェクト(レイヤーの effect)', () => {
 
     json.documents[0].layers[0].effect = { enabled: 'yes', timing: 'later', opacity: 9, spread: -1, duration: 'x', color: 'red', customColor: 'url(x)', blend: 'screen' };
     const bad = (await deserializeProject(zipSync({ ...files, 'project.json': strToU8(JSON.stringify(json)) }))).project.documents[0].layers[0].effect;
-    expect(bad).toEqual({ enabled: false, ring: false, timing: 'burst', opacity: 1, spread: 0.05, duration: 0.55, color: 'white', customColor: '#ff8ab8', blend: 'normal' });
+    expect(bad).toEqual({ enabled: false, ring: false, timing: 'burst', opacity: 1, spread: 0.05, duration: 0.55, color: 'white', customColor: '#ff8ab8', blend: 'normal', burstMin: 2 });
   });
 });

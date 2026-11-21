@@ -1,6 +1,6 @@
 /** 右パネル(レイヤー一覧とプロパティ)とツールオプション。 */
 import { countLabel, type App } from '../app';
-import { PRESETS, PRESET_ORDER, BLENDS, BLEND_ORDER, MOTIONS, MOTION_PARAMS, LIMITS, EFFECT_TIMINGS, EFFECT_COLORS, EFFECT_BLENDS, EFFECT_MOTIONS, motionParam, scalePops, layerColor, type MotionParamDef, type Layer, type LayerEffect, type EffectTiming, type EffectColor, type EffectBlend, type PhysicsParams, type PresetName, type MotionPattern, type BlendMode, type Project, type Document } from '../model/project';
+import { PRESETS, PRESET_ORDER, BLENDS, BLEND_ORDER, MOTIONS, MOTION_PARAMS, LIMITS, EFFECT_TIMINGS, EFFECT_COLORS, EFFECT_BLENDS, motionParam, scalePops, layerColor, type MotionParamDef, type Layer, type LayerEffect, type EffectTiming, type EffectColor, type EffectBlend, type PhysicsParams, type PresetName, type MotionPattern, type BlendMode, type Project, type Document } from '../model/project';
 import { PatchLayer, PatchDocument, PatchProject, SetFov, Batch } from '../commands/commands';
 import type { Command } from '../commands/history';
 import { prefs } from '../storage/prefs';
@@ -242,19 +242,13 @@ export function bindPanels(app: App): { refresh: () => void } {
   });
   bindRange(ui.pFxOpacity, ui.pFxOpacityO, { target: 'layer', keys: ['effect'], label: 'エフェクトの濃さ', toPatch: v => fxPatch('opacity', v / 100), fmt: v => `${v}%` });
   bindRange(ui.pFxSpread, ui.pFxSpreadO, { target: 'layer', keys: ['effect'], label: 'エフェクトの広がり', toPatch: v => fxPatch('spread', v / 100), fmt: v => `+${v}%` });
+  bindRange(ui.pFxMin, ui.pFxMinO, { target: 'layer', keys: ['effect'], label: 'エフェクトの出る勢い', toPatch: v => fxPatch('burstMin', v / 10), fmt: v => (v / 10).toFixed(1) });
   bindRange(ui.pFxDur, ui.pFxDurO, { target: 'layer', keys: ['effect'], label: 'エフェクトの時間', toPatch: v => fxPatch('duration', v / 100), fmt: v => `${(v / 100).toFixed(2)}秒` });
 
   function refreshEffect(l: Layer, ls: readonly Layer[]): void {
     const fx = l.effect, on = same(ls, x => x.effect.enabled);
     ui.pFx.checked = on && fx.enabled; ui.pFx.indeterminate = !on;
-    // 押し出す動きの無い揺らし方では出ないので、欄ごと止める(選んだレイヤーのどれかで出るなら触れる)。
-    // 入れたまま揺らし方を変えたときに切れるよう、入・切だけは入っているレイヤーがあれば触れる
-    const usable = ls.some(x => EFFECT_MOTIONS.has(x.physics.motion));
-    ui.pFxNote.hidden = usable;
-    ui.pFxNote.textContent = ls.length > 1 ? '選んだレイヤーの揺らし方では出ません。' : `揺らし方「${MOTIONS[l.physics.motion].label}」では出ません。`;
     ui.pFxBody.hidden = !ls.some(x => x.effect.enabled);
-    for (const el of [ui.pFxRing, ui.pFxTiming, ui.pFxOpacity, ui.pFxSpread, ui.pFxDur, ui.pFxColor, ui.pFxCustom, ui.pFxBlend]) el.disabled = !usable;
-    ui.pFx.disabled = !usable && !ls.some(x => x.effect.enabled);
     const ring = same(ls, x => x.effect.ring);
     ui.pFxRing.checked = ring && fx.ring; ui.pFxRing.indeterminate = !ring;
     setSelect(ui.pFxTiming, !same(ls, x => x.effect.timing), fx.timing);
@@ -269,6 +263,11 @@ export function bindPanels(app: App): { refresh: () => void } {
     num(ui.pFxOpacity, ui.pFxOpacityO, 'opacity', v => `${v}%`);
     num(ui.pFxSpread, ui.pFxSpreadO, 'spread', v => `+${v}%`);
     num(ui.pFxDur, ui.pFxDurO, 'duration', v => `${(v / 100).toFixed(2)}秒`);
+    // 出る勢いは膨らみ始めのときだけ使う
+    const allMin = same(ls, x => x.effect.burstMin);
+    setRange(ui.pFxMin, null, Math.round(fx.burstMin * 10));
+    setOut(ui.pFxMinO, allMin ? (Math.round(fx.burstMin * 10) / 10).toFixed(1) : MIXED, !allMin);
+    ui.pFxMin.disabled = !ls.some(x => x.effect.timing === 'burst');
   }
 
   /* ---------- 画像・カメラ・自動揺らし ---------- */
