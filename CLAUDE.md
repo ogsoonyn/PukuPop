@@ -56,6 +56,7 @@ npm run check:editor-pack  # .tgz を空のプロジェクトに入れ、.zip �
 | `src/ui` | 画面の部品(入力、パネル、ダイアログ、3面図) |
 | `src/app` | 編集アプリだけの部品(タブ、保存先(ファイル・サーバー)、埋め込みモードのクエリとサーバーとのやりとり、自動保存、記録を取る側、キーフレームの下書き、膨らませる・全体ぼかしのプレビュー、新しい画像の既定) |
 | `src/player` | 埋め込み用の再生専用の部品(Player、Issue #127)。`index.ts` が入口。リポジトリの直下の `player.html` と `src/player/demo.ts` は、開発用のサーバーで開く確認用のページ(`/player.html`。本番のビルドには入らない。`?e2e` で自動の読み込みを止める) |
+| `src/guide` | 揺らし方図鑑(リポジトリの直下の `guide.html`。ヘルプからリンク)。揺れの計算は `physics` の `PhysicsWorld` をそのまま使い、揺らし方ごとの説明は `info.ts` に書く。公開版のビルドにだけ入れ、埋め込み用には入れない(リンクも外す、`vite.config.ts`)。揺らし方・固有設定を足したら `info.ts` にも足す(`tests/unit/guide.test.ts` が見張る) |
 | `packages/player` | Player のライブラリの配布物の元: `package.json`(名前 `pukupop-player`・版の元)、埋め込み先の開発者向けの `README.md`、手書きの型定義 `index.d.ts` |
 | `packages/editor` | 埋め込み用の編集画面の配布物の元: `package.json`(名前 `pukupop-editor`・版の元)、埋め込む側の開発者向けの `README.md` |
 | `scripts` | アイコンの生成と、Player のライブラリ(`player-*.mjs`)・埋め込み用の編集画面(`editor-*.mjs`)のスクリプト(配布物をそろえる・ビルドの確かめ・npm pack・空のプロジェクトでの確かめ・リリースのタグの確かめ)、同梱したパッケージのライセンスの表記を出す Vite のプラグイン(`third-party-licenses.ts`) |
@@ -72,7 +73,7 @@ npm run check:editor-pack  # .tgz を空のプロジェクトに入れ、.zip �
 - `develop` / `main` 向けの PR と `develop` への push では、GitHub Actions(`.github/workflows/ci.yml`)が型検査・単体テスト・ビルド(Player・埋め込み用の編集画面の配布物まで)を流す。E2E は流れない。
 - `main` へ push すると、GitHub Actions(`.github/workflows/deploy-pages.yml`)がテストとビルドを行い、GitHub Pages へ公開する(リポジトリを作り直したときは、Settings → Pages で Source を「GitHub Actions」にする)。ビルド結果は相対パスで参照し合う(`base: './'`)。
 - アプリアイコンは `scripts/icon-art.mjs` の SVG から作る。絵を変えたら `node scripts/make-icons.mjs` で `public/icons/` を作り直す。
-- service worker は `public/sw.js`。本番ビルドのときだけ登録する(`?e2e` 付きのとき・埋め込みモードでは登録しない。埋め込み用の配布物には `sw.js` と PWA のマニフェストを入れない)。
+- service worker は `public/sw.js`。本番ビルドのときだけ登録する(`?e2e` 付きのとき・埋め込みモードでは登録しない。埋め込み用の配布物には `sw.js` と PWA のマニフェストを入れない)。電波が無いときに出せるのは編集アプリのページだけで、揺らし方図鑑(`guide.html`)は覚えない(電波が無いとエラーにし、編集アプリを代わりに出さない)。古い assets を消すときは名前で見分けるので、入口の名前(`index`・`guide`)と、入口どうしで共有する部品の `shared-`(`vite.config.ts` の `chunkFileNames`)を変えるときは `sw.js` も直す。
 
 ## やりとり
 

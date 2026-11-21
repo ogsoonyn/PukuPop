@@ -65,7 +65,7 @@ describe('.pukupop', () => {
     const doc = createDocument({ bytes: new Uint8Array([9, 8, 7, 6]), mime: 'image/jpeg', ext: 'jpg', width: 300, height: 200 }, 'プリン');
     const l1 = doc.layers[0];
     for (let i = 0; i < l1.weights.data.length; i += 3) l1.weights.data[i] = i & 0xff;
-    l1.pop = 1234; l1.physics = { enabled: false, preset: 'bain', hardness: 0.1, mass: 0.9, weight: 0.3, damping: 0.05, motion: 'stretch', motionParams: { 'stretch.amp': 1.5, 'stretch.dir': 3, 'charge.depth': 0.9 } };
+    l1.pop = 1234; l1.physics = { enabled: false, preset: 'bain', hardness: 0.1, mass: 0.9, weight: 0.3, damping: 0.05, motion: 'stretch', motionParams: { 'stretch.amp': 1.5, 'stretch.dir': 3, 'charge2.depth': 0.9 } };
     const l2 = createLayer(doc, '顔'); l2.visible = false; l2.weights.data.fill(77);
     doc.layers.push(l2);
     doc.meshDensity = 256;
@@ -272,12 +272,42 @@ describe('.pukupop', () => {
     const json = {
       formatVersion: 1, app: 'PopStage', project: {},
       documents: [{ name: 'x', image: { path: 'images/doc-0.png', width: 10, height: 10 },
-        layers: [{ name: 'L', weights: { path: 'none.png' }, physics: { preset: 'custom', motion: 'charge',
-          motionParams: { 'charge.depth': 5, 'charge.time': 0.5, 'charge.zzz': 1, 'nope.depth': 1, 'circle.dir': 7, 'stretch.dir': 2, 'jump.height': 'x' } } }] }],
+        layers: [{ name: 'L', weights: { path: 'none.png' }, physics: { preset: 'custom', motion: 'charge2',
+          motionParams: { 'charge2.depth': 5, 'charge2.time': 0.5, 'charge2.zzz': 1, 'nope.depth': 1, 'circle.dir': 7, 'stretch.dir': 2, 'jump.height': 'x' } } }] }],
     };
     const zip = zipSync({ 'project.json': strToU8(JSON.stringify(json)), 'images/doc-0.png': new Uint8Array([1]) });
     const { project } = await deserializeProject(zip);
-    expect(project.documents[0].layers[0].physics.motionParams).toEqual({ 'charge.depth': 1, 'charge.time': 0.5, 'stretch.dir': 2 });
+    expect(project.documents[0].layers[0].physics.motionParams).toEqual({ 'charge2.depth': 1, 'charge2.time': 0.5, 'stretch.dir': 2 });
+  });
+
+  it('統合した前の「ためて膨らむ」(charge)は、横の広がり 0% の charge2 として読み、ためる深さ・時間・膨らみの強さを引き継ぐ', async () => {
+    const physics = (o: object, id?: string) => ({ id, name: 'L', weights: { path: 'none.png' }, physics: o });
+    // お気に入りが持つレイヤーの揺れも同じように読む
+    const fav = { id: 'F1', name: 'f', createdAt: new Date(0).toISOString(), autoSwing: { enabled: true, period: 2, strength: 0.5 }, camera: {}, take: null, playing: false,
+      layers: [{ id: 'L1', pop: 10, blend: 'add', physics: { preset: 'tame', motion: 'charge', motionParams: { 'charge.depth': 0.8 } } }] };
+    const json = {
+      formatVersion: 1, app: 'PukuPop', project: { favorites: [fav] },
+      documents: [{ name: 'x', image: { path: 'images/doc-0.png', width: 10, height: 10 }, layers: [
+        physics({ preset: 'tame', motion: 'charge', motionParams: { 'charge.depth': 0.9, 'charge.time': 0.4, 'charge.bulge': 1.2, 'jump.height': 2 } }, 'L1'),
+        // 前に charge2 へ切り替えたときの値は、charge の値(無ければ既定値)で置き換える
+        physics({ preset: 'custom', motion: 'charge', motionParams: { 'charge2.depth': 0.2, 'charge2.spread': 0.4, 'charge2.pinch': 0.3 } }),
+        // 揺らし方の項目が無い古いファイルは、プリセットの揺らし方で補う。固有設定は前の動きを保つのに要るもの(ためてぼよんの横の広がり 0%)だけ補い、
+        // 後から足した値(どきどきの横の広がり)は入れない
+        physics({ preset: 'tame' }),
+        physics({ preset: 'doki' }),
+      ] }],
+    };
+    const { project } = await deserializeProject(zipSync({ 'project.json': strToU8(JSON.stringify(json)), 'images/doc-0.png': new Uint8Array([1]) }));
+    const ph = project.documents[0].layers.map(l => l.physics);
+    expect(ph.map(p => p.motion)).toEqual(['charge2', 'charge2', 'charge2', 'heartbeat']);
+    expect(ph[0].preset).toBe('tame');
+    expect(ph[0].motionParams).toEqual({ 'charge2.depth': 0.9, 'charge2.time': 0.4, 'charge2.bulge': 1.2, 'charge2.spread': 0, 'jump.height': 2 });
+    expect(ph[1].motionParams).toEqual({ 'charge2.spread': 0, 'charge2.pinch': 0.3 });
+    expect(ph[2].motionParams).toEqual({ 'charge2.spread': 0 });
+    expect(ph[3].motionParams).toEqual({});
+    const fp = project.favorites[0].layers[0].physics;
+    expect(fp.motion).toBe('charge2');
+    expect(fp.motionParams).toEqual({ 'charge2.depth': 0.8, 'charge2.spread': 0 });
   });
 
   const oneLayer = (project: object, physics: object = {}) => ({

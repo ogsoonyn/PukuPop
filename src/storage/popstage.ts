@@ -244,18 +244,45 @@ function motionParamsFrom(v: unknown): Record<string, number> {
   return out;
 }
 
+/** 統合した前の「ためて膨らむ」('charge')の固有設定のうち、'charge2' に引き継ぐ項目(既定値も同じ) */
+const LEGACY_CHARGE_KEYS = ['depth', 'time', 'bulge'] as const;
+
+/**
+ * 前の「ためて膨らむ」('charge')の固有設定を、統合した 'charge2' の設定にする。'charge2' の横の広がりを 0% にすると前と同じ動きになる。
+ * 'charge2' に残っていた設定(前に切り替えたときのもの)は、ためる深さ・時間・膨らみの強さ・横の広がりを 'charge' の値で置き換える
+ */
+function legacyChargeParams(v: unknown): Record<string, unknown> {
+  const src = v && typeof v === 'object' ? v as Record<string, unknown> : {}, out: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(src)) if (!key.startsWith('charge.') && !LEGACY_CHARGE_KEYS.some(k => key === `charge2.${k}`)) out[key] = raw;
+  for (const k of LEGACY_CHARGE_KEYS) if (Object.prototype.hasOwnProperty.call(src, `charge.${k}`)) out[`charge2.${k}`] = src[`charge.${k}`];
+  out['charge2.spread'] = 0;
+  return out;
+}
+
+/**
+ * 揺らし方の項目が無い古いファイルのプリセットに補う固有設定。前と同じ動きにするのに要るものだけを書く
+ * (今のプリセットの params は使わない。どきどきの横の広がりのように、後から足した値で古いファイルの動きを変えないため)。
+ * ためてぼよんは、前の「ためて膨らむ」と同じになるよう、ためて膨らむ(charge2)の横の広がりを 0 にする
+ */
+const LEGACY_PRESET_PARAMS: Partial<Record<PresetName, Record<string, number>>> = { tame: { 'charge2.spread': 0 } };
+
 function physicsFrom(v: unknown): PhysicsParams {
   const o = (v ?? {}) as Record<string, unknown>;
   const preset: PresetName = o.preset === 'custom' || own(PRESETS, o.preset) ? (o.preset as PresetName) : 'custom';
   const base = PRESETS.puru;
-  // 揺らし方の項目が無い古いファイルは、プリセットから補う。カスタムならこれまでの動き(左右に振る)にする
-  const motion: MotionPattern = own(MOTIONS, o.motion) ? (o.motion as MotionPattern)
+  const legacyCharge = o.motion === 'charge';
+  // 揺らし方の項目が無い古いファイルは、プリセットから補う(前の動きを保つのに要る固有設定だけ、ファイルに無い項目に補う)。カスタムならこれまでの動き(左右に振る)にする
+  const fromPreset = !legacyCharge && !own(MOTIONS, o.motion) && preset !== 'custom';
+  const motion: MotionPattern = legacyCharge ? 'charge2' : own(MOTIONS, o.motion) ? (o.motion as MotionPattern)
     : preset !== 'custom' ? PRESETS[preset].motion : 'shake';
+  let params: unknown = legacyCharge ? legacyChargeParams(o.motionParams) : o.motionParams;
+  const legacy = fromPreset ? LEGACY_PRESET_PARAMS[preset] : undefined;
+  if (legacy) params = { ...legacy, ...(params && typeof params === 'object' ? params as Record<string, unknown> : {}) };
   return {
     enabled: o.enabled !== false, preset,
     hardness: unit(o.hardness, base.hardness), mass: unit(o.mass, base.mass),
     weight: unit(o.weight, 0.15), damping: unit(o.damping, base.damping), motion,
-    motionParams: motionParamsFrom(o.motionParams),
+    motionParams: motionParamsFrom(params),
   };
 }
 

@@ -26,6 +26,18 @@ function noManifest(): Plugin {
   };
 }
 
+/** index.html から揺らし方図鑑へのリンクを外す(埋め込み用のビルドだけ。guide.html を入れないため) */
+function noGuideLink(): Plugin {
+  return {
+    name: 'pukupop-embed-no-guide-link',
+    transformIndexHtml(html) {
+      const out = html.replace(/\s*<!--[^>]*guide\.html[^>]*-->\s*<p id="helpGuide"[\s\S]*?<\/p>/, '');
+      if (out === html) throw new Error('index.html に <p id="helpGuide"> が見つかりません(埋め込み用のビルドで外すため)');
+      return out;
+    },
+  };
+}
+
 /**
  * `--mode embed` は、ほかのアプリに埋め込む編集画面のビルド(Issue #146。`npm run build:editor`)。
  * 埋め込みモード(src/app/embed.ts)を有効にし(__EMBED__)、dist-editor/app/ に出す。
@@ -39,7 +51,7 @@ export default defineConfig(({ mode }) => {
   return {
     // 静的ファイルとしてどこに置いても動くよう相対パスで出力する(埋め込み用もサブパスに置ける)
     base: './',
-    plugins: [tailwindcss(), ...(embed ? [thirdPartyLicenses(editorPkg.name, ['tailwindcss', 'daisyui']), noManifest()] : [])],
+    plugins: [tailwindcss(), ...(embed ? [thirdPartyLicenses(editorPkg.name, ['tailwindcss', 'daisyui']), noManifest(), noGuideLink()] : [])],
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
       __COMMIT_DATE__: JSON.stringify(commitDate()),
@@ -48,7 +60,15 @@ export default defineConfig(({ mode }) => {
     build: {
       target: 'es2022',
       chunkSizeWarningLimit: 1500,
-      ...(embed ? { outDir: 'dist-editor/app', emptyOutDir: true } : {}),
+      // 揺らし方図鑑(guide.html、ヘルプからリンク)は公開版にだけ入れる。埋め込み用の配布物には入れない(リンクも noGuideLink が外す)。
+      // 本体の入口の名前は index のまま(出力が index-*.js になる。public/sw.js が古いものを消すときに名前で見分ける)
+      ...(embed ? { outDir: 'dist-editor/app', emptyOutDir: true } : {
+        rollupOptions: {
+          input: { index: 'index.html', guide: 'guide.html' },
+          // 入口どうしで共有する部品は shared- を付ける(public/sw.js が、古いものを名前で見分けてキャッシュから消す)。動的に読む部品はそのまま
+          output: { chunkFileNames: (c: { isDynamicEntry: boolean }) => c.isDynamicEntry ? 'assets/[name]-[hash].js' : 'assets/shared-[name]-[hash].js' },
+        },
+      }),
     },
     test: {
       include: ['tests/unit/**/*.test.ts'],
