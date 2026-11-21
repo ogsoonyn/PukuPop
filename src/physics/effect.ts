@@ -50,7 +50,7 @@ export function copyEffect(e: EffectState): EffectState {
 }
 
 /** 膨らみの量。手前(ふわっと膨らむは上も)へのずれをポップ量で割ったものと、広がりの和 */
-const inflation = (motion: MotionPattern, s: Vec3, r: number, pop: number) => (s.z + (motion === 'puff' ? s.y : 0)) / Math.max(pop, 0.05) + r;
+export const inflation = (motion: MotionPattern, s: Vec3, r: number, pop: number) => (s.z + (motion === 'puff' ? s.y : 0)) / Math.max(pop, 0.05) + r;
 
 /**
  * 1刻み進めた後に呼ぶ。t0 は刻みの前の時刻、t1 は後の時刻。s, r は進めた後のずれと広がり、pop はポップ量(正規化座標)。
