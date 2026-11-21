@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { WeightMap, weightSizeFor, TILE } from '../../src/model/weightmap';
 import { Store, createDocument, createProject, createLayer, LIMITS, scalePops, layerColor, LAYER_COLORS, meshSegments, alphaSpreadPx } from '../../src/model/project';
 import { History, shrinkHistory } from '../../src/commands/history';
-import { PatchLayer, InsertLayer, RemoveLayer, MoveLayer, WeightEdit, weightOperation, diffTiles } from '../../src/commands/commands';
+import { Batch, PatchLayer, InsertLayer, RemoveLayer, MoveLayer, WeightEdit, weightOperation, diffTiles } from '../../src/commands/commands';
 import { Stroke, falloff } from '../../src/paint/stroke';
 
 const image = (w = 800, h = 600) => ({ bytes: new Uint8Array([1, 2, 3]), mime: 'image/png', ext: 'png', width: w, height: h });
@@ -174,6 +174,26 @@ describe('History', () => {
     h.execute(new RemoveLayer(store, a.id));
     expect(doc.layers).toEqual([b]);
     h.undo(); h.undo(); h.undo();
+    expect(doc.layers).toEqual([a]);
+  });
+
+  it('元に戻す・やり直すと undo / redo でそのコマンドを change より先に知らせる(選ぶレイヤーを持つ Batch。Issue #175、#177)。実行では知らせない', () => {
+    const store = makeStore(), h = new History(store), doc = store.doc!;
+    const a = doc.layers[0], b = createLayer(doc, 'B');
+    const seen: (string | undefined)[] = [];
+    h.on('undo', c => seen.push(`undo:${c.select?.undo}`));
+    h.on('redo', c => seen.push(`redo:${c.select?.redo}`));
+    h.execute(new Batch('追加', [new InsertLayer('追加', doc.id, b, 1)], { undo: a.id }));
+    h.execute(new Batch('削除', [new RemoveLayer(store, b.id)], { redo: a.id }));
+    expect(seen).toEqual([]);
+    // App は change で「選んでいたレイヤーが消えた」印を下ろすので、その前に知らせる
+    h.on('change', () => seen.push('change'));
+    h.undo(); h.undo();
+    expect(seen).toEqual(['undo:undefined', 'change', `undo:${a.id}`, 'change']);
+    expect(doc.layers).toEqual([a]);
+    seen.length = 0;
+    h.redo(); h.redo();
+    expect(seen).toEqual(['redo:undefined', 'change', `redo:${a.id}`, 'change']);
     expect(doc.layers).toEqual([a]);
   });
 });

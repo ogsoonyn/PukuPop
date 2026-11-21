@@ -1,0 +1,60 @@
+/*
+ * 揺らし方図鑑(guide.html)の見た目。編集アプリと同じ Tailwind・daisyUI のテーマを使い、色はトークンにまとめる。
+ * レイアウト: 上から「仕組み → 一覧 → 1つずつ試す → 材質 → エフェクト → プリセット表」。試す画面は左に動き、右に設定、下にグラフ
+ */
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: light --default, dark --prefersdark;
+}
+
+:root {
+  --bg: #fbf7f9; --panel: #ffffff; --ink: #2b2230; --muted: #7a6d80; --line: #eadfe6; --grid: #f0e7ec;
+  --accent: #e2477f; --blob: 340; --img: #f3e9ee; --img-edge: #dccbd5;
+  --c-x: #2f7de1; --c-y: #e2477f; --c-z: #e88a12; --c-r: #1f9e6e; --c-i: #8a4fe0; --c-anchor: #9a8ca0; --c-fx: #f2b400;
+  --color-primary: #d93a74; --color-primary-content: #ffffff;
+  --f-display: "Hiragino Maru Gothic ProN", "BIZ UDPGothic", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  --f-body: "Hiragino Sans", "Yu Gothic UI", "Meiryo", "Noto Sans JP", system-ui, sans-serif;
+  --f-mono: ui-monospace, "SFMono-Regular", Consolas, "BIZ UDGothic", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #1a1520; --panel: #241d2b; --ink: #f2eaf4; --muted: #a596ac; --line: #3a3043; --grid: #2e2636;
+  --accent: #ff6fa3; --img: #2e2537; --img-edge: #4a3d55;
+  --c-x: #6aa8ff; --c-y: #ff6fa3; --c-z: #ffae4a; --c-r: #4fd3a0; --c-i: #b98cff; --c-anchor: #8e8098; --c-fx: #ffd34d; --color-primary: #ff6fa3; --color-primary-content: #2a0f1c; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #1a1520; --panel: #241d2b; --ink: #f2eaf4; --muted: #a596ac; --line: #3a3043; --grid: #2e2636;
+  --accent: #ff6fa3; --img: #2e2537; --img-edge: #4a3d55;
+  --c-x: #6aa8ff; --c-y: #ff6fa3; --c-z: #ffae4a; --c-r: #4fd3a0; --c-i: #b98cff; --c-anchor: #8e8098; --c-fx: #ffd34d; --color-primary: #ff6fa3; --color-primary-content: #2a0f1c; color-scheme: dark; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); line-height: 1.7; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 64px; }
+h1, h2, h3, .disp { font-family: var(--f-display); text-wrap: balance; letter-spacing: .01em; }
+.mono, .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+.muted { color: var(--muted); }
+.eyebrow { font-family: var(--f-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.prose-j p { max-width: 68ch; }
+canvas { display: block; width: 100%; touch-action: none; }
+.cv-front { aspect-ratio: 1 / 1; }
+.cv-side { aspect-ratio: 1 / 1.6; }
+.cv-graph { height: auto; }
+.cv-traj { aspect-ratio: 1 / 1; }
+.legend-dot { display: inline-block; width: 18px; height: 0; border-top: 2.5px solid currentColor; vertical-align: middle; margin-right: 4px; }
+.legend-dash { display: inline-block; width: 18px; height: 0; border-top: 2px dashed currentColor; vertical-align: middle; margin-right: 4px; }
+.legend-ghost { display: inline-block; width: 18px; height: 0; border-top: 5px solid currentColor; opacity: .22; vertical-align: middle; margin-right: 4px; }
+.param-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; }
+.param-row output { font-family: var(--f-mono); font-size: 12px; font-variant-numeric: tabular-nums; min-width: 4.5em; text-align: right; }
+.param-row .hint { grid-column: 1 / -1; font-size: 12px; color: var(--muted); line-height: 1.55; }
+.param-row .range { grid-column: 1 / -1; }
+.chip-motion[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+.gcard { cursor: pointer; transition: transform .15s ease, border-color .15s ease; }
+.gcard:hover, .gcard:focus-visible { transform: translateY(-2px); border-color: var(--accent); outline: none; }
+.formula { font-family: var(--f-mono); font-size: 12.5px; background: var(--img); border-radius: 8px; padding: 8px 10px; overflow-x: auto; white-space: pre; }
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
+.kv > div { background: var(--img); border-radius: 10px; padding: 6px 10px; min-width: 0; }
+.kv b { display: block; font-family: var(--f-mono); font-size: 15px; font-variant-numeric: tabular-nums; }
+.kv span { font-size: 11px; color: var(--muted); }
+.ex-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .ex-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); } }
+.views { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .58fr); gap: 10px; }
+.table-wrap { overflow-x: auto; }
+.grid > * { min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .gcard { transition: none; } }

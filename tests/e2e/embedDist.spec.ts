@@ -93,6 +93,8 @@ test('サブパスに置いたビルドで、画像から作って POST し、�
   await expect(page.locator('#embedBack')).toBeVisible();
   // 埋め込みモードで使わない操作は隠す
   await expect(page.locator('#toolNav [data-cmd="recent"]')).toBeHidden();
+  // 揺らし方図鑑は埋め込み用の配布物に入れないので、ヘルプのリンクもビルドで外す
+  await expect(page.locator('#helpGuide')).toHaveCount(0);
 
   await page.evaluate(() => (window as any).popstage.weightOp('反転', (wm: any) => wm.invert()));
   await nextFrames(page);

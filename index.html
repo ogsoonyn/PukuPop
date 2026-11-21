@@ -125,6 +125,7 @@
       <li><button data-cmd="addLayer">新規レイヤー</button></li>
       <li><button data-cmd="duplicateLayer">複製</button></li>
       <li><button data-cmd="deleteLayer">削除</button></li>
+      <li><button data-cmd="mergeLayers">結合…</button></li>
       <li><button data-cmd="layerUp">上へ</button></li>
       <li><button data-cmd="layerDown">下へ</button></li>
       <li><button data-cmd="selectAllLayers">すべて選ぶ</button></li>
@@ -232,6 +233,7 @@
         <button class="btn btn-xs btn-square" data-cmd="duplicateLayer" aria-label="複製">⧉</button>
         <button class="btn btn-xs btn-square" data-cmd="layerUp" aria-label="上へ">▲</button>
         <button class="btn btn-xs btn-square" data-cmd="layerDown" aria-label="下へ">▼</button>
+        <button class="btn btn-xs btn-square" data-cmd="mergeLayers" aria-label="結合">⤓</button>
         <button class="btn btn-xs btn-square" data-cmd="deleteLayer" aria-label="削除">🗑</button>
       </div>
       <!-- 複数のレイヤーを選んでいるとき(スマホでは長押しの選択モードのときも)だけ出る -->
@@ -286,12 +288,12 @@
         <!-- 膨らんだ瞬間のエフェクト(レイヤーごと。panels.ts) -->
         <section class="flex flex-col gap-2" data-m-slot="effect">
           <div class="flex items-center gap-2"><h2 class="font-bold">エフェクト</h2><button type="button" class="help-btn" data-help="pFxHelp"></button></div>
-          <p id="pFxHelp" class="help-text" hidden>自動で揺らしているとき、膨らんだ瞬間に、膨らんだ所(塗った所)の半透明のコピーが外へふわっと広がって消えます。押し出す動きのある揺らし方(鼓動・一瞬膨らむ・ためて膨らむ・ためて膨らむ2・ふわっと膨らむ)で出ます。記録やキーフレームの再生中も出て、書き出しにも入ります。つかんで離したときと、ポップを一時OFF にしている間は出ません。</p>
+          <p id="pFxHelp" class="help-text" hidden>手前へ膨らんだ瞬間に、膨らんだ所(塗った所)の半透明のコピーが外へふわっと広がって消えます。揺らし方を問わず、自動で揺らしても手で揺らしても出ます(1回の膨らみに1度。前より弱い揺れ返しでは出ません)。「出る勢い」は膨らみ始めに出すときの下限で、小さいほど弱い膨らみでも出ます。一番膨らんだときに出すときは、手で押したまま離さないと出ないことがあります。記録やキーフレームの再生中も出て、書き出しにも入ります。ポップを一時OFF にしている間は出ません。</p>
           <label class="flex items-center justify-between">膨らんだ瞬間に広げる <input id="pFx" type="checkbox" class="toggle toggle-sm"></label>
-          <p id="pFxNote" class="text-xs opacity-70" hidden>この揺らし方では出ません。</p>
           <div id="pFxBody" class="flex flex-col gap-2 border-l-2 border-primary/40 pl-2 ml-1">
             <label class="flex items-center justify-between text-sm">波紋も出す <input id="pFxRing" type="checkbox" class="checkbox checkbox-xs"></label>
             <div class="prop"><label for="pFxTiming">タイミング</label><select id="pFxTiming" class="select select-xs col-span-2 w-full"></select></div>
+            <div class="prop"><label for="pFxMin">出る勢い</label><input id="pFxMin" type="range" min="5" max="120" step="5" class="range range-xs"><output id="pFxMinO"></output></div>
             <div class="prop"><label for="pFxOpacity">濃さ</label><input id="pFxOpacity" type="range" min="10" max="100" class="range range-xs"><output id="pFxOpacityO"></output></div>
             <div class="prop"><label for="pFxSpread">広がる大きさ</label><input id="pFxSpread" type="range" min="5" max="80" class="range range-xs"><output id="pFxSpreadO"></output></div>
             <div class="prop"><label for="pFxDur">消えるまで</label><input id="pFxDur" type="range" min="20" max="150" step="5" class="range range-xs"><output id="pFxDurO"></output></div>
@@ -627,6 +629,21 @@
   </div>
 </dialog>
 
+<!-- レイヤーの結合(ui/mergeDialog.ts) -->
+<dialog id="mergeDialog" class="modal">
+  <div class="modal-box max-w-md">
+    <h3 class="font-bold text-lg">レイヤーを結合</h3>
+    <p id="mergeTarget" class="py-3 leading-relaxed"></p>
+    <div class="prop2"><span class="prop-name"><label for="mergeMode">重ね方</label><button type="button" class="help-btn" data-help="mergeModeHelp"></button></span>
+      <select id="mergeMode" class="select select-sm w-40"></select></div>
+    <p id="mergeModeHelp" class="help-text" hidden>重なった所の高さをどうまとめるかです。高い方: 高い方のレイヤーの高さを残します(膨らみを1つずつ別のレイヤーで作ったものをまとめるときに)。加算: 高さを足し合わせます(重ね方が「加算」のレイヤーどうしを、見た目を変えずにまとめるときに)。揺れ・重ね方・名前は一番下のレイヤーのものが残ります。ポップ量は高い方のレイヤーに合わせるので、低い方のレイヤーの所は、揺れが小さくなることがあります。ほかにポップ量のあるレイヤーがあれば、ポップ量が 0 のレイヤーの塗りは残りません。</p>
+    <div class="modal-action">
+      <button id="mergeCancel" class="btn btn-sm">キャンセル</button>
+      <button id="mergeApply" class="btn btn-sm btn-primary">結合</button>
+    </div>
+  </div>
+</dialog>
+
 <!-- 最近開いたファイル -->
 <!-- スマホで開いている作業(タブ)を選ぶ一覧(ui/docTabs.ts) -->
 <dialog id="tabDialog" class="modal">
@@ -724,6 +741,8 @@
     <h4 class="d-only font-bold mt-4 mb-1">キーボード</h4>
     <!-- ui/actions.ts がコマンドの表から作る -->
     <div id="helpKeys" class="d-only help-ops grid grid-cols-[minmax(auto,15rem)_1fr] gap-x-6 gap-y-1 text-sm"></div>
+    <!-- 揺らし方図鑑(guide.html)は公開版にだけある。埋め込みモードでは隠す(style.css) -->
+    <p id="helpGuide" class="mt-4 text-sm">揺らし方とプリセットの動きは、新しいタブで開く<a class="link link-primary" href="./guide.html" target="_blank" rel="noopener">揺らし方図鑑</a>で、グラフや動く見本で確かめられます。</p>
     <div class="modal-action"><form method="dialog"><button class="btn btn-sm">閉じる</button></form></div>
   </div>
   <form method="dialog" class="modal-backdrop"><button>close</button></form>

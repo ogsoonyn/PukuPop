@@ -1,5 +1,5 @@
 /** 変更操作の一覧。どれも Store の低レベル操作だけを使う。 */
-import type { Command } from './history';
+import type { Command, LayerSelect } from './history';
 import type { Store, Layer, Document, Project, Favorite } from '../model/project';
 import { WeightMap, TILE, type Rect } from '../model/weightmap';
 import type { KeyFrame, Take } from '../physics/take';
@@ -106,10 +106,10 @@ export class SetFov implements Command {
   revert(store: Store): void { store.patchProject({ camera: { ...store.project.camera, fov: this.before } }); }
 }
 
-/** 複数の変更を1手にまとめる(プリセットで材質と周期を同時に変えるときなど)。 */
+/** 複数の変更を1手にまとめる(プリセットで材質と周期を同時に変えるときなど)。select は Command を見る */
 export class Batch implements Command {
   readonly bytes: number;
-  constructor(readonly label: string, private commands: Command[]) {
+  constructor(readonly label: string, private commands: Command[], readonly select?: LayerSelect) {
     this.bytes = commands.reduce((s, c) => s + c.bytes, 0);
   }
   apply(store: Store): void { for (const c of this.commands) c.apply(store); }

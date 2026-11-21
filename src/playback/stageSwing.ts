@@ -70,7 +70,7 @@ export class StageSwing {
     doc.layers.forEach((l, i) => {
       const s = world.displacement(l.id), on = l.visible && l.physics.enabled;
       this.stage.setSwing(i, { x: s.x * k, y: s.y * k, z: s.z * k }, on);
-      // 塗った範囲の広がり(ためて膨らむ2 など、physics/motion.ts の SPREAD_MOTIONS)。重心はウェイトが変わったときだけ求め直す
+      // 塗った範囲の広がり(ためて膨らむ など、physics/motion.ts の SPREAD_MOTIONS)。重心はウェイトが変わったときだけ求め直す
       const r = world.spread(l.id);
       this.stage.setSpread(i, r ? this.layerCenter(doc, l) : { x: 0, y: 0 }, r, on);
     });

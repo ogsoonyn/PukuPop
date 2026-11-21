@@ -20,10 +20,12 @@ export const INFLATE_KINDS: Record<InflateKind, string> = { ellipse: '楕円', r
  * kamaboko は、傾ける前の形で上下の辺からだけ盛り上がり、左右の端は切り立つ(稜線は横向き。縦にするには角度で回す)。
  * 形を崩す(shapeWarp.ts): warp は四隅のずれ(どの形にも効く)。round は角の丸み 0〜1(短い方の半径に対する割合)、
  * bulge は辺のふくらみ -1〜1。round・bulge は矩形・カマボコだけに効く。
+ * aspect は画像からウェイトへの縦の倍率 ÷ 横の倍率(省略で 1)。inflateShape は縦をこれで割った、縦横の倍率がそろった空間で
+ * 形を測る(傾けた形が、画像の上で剪断されないように。Issue #63)。ry は割る前(ウェイトのピクセル)で渡す。
  */
 export interface InflateShape {
   kind: InflateKind; cx: number; cy: number; rx: number; ry: number; angle?: number;
-  warp?: Warp | null; round?: number; bulge?: number;
+  warp?: Warp | null; round?: number; bulge?: number; aspect?: number;
 }
 
 export interface InflateParams {
@@ -87,7 +89,7 @@ function depthAt(s: InflateShape, dx: number, dy: number): number {
   return -roundRectSdf(s, dx, dy) / Math.min(s.rx, s.ry);
 }
 
-/** 図形の中の、縁からの深さ 0〜1(外は 0 以下)。x, y はピクセルの中心 */
+/** 図形の中の、縁からの深さ 0〜1(外は 0 以下)。x, y はピクセルの中心。aspect は見ない(縦横の倍率がそろった空間の形を渡す) */
 export function shapeDepth(s: InflateShape, x: number, y: number, rot = rotation(s)): number {
   const l = localPoint(s, x, y, rot);
   return l ? depthAt(s, l.dx, l.dy) : -1;
@@ -96,7 +98,7 @@ export function shapeDepth(s: InflateShape, x: number, y: number, rot = rotation
 /** 傾きの cos・sin(傾けていなければ null)。ピクセルごとに計算しないよう、先に1回だけ求める */
 const rotation = (s: InflateShape) => (s.angle ? { c: Math.cos(s.angle), n: Math.sin(s.angle) } : null);
 
-/** 傾けた形の外接矩形(中心からのピクセル。左・右・上・下) */
+/** 傾けた形の外接矩形(中心からのピクセル。左・右・上・下)。aspect は見ない(縦横の倍率がそろった空間の形を渡す) */
 export function shapeExtent(s: InflateShape): { x0: number; x1: number; y0: number; y1: number } {
   const c = Math.cos(s.angle ?? 0), n = Math.sin(s.angle ?? 0);
   const b = bulgeOf(s);
@@ -120,10 +122,11 @@ const slopeRadius = (s: InflateShape) => (s.kind === 'kamaboko' ? s.ry : Math.mi
 /** ぼかしの半径から、形の外へにじむ幅(ガウスの 3σ。半径 ≒ 2σ) */
 const blurMargin = (blur: number) => Math.ceil(blur * 1.5);
 
-function shapeBounds(s: InflateShape, w: number, h: number, margin = 0): Rect | null {
+/** 外接矩形(ウェイトのピクセル)。s は縦を aspect で割った空間の形なので、縦は aspect を掛けて戻す */
+function shapeBounds(s: InflateShape, w: number, h: number, margin = 0, aspect = 1): Rect | null {
   const e = shapeExtent(s);
-  const x0 = Math.max(0, Math.floor(s.cx + e.x0 - margin)), y0 = Math.max(0, Math.floor(s.cy + e.y0 - margin));
-  const x1 = Math.min(w, Math.ceil(s.cx + e.x1 + margin)), y1 = Math.min(h, Math.ceil(s.cy + e.y1 + margin));
+  const x0 = Math.max(0, Math.floor(s.cx + e.x0 - margin)), y0 = Math.max(0, Math.floor((s.cy + e.y0) * aspect - margin));
+  const x1 = Math.min(w, Math.ceil(s.cx + e.x1 + margin)), y1 = Math.min(h, Math.ceil((s.cy + e.y1) * aspect + margin));
   return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
 }
 
@@ -131,14 +134,17 @@ function shapeBounds(s: InflateShape, w: number, h: number, margin = 0): Rect | 
  * base(同じ大きさの元のウェイト)に図形の膨らみを重ねて wm へ書く。図形の外接矩形の外には触れない。
  * 戻り値は書いた矩形。
  */
-export function inflateShape(wm: WeightMap, base: Uint8Array, s: InflateShape, p: InflateParams): Rect | null {
-  if (s.rx < 0.5 || s.ry < 0.5) return null;
+export function inflateShape(wm: WeightMap, base: Uint8Array, shape: InflateShape, p: InflateParams): Rect | null {
+  if (shape.rx < 0.5 || shape.ry < 0.5) return null;
+  // 縦を aspect で割った、縦横の倍率がそろった空間で測る。sample の y は割る前のピクセルで受ける
+  const aspect = shape.aspect && shape.aspect > 0 && Number.isFinite(shape.aspect) ? shape.aspect : 1;
+  const s = aspect === 1 ? shape : { ...shape, cy: shape.cy / aspect, ry: shape.ry / aspect };
   const blur = p.blur && p.blur > 0 ? p.blur : 0;
-  const r = shapeBounds(s, wm.width, wm.height, blurMargin(blur)); if (!r) return null;
+  const r = shapeBounds(s, wm.width, wm.height, blurMargin(blur), aspect); if (!r) return null;
   const W = wm.width, d = wm.data, R = slopeRadius(s), rot = rotation(s);
   /** その点の膨らみ(0〜level)と、形の中にどれだけ入っているか(0〜1。カマボコの切り立った端だけ 1px で 0 へ落とす) */
   const sample = (x: number, y: number): [number, number] => {
-    const l = localPoint(s, x, y, rot); if (!l) return [0, 0];
+    const l = localPoint(s, x, y / aspect, rot); if (!l) return [0, 0];
     const depth = depthAt(s, l.dx, l.dy);
     if (depth <= 0) return [0, 0];
     // カマボコの切り立った端(角を丸めたらその縁)は、1px の幅で 0 へ落とす(傾けたときに端がギザギザにならないよう)

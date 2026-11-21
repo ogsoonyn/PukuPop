@@ -102,7 +102,7 @@ UTF-8 の JSON です(編集アプリは2文字の字下げで書きます)。�
             "motion": "jiggle", "motionParams": {}
           },
           "effect": {
-            "enabled": false, "ring": false, "timing": "burst", "opacity": 0.55, "spread": 0.3, "duration": 0.55,
+            "enabled": false, "ring": false, "timing": "burst", "burstMin": 2, "opacity": 0.55, "spread": 0.3, "duration": 0.55,
             "color": "white", "customColor": "#ff8ab8", "blend": "normal"
           },
           "weights": { "path": "weights/doc-0-layer-0.png", "width": 1024, "height": 768 }
@@ -202,7 +202,7 @@ UTF-8 の JSON です(編集アプリは2文字の字下げで書きます)。�
 
 | 項目 | 型 | 意味 | 読むとき |
 | --- | --- | --- | --- |
-| `id` | 文字列 | レイヤーの id(お気に入りから指される) | 空・重複なら振り直す(お気に入りの `layers[].id` も合わせる) |
+| `id` | 文字列 | レイヤーの id(お気に入りと記録の `gainSets` から指される) | 空・重複なら振り直す(お気に入りの `layers[].id` と、記録の `gainSets` の id も合わせる。重複していた id は、先に出てきたレイヤーを指すとみなす。空の id はどのレイヤーも指さない) |
 | `name` | 文字列 | 名前 | 文字列でなければ「レイヤーN」 |
 | `visible` | 真偽 | 表示するか | `false` のときだけ隠す |
 | `pop` | 数 | ポップ量(ウェイト 255 の所を手前へ持ち上げる高さ。元画像のピクセル単位) | 0〜1500、既定 80 |
@@ -216,23 +216,24 @@ UTF-8 の JSON です(編集アプリは2文字の字下げで書きます)。�
 | 項目 | 型 | 意味 | 読むとき |
 | --- | --- | --- | --- |
 | `enabled` | 真偽 | 揺らすか | `false` のときだけ切る |
-| `preset` | 文字列 | 選んだプリセット。`puru`・`bain`・`poyo`・`zun`・`buru`・`fuwa`・`yura`・`furi`・`guru`・`doki`・`tame`・`puku`・`biyo`・`pofu`・`pon`・`custom` | 知らない値は `custom` |
+| `preset` | 文字列 | 選んだプリセット。`puru`・`bain`・`poyo`・`zun`・`buru`・`fuwa`・`yura`・`furi`・`guru`・`doki`・`tame`・`puku`・`puu`・`biyo`・`pofu`・`pon`・`custom` | 知らない値は `custom` |
 | `hardness` | 数 | 硬さ(0〜1 の正規化値) | 0〜1、既定 0.6 |
 | `mass` | 数 | 質量(0〜1) | 0〜1、既定 0.04 |
 | `weight` | 数 | 重さ(重力の効き。0〜1) | 0〜1、既定 0.15 |
 | `damping` | 数 | おさまり(減衰。0〜1) | 0〜1、既定 0.13 |
-| `motion` | 文字列 | 揺らし方。`jiggle`・`jump`・`bounce`・`piston`・`shiver`・`float`・`sway`・`shake`・`circle`・`heartbeat`・`charge`・`charge2`・`stretch`・`puff`・`pulse`・`none`。後から足した項目 | 無い・知らない値は、プリセットの揺らし方(`custom` なら `shake`) |
+| `motion` | 文字列 | 揺らし方。`jiggle`・`jump`・`bounce`・`piston`・`shiver`・`float`・`sway`・`shake`・`circle`・`heartbeat`・`charge2`(ためて膨らむ)・`swell`(ゆっくり膨らむ)・`stretch`・`puff`・`pulse`・`none`。後から足した項目 | 無い・知らない値は、プリセットの揺らし方(`custom` なら `shake`)。このとき、プリセットが `tame`(ためてぼよん)なら、`motionParams` に無ければ `charge2.spread` を 0 にする(前と同じ動きにするため。ほかのプリセットの固有設定は補わない)。前の版の `charge`(統合した前の「ためて膨らむ」)は `charge2` として読み、`charge.depth`・`charge.time`・`charge.bulge` を `charge2.` の同じ項目へ移し(`charge2.` の同じ項目は、`charge.` の値か、無ければ既定値にする)、`charge2.spread` を 0 にする(前と同じ動き) |
 | `motionParams` | オブジェクト | 揺らし方ごとの細かい設定。キーは `揺らし方.項目`(例: `jump.height`)、値は数。書いていない項目は既定値 | 知らないキー・数でない値は捨てる。範囲の外は丸め、選択式の項目は選択肢に無い値を捨てる。項目と範囲は `src/model/project.ts` の `MOTION_PARAMS` |
 
 #### エフェクト(`effect`)
 
-自動で揺らしているとき、揺らし方が押し出し始める時刻(`heartbeat`・`pulse`・`charge`・`charge2`・`puff` だけにある)から 0.4 秒の間に、膨らんだ瞬間が来たら1回、膨らんだ所(ウェイト)の半透明のコピーを外へ広げながら消します。ほかの揺らし方では出ません。
+揺らし方を問わず(自動で揺らしても、手で揺らしても)、揺れの結果の手前への膨らみで出し、膨らんだ所(ウェイト)の半透明のコピーを外へ広げながら消します。膨らみの量(手前へのずれ ÷ ポップ量 + 広がり)が増え始めてから減り始めるまでを1回とし、1回につき1度だけ出します。前の回より弱い揺れ返しでは出ません。自動で揺らすとき、左右・上下にだけ動く揺らし方では出ません。
 
 | 項目 | 型 | 意味 | 読むとき |
 | --- | --- | --- | --- |
 | `enabled` | 真偽 | エフェクトを出すか | `true` のときだけ出す |
 | `ring` | 真偽 | コピーの輪郭(波紋)も同じ時刻・同じ大きさで出すか | `true` のときだけ出す |
-| `timing` | 文字列 | 出すタイミング。`"burst"`(膨らむ勢いが一番強いとき)か `"peak"`(一番膨らんだとき) | 無い・知らない値は `"burst"` |
+| `timing` | 文字列 | 出すタイミング。`"burst"`(膨らみ始め。膨らむ勢いが `burstMin` と前の膨らみの勢い(時間とともに薄れる)の両方を越えた瞬間)か `"peak"`(一番膨らんだとき) | 無い・知らない値は `"burst"` |
+| `burstMin` | 数 | `timing` が `"burst"` のときの出る勢いの下限(膨らみの量の1秒あたりの増え方)。小さいほど出やすい | 0.5〜12、既定 2 |
 | `opacity` | 数 | 濃さ | 0.1〜1、既定 0.55 |
 | `spread` | 数 | 消えるまでに広がる大きさ(ウェイトの重心からの距離に対する割合) | 0.05〜0.8、既定 0.3 |
 | `duration` | 数 | 消えるまでの時間(秒) | 0.2〜1.5、既定 0.55 |
@@ -314,7 +315,7 @@ weightHeight = max(1, round(height * s))
 | --- | --- | --- |
 | `version` | 数 | 記録の版。今は `1` |
 | `dt` | 数 | 1件の時間(秒)。`1/120`(0.008333…) |
-| `gainSets` | 配列 | つかむ操作がレイヤーごとにどれだけ効くかの組。各組は `[レイヤーの id, 0〜1]` の配列 |
+| `gainSets` | 配列 | つかむ操作がレイヤーごとにどれだけ効くかの組。各組は `[レイヤーの id, 0〜1]` の配列(読み込みでレイヤーの id を振り直したときは、新しい id に合わせる) |
 | `samples` | 配列 | 1件ずつの数の並び(下) |
 | `keys` | 配列 | キーフレームから作った記録なら、そのキーフレーム。無いこともある |
 

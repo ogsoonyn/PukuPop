@@ -14,7 +14,7 @@ import { WeightMap, weightSizeFor } from '../model/weightmap';
 import { takeToJson, takeFromJson, normalizeKeys, type Take, type KeyFrame } from '../physics/take';
 import { FAVORITE_NAME_MAX } from '../model/favorites';
 import { encodeGrayPng, decodePngToGray, readPngSize, MAX_PNG_SIDE, type GrayImage } from './png';
-import { IMAGE_TYPES, sniffImageMime, imageOrientedSize } from './imagehead';
+import { IMAGE_TYPES, isImageMime, sniffImageMime, imageOrientedSize } from './imagehead';
 
 export const FORMAT_VERSION = 1;
 export const FILE_EXTENSION = '.pukupop';
@@ -244,18 +244,45 @@ function motionParamsFrom(v: unknown): Record<string, number> {
   return out;
 }
 
+/** 統合した前の「ためて膨らむ」('charge')の固有設定のうち、'charge2' に引き継ぐ項目(既定値も同じ) */
+const LEGACY_CHARGE_KEYS = ['depth', 'time', 'bulge'] as const;
+
+/**
+ * 前の「ためて膨らむ」('charge')の固有設定を、統合した 'charge2' の設定にする。'charge2' の横の広がりを 0% にすると前と同じ動きになる。
+ * 'charge2' に残っていた設定(前に切り替えたときのもの)は、ためる深さ・時間・膨らみの強さ・横の広がりを 'charge' の値で置き換える
+ */
+function legacyChargeParams(v: unknown): Record<string, unknown> {
+  const src = v && typeof v === 'object' ? v as Record<string, unknown> : {}, out: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(src)) if (!key.startsWith('charge.') && !LEGACY_CHARGE_KEYS.some(k => key === `charge2.${k}`)) out[key] = raw;
+  for (const k of LEGACY_CHARGE_KEYS) if (Object.prototype.hasOwnProperty.call(src, `charge.${k}`)) out[`charge2.${k}`] = src[`charge.${k}`];
+  out['charge2.spread'] = 0;
+  return out;
+}
+
+/**
+ * 揺らし方の項目が無い古いファイルのプリセットに補う固有設定。前と同じ動きにするのに要るものだけを書く
+ * (今のプリセットの params は使わない。どきどきの横の広がりのように、後から足した値で古いファイルの動きを変えないため)。
+ * ためてぼよんは、前の「ためて膨らむ」と同じになるよう、ためて膨らむ(charge2)の横の広がりを 0 にする
+ */
+const LEGACY_PRESET_PARAMS: Partial<Record<PresetName, Record<string, number>>> = { tame: { 'charge2.spread': 0 } };
+
 function physicsFrom(v: unknown): PhysicsParams {
   const o = (v ?? {}) as Record<string, unknown>;
   const preset: PresetName = o.preset === 'custom' || own(PRESETS, o.preset) ? (o.preset as PresetName) : 'custom';
   const base = PRESETS.puru;
-  // 揺らし方の項目が無い古いファイルは、プリセットから補う。カスタムならこれまでの動き(左右に振る)にする
-  const motion: MotionPattern = own(MOTIONS, o.motion) ? (o.motion as MotionPattern)
+  const legacyCharge = o.motion === 'charge';
+  // 揺らし方の項目が無い古いファイルは、プリセットから補う(前の動きを保つのに要る固有設定だけ、ファイルに無い項目に補う)。カスタムならこれまでの動き(左右に振る)にする
+  const fromPreset = !legacyCharge && !own(MOTIONS, o.motion) && preset !== 'custom';
+  const motion: MotionPattern = legacyCharge ? 'charge2' : own(MOTIONS, o.motion) ? (o.motion as MotionPattern)
     : preset !== 'custom' ? PRESETS[preset].motion : 'shake';
+  let params: unknown = legacyCharge ? legacyChargeParams(o.motionParams) : o.motionParams;
+  const legacy = fromPreset ? LEGACY_PRESET_PARAMS[preset] : undefined;
+  if (legacy) params = { ...legacy, ...(params && typeof params === 'object' ? params as Record<string, unknown> : {}) };
   return {
     enabled: o.enabled !== false, preset,
     hardness: unit(o.hardness, base.hardness), mass: unit(o.mass, base.mass),
     weight: unit(o.weight, 0.15), damping: unit(o.damping, base.damping), motion,
-    motionParams: motionParamsFrom(o.motionParams),
+    motionParams: motionParamsFrom(params),
   };
 }
 
@@ -272,6 +299,7 @@ function effectFrom(v: unknown): LayerEffect {
     // CSS(色の入力)とシェーダへ入れるので、#rrggbb だけを通す
     customColor: typeof o.customColor === 'string' && /^#[0-9a-f]{6}$/i.test(o.customColor) ? o.customColor.toLowerCase() : d.customColor,
     blend: own(EFFECT_BLENDS, o.blend) ? o.blend as EffectBlend : d.blend,
+    burstMin: num(o.burstMin, L.burstMin.min, L.burstMin.max, d.burstMin),
   };
 }
 
@@ -317,25 +345,13 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
   project.multiCamera = { ...cameraOf(p.multiCamera, defaultMultiCamera()), roll: 0 };
   project.fps = 60;
   project.autoSwing = autoSwingOf(p.autoSwing);
-  // 操作の記録。読めなければ記録なしとして開く(画像やウェイトは開けるので、ファイルごと諦めない)。
-  // 同じファイルを指す記録は同じものとして読む(お気に入りの記録が今の記録と同じかを見分けられるように)
-  const takes = new Map<string, Take | null>();
-  const takeAt = (path: unknown, fov: number): Take | null => {
-    if (typeof path !== 'string' || !own(files, path)) return null;
-    if (!takes.has(path)) {
-      let t: Take | null = null;
-      try { t = takeFromJson(JSON.parse(strFromU8(files[path])), fov); } catch { t = null; }
-      takes.set(path, t);
-    }
-    return takes.get(path)!;
-  };
-  project.take = takeAt(TAKE_PATH, project.camera.fov);
-  // キーフレームの一覧。無いのは足す前のファイルで、そのときは記録がキーフレームから作ったものなら、そのキーフレームで始める
-  project.keyframes = Array.isArray(p.keyframes) ? normalizeKeys(p.keyframes) : structuredClone([...project.take?.keys ?? []]);
 
   // ID はレイヤーやドキュメントを探す鍵なので、空・重複していたら振り直す
   const seenIds = new Set<string>();
-  /** ファイルに書かれたレイヤーの ID → 読み込んだレイヤーの ID(振り直したときに、お気に入りの突き合わせも合わせる) */
+  /**
+   * ファイルに書かれたレイヤーの ID → 読み込んだレイヤーの ID(振り直したときに、お気に入りの突き合わせと記録の中の ID も合わせる)。
+   * 重複していた ID は、どちらを指すか決められないので、先に出てきたレイヤーに当てる
+   */
   const layerIds = new Map<string, string>();
   const uniqueId = (v: unknown, prefix: string) => {
     let id = typeof v === 'string' && v ? v : newId(prefix);
@@ -348,7 +364,7 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
     if (!imgBytes) throw new Error(`画像 ${dj.image?.path} が見つかりません`);
     // 種類は画像の中身から決め、分からなければ mime、それも知らない種類なら PNG とする。
     // 拡張子は種類から決める(パスの末尾から取ると、変な形のパスがそのまま保存し直すファイルに書かれるため)
-    const mime = sniffImageMime(imgBytes) ?? (typeof dj.image.mime === 'string' && own(IMAGE_TYPES, dj.image.mime) ? dj.image.mime : 'image/png');
+    const mime = sniffImageMime(imgBytes) ?? (isImageMime(dj.image.mime) ? dj.image.mime : 'image/png');
     const { width, height } = imageSizeOf(dj.image, imgBytes);
     const doc: Document = {
       id: uniqueId(dj.id, 'D'), name: str(dj.name, '画像'),
@@ -373,7 +389,8 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
         weights = WeightMap.resampled(new WeightMap(g.width, g.height, g.data), ws.w, ws.h);
       }
       const lid = uniqueId(lj.id, 'L');
-      if (typeof lj.id === 'string' && !layerIds.has(lj.id)) layerIds.set(lj.id, lid);
+      // 空の ID は何も指さない(お気に入り・記録の中の空の ID はどのレイヤーにも当てない)
+      if (typeof lj.id === 'string' && lj.id && !layerIds.has(lj.id)) layerIds.set(lj.id, lid);
       const layer: Layer = {
         id: lid, name: str(lj.name, `レイヤー${doc.layers.length + 1}`),
         visible: lj.visible !== false, pop: num(lj.pop, LIMITS.pop.min, LIMITS.pop.max, LIMITS.pop.def),
@@ -387,6 +404,22 @@ export async function deserializeProject(bytes: Uint8Array, opts: LoadOptions = 
     if (!doc.layers.length) { const l = createLayer(doc); seenIds.add(l.id); doc.layers.push(l); }
     project.documents.push(doc);
   }
+  // 操作の記録。レイヤーの ID が決まってから読む(振り直した ID を、つかみの効き具合にも当てるため)。
+  // 読めなければ記録なしとして開く(画像やウェイトは開けるので、ファイルごと諦めない)。
+  // 同じファイルを指す記録は同じものとして読む(お気に入りの記録が今の記録と同じかを見分けられるように)
+  const takes = new Map<string, Take | null>();
+  const takeAt = (path: unknown, fov: number): Take | null => {
+    if (typeof path !== 'string' || !own(files, path)) return null;
+    if (!takes.has(path)) {
+      let t: Take | null = null;
+      try { t = takeFromJson(JSON.parse(strFromU8(files[path])), fov, layerIds); } catch { t = null; }
+      takes.set(path, t);
+    }
+    return takes.get(path)!;
+  };
+  project.take = takeAt(TAKE_PATH, project.camera.fov);
+  // キーフレームの一覧。無いのは足す前のファイルで、そのときは記録がキーフレームから作ったものなら、そのキーフレームで始める
+  project.keyframes = Array.isArray(p.keyframes) ? normalizeKeys(p.keyframes) : structuredClone([...project.take?.keys ?? []]);
   project.favorites = favoritesFrom(favsJson, layerIds, takeAt, project.camera);
   return { project, thumbnail: files['thumbnail.png'] };
 }

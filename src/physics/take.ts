@@ -245,8 +245,11 @@ const BIG = 1e6;
 const fin = (v: unknown, min: number, max: number, def = 0): number =>
   typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : def;
 
-/** 読み込み。形が違う・壊れているものは null(記録なしとして開く)。fov はその時のプロジェクトの画角 */
-export function takeFromJson(v: unknown, fov: number): Take | null {
+/**
+ * 読み込み。形が違う・壊れているものは null(記録なしとして開く)。fov はその時のプロジェクトの画角。
+ * layerIds は、読み込みで振り直したレイヤーの ID(ファイルの ID → 読み込んだ ID)。つかみの効き具合の ID に当てる(Issue #59)
+ */
+export function takeFromJson(v: unknown, fov: number, layerIds?: ReadonlyMap<string, string>): Take | null {
   if (!v || typeof v !== 'object') return null;
   const j = v as Partial<TakeJson>;
   if (j.version !== 1 || !Array.isArray(j.samples)) return null;
@@ -259,8 +262,10 @@ export function takeFromJson(v: unknown, fov: number): Take | null {
       const seen = new Set<string>(), out: [string, number][] = [];
       for (const e of Array.isArray(set) ? set : []) {
         if (out.length >= LIMITS.maxLayers) break;
-        if (!Array.isArray(e) || typeof e[0] !== 'string' || e[0].length > 64 || seen.has(e[0])) continue;
-        seen.add(e[0]); out.push([e[0], fin(e[1], 0, 1, 1)]);
+        if (!Array.isArray(e) || typeof e[0] !== 'string' || e[0].length > 64) continue;
+        const id = layerIds?.get(e[0]) ?? e[0];
+        if (seen.has(id)) continue;
+        seen.add(id); out.push([id, fin(e[1], 0, 1, 1)]);
       }
       return out;
     })

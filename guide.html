@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PukuPop 揺らし方図鑑</title>
+<meta name="description" content="PukuPop の揺らし方と膨らんだ瞬間のエフェクトを、動き・時間ごとのグラフ・設定の効き方で確かめるページ">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<div class="wrap">
+  <header class="flex flex-col gap-3 pb-6">
+    <div class="eyebrow">PukuPop · 揺れの仕組みと揺らし方</div>
+    <h1 class="text-3xl md:text-4xl font-extrabold">揺らし方図鑑</h1>
+    <p class="max-w-[68ch] muted">PukuPop の自動揺らしの揺らし方を、アプリと同じ揺れの計算で動かして見せるページです。動き(斜めと横から)、時間ごとのずれのグラフ、設定を動かしたときの変わり方を並べています。<a class="link" href="./">PukuPop を開く</a></p>
+    <nav class="flex flex-wrap gap-2 text-sm">
+      <a class="btn btn-sm btn-ghost border border-base-300" href="#how">仕組み</a>
+      <a class="btn btn-sm btn-ghost border border-base-300" href="#list">揺らし方の一覧</a>
+      <a class="btn btn-sm btn-ghost border border-base-300" href="#explore">1つずつ試す</a>
+      <a class="btn btn-sm btn-ghost border border-base-300" href="#material">材質(硬さ・質量・おさまり)</a>
+      <a class="btn btn-sm btn-ghost border border-base-300" href="#effect">膨らんだ瞬間のエフェクト</a>
+      <a class="btn btn-sm btn-ghost border border-base-300" href="#presets">プリセット表</a>
+    </nav>
+  </header>
+
+  <!-- 仕組み -->
+  <section id="how" class="flex flex-col gap-4 py-6">
+    <div class="eyebrow">1 · 仕組み</div>
+    <h2 class="text-2xl font-bold">土台が動き、塗った所はバネで遅れて付いてくる</h2>
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      <div class="panel p-4 overflow-x-auto">
+        <svg viewBox="0 0 540 250" class="w-full min-w-[440px]" role="img" aria-label="土台・バネ・塗った部分の関係図">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
+          </defs>
+          <rect x="10" y="16" width="270" height="222" rx="10" fill="var(--img)" stroke="var(--img-edge)"/>
+          <text x="22" y="36" font-size="12" fill="var(--muted)">画像</text>
+          <circle cx="60" cy="130" r="9" fill="none" stroke="var(--c-anchor)" stroke-width="2" stroke-dasharray="3 3"/>
+          <line x1="60" y1="130" x2="60" y2="172" stroke="var(--ink)" stroke-width="1.4"/>
+          <text x="22" y="206" font-size="12" fill="var(--c-anchor)">土台 b(t)</text>
+          <text x="22" y="222" font-size="11" fill="var(--muted)">揺らし方で動く</text>
+          <path d="M69,130 l14,-10 l14,20 l14,-20 l14,20 l14,-20 l14,20 l14,-20 l14,20 l12,-10" fill="none" stroke="var(--ink)" stroke-width="1.6"/>
+          <line x1="60" y1="172" x2="112" y2="172" stroke="var(--ink)" stroke-width="1.4"/>
+          <rect x="112" y="163" width="40" height="18" fill="none" stroke="var(--ink)" stroke-width="1.4"/>
+          <line x1="132" y1="163" x2="132" y2="181" stroke="var(--ink)" stroke-width="1.4"/>
+          <line x1="152" y1="172" x2="222" y2="172" stroke="var(--ink)" stroke-width="1.4"/>
+          <line x1="222" y1="172" x2="222" y2="156" stroke="var(--ink)" stroke-width="1.4"/>
+          <text x="92" y="110" font-size="11" fill="var(--ink)">バネ k(硬さ)</text>
+          <text x="96" y="200" font-size="11" fill="var(--ink)">ダンパ c(おさまり)</text>
+          <circle cx="222" cy="130" r="26" fill="var(--accent)" opacity=".88"/>
+          <text x="216" y="135" font-size="13" fill="#fff" font-weight="700">m</text>
+          <text x="188" y="78" font-size="12" fill="var(--ink)">塗った所 s(t)</text>
+          <text x="188" y="94" font-size="11" fill="var(--muted)">質量 m・重さ g</text>
+          <line x1="252" y1="140" x2="252" y2="196" stroke="var(--c-y)" stroke-width="1.5" marker-end="url(#ar)"/>
+          <text x="210" y="216" font-size="10" fill="var(--c-y)">重力 −g·m</text>
+          <g transform="translate(300,24)">
+            <text x="0" y="12" font-size="12" font-weight="700" fill="var(--ink)">1刻み(1/120 秒)ごとに</text>
+            <text x="0" y="36" font-size="11.5" fill="var(--ink)" font-family="var(--f-mono)">F = −k(s − b) − c(s' − b')</text>
+            <text x="0" y="54" font-size="11.5" fill="var(--ink)" font-family="var(--f-mono)">    − m·(画像全体の加速度)</text>
+            <text x="0" y="72" font-size="11.5" fill="var(--ink)" font-family="var(--f-mono)">    − g·m(y だけ)</text>
+            <text x="0" y="96" font-size="11.5" fill="var(--ink)" font-family="var(--f-mono)">v += F/m·Δt,  s += v·Δt</text>
+            <text x="0" y="124" font-size="11" fill="var(--muted)">ずれは x(左右)・y(上下)・z(手前)の3つ。</text>
+            <text x="0" y="142" font-size="11" fill="var(--muted)">広げる揺らし方は、範囲の広がり r も</text>
+            <text x="0" y="158" font-size="11" fill="var(--muted)">同じ材質のバネで別に追いかける。</text>
+            <text x="0" y="184" font-size="11" fill="var(--muted)">画面の点は「元の位置 + ウェイト×ずれ」。</text>
+            <text x="0" y="200" font-size="11" fill="var(--muted)">濃く塗った所ほど大きく動く。</text>
+          </g>
+        </svg>
+      </div>
+      <div class="prose-j flex flex-col gap-3 text-[15px]">
+        <p>揺らし方は「土台(アンカー)をどう動かすか」を決めるものです。塗った部分はバネとダンパで土台につながっているので、土台が急に動いたり止まったりすると、少し遅れて付いてきて、行き過ぎて弾みます。グラフの<span style="color:var(--c-anchor)"><span class="legend-dash"></span>点線</span>が土台、<span style="color:var(--c-y)"><span class="legend-dot"></span>実線</span>が実際のずれです。</p>
+        <p>土台の動きはどれも周期 T で元に戻る関数で、周期の中の位置(位相 u = 時刻 ÷ 周期 の小数部)で決まります。だから「〜の時間」「〜の長さ」の設定は秒ではなく<b>周期に対する割合</b>です。振れ幅はどれも自動揺らしの<b>強さ</b>に比例します。</p>
+        <p>長さの単位は「画像の長辺 = 2」です。このページのグラフは、それを<b>画像の長辺に対する %</b> に直して出しています(ずれ 0.1 = 長辺の 5%)。手前への動き(z)の多くはポップ量に比例するので、ポップ量も設定できるようにしています(画像の長辺を 1024px とみなしています)。</p>
+        <div class="alert text-sm py-2"><span>つかんで揺らす・視点を動かして揺らす(慣性)も同じバネで動きますが、このページは自動揺らしだけを扱います。</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 一覧 -->
+  <section id="list" class="flex flex-col gap-4 py-6">
+    <div class="eyebrow">2 · 揺らし方の一覧</div>
+    <h2 class="text-2xl font-bold">プリセットの値で動かした揺らし方</h2>
+    <p class="muted text-sm max-w-[68ch]">絵は斜め上から見下ろしたもので、手前への膨らみも見えます。カードの下の小さなグラフは、1周期分の動き(主な向き。点線が土台)です。カードを押すと、下の「1つずつ試す」でその揺らし方を開きます。</p>
+    <div id="gallery" class="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"></div>
+  </section>
+
+  <!-- 試す -->
+  <section id="explore" class="flex flex-col gap-4 py-6">
+    <div class="eyebrow">3 · 1つずつ試す</div>
+    <h2 class="text-2xl font-bold">設定を動かして、動きとグラフの変わり方を見る</h2>
+    <div id="ex-main"></div>
+  </section>
+
+  <!-- 材質 -->
+  <section id="material" class="flex flex-col gap-4 py-6">
+    <div class="eyebrow">4 · 材質</div>
+    <h2 class="text-2xl font-bold">硬さ・質量・おさまり・重さは、弾み方を決める</h2>
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+      <div class="flex flex-col gap-3 text-[15px] prose-j">
+        <p>土台をいきなり 0.1(長辺の 5%)ずらしたときの、塗った所の動きです。どの揺らし方でも、土台が急に動いた後の「弾み」はこの形になります。</p>
+        <div class="formula">k = 20 + 380 × 硬さ      (バネの強さ)
+m = 0.3 + 2.7 × 質量     (重さの慣性)
+c = 0.5 + 11.5 × おさまり (ブレーキ)
+g = 6 × 重さ             (下へ引く力 g·m)
+
+弾む速さ   f = √(k/m) ÷ 2π   [回/秒]
+減りかた   ζ = c ÷ (2√(k·m))  (1 以上で弾まない)
+沈み込み   −g·m ÷ k          (止まっているときの下がり)</div>
+        <ul class="list-disc pl-5 text-sm flex flex-col gap-1">
+          <li><b>硬さ</b>を上げると、速く小刻みに弾み、行き過ぎが小さくなります。</li>
+          <li><b>質量</b>を上げると、ゆっくり大きく弾み、なかなか止まりません。</li>
+          <li><b>おさまり</b>を上げると、弾む回数が減ります。ζ が 1 を超えると、弾まずにじわっと寄ります。</li>
+          <li><b>重さ</b>は下へ引く力です。止まっている位置が少し下がり、上下に動く揺らし方で下側が重く見えます。</li>
+        </ul>
+      </div>
+      <div class="panel p-4 flex flex-col gap-3">
+        <canvas id="mat-graph" class="cv-graph" height="260"></canvas>
+        <div class="text-xs muted flex flex-wrap gap-x-4"><span style="color:var(--c-anchor)"><span class="legend-dash"></span>土台(t=0.1秒で 5% ずらす)</span><span style="color:var(--c-y)"><span class="legend-dot"></span>塗った所</span><span style="color:var(--c-i)"><span class="legend-ghost"></span>減っていく包絡線</span></div>
+        <div class="kv" id="mat-kv"></div>
+        <div class="grid gap-3 sm:grid-cols-2" id="mat-sliders"></div>
+        <div class="flex flex-wrap gap-2 items-center text-sm"><span class="muted">プリセットの材質:</span><select id="mat-preset" class="select select-sm w-auto"></select></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- エフェクト -->
+  <section id="effect" class="flex flex-col gap-4 py-6">
+    <div class="eyebrow">5 · エフェクト</div>
+    <h2 class="text-2xl font-bold">膨らんだ瞬間に、半透明のコピーが広がって消える</h2>
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 text-[15px] prose-j">
+      <div class="flex flex-col gap-3">
+        <p>レイヤーごとに「膨らんだ瞬間のエフェクト」を付けられます。手前へ膨らんだ瞬間に、膨らんだ部分の半透明のコピーが、重心のまわりで外へ広がり、少し手前に出ながら薄くなって消えます。「波紋」を入れると、同じ時刻・同じ大きさで輪郭も出ます。</p>
+        <p>揺らし方を問わず、揺れの結果の手前への膨らみだけで出します(自動で揺らしても、手で揺らしても同じ)。左右・上下にだけ動く揺らし方では、手前へ膨らまないので出ません(伸びて戻るは、向きが手前のときだけ出ます)。下のグラフの<span style="color:var(--c-i)">紫の点線</span>がしきい値の下限(前の膨らみより強いことも要るので、越えても出ないことがあります)、<span style="color:var(--c-fx)">黄色の線</span>が出た時刻です。</p>
+      </div>
+      <ol class="list-decimal pl-5 text-sm flex flex-col gap-1.5">
+        <li>膨らみの量 I は「手前へのずれ ÷ ポップ量(ふわっと膨らむは上へのずれも足す)+ 範囲の広がり」で測ります。</li>
+        <li>I が増え始めてから減り始めるまでを1回の膨らみとし、<b>1回につき1度だけ</b>出します。</li>
+        <li>「膨らみ始め」は、膨らむ速さ(I の傾き)が<b>「出る勢い」と、前の膨らみの一番急な傾きの両方</b>を越えた瞬間に出します。おさまっていく揺れ返しは前より弱いので出ません。</li>
+        <li>「一番膨らんだとき」は、膨らみが止まった所で、I が<b>下限(12%)と前に出したときの I の両方</b>を越えていれば出します。</li>
+        <li>前の強さは 4 秒ごとに 1/e へ薄れるので、しばらく揺れていなければ弱い膨らみでも出ます。</li>
+        <li>出したときの形を覚えておき、その形のコピーを、消えるまでの時間をかけて広げながら薄くします。1レイヤーで同時に出せるのは3つまでです。</li>
+      </ol>
+    </div>
+    <div id="ex-fx"></div>
+    <div class="panel p-4 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+      <div class="flex flex-col gap-2 min-w-0">
+        <h3 class="font-bold">出てから消えるまで(1つのエフェクトの形)</h3>
+        <canvas id="env-graph" class="cv-graph" height="220"></canvas>
+        <div class="text-xs muted flex flex-wrap gap-x-4"><span style="color:var(--c-fx)"><span class="legend-dot"></span>濃さ</span><span style="color:var(--c-r)"><span class="legend-dot"></span>広がり(倍率 − 1)</span><span style="color:var(--c-z)"><span class="legend-dash"></span>手前へ出る量(ポップ量に対する割合)</span></div>
+      </div>
+      <div class="text-sm flex flex-col gap-2 prose-j">
+        <div class="formula">k = 出てからの時間 ÷ 消えるまでの時間 (0→1)
+e = 1 − (1 − k)³               (速く広がり、ゆっくり止まる)
+濃さ = 濃さ設定 × min(1, k/0.06) × (1 − k)^1.6
+倍率 = 1 + 広がり設定 × e
+手前 = 0.6 × e × ポップ量</div>
+        <p>出た直後の 6% の時間ですっと濃くなり、あとは広がりながら薄くなります。<b>濃さ</b>は山の高さ、<b>広がり</b>は最後に何倍まで大きくなるか、<b>消えるまでの時間</b>はこの横軸の長さ(秒)を決めます。色は「画像の色」「白っぽく」「指定の色」、重ね方は「ふつう」「加算(光る感じ)」から選べます(このページでは色は白っぽくだけを再現しています)。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- プリセット表 -->
+  <section id="presets" class="flex flex-col gap-4 py-6">
+    <div class="eyebrow">6 · プリセット表</div>
+    <h2 class="text-2xl font-bold">プリセットは「材質 + 揺らし方 + おすすめの周期」</h2>
+    <p class="muted text-sm max-w-[68ch]">プリセットを選ぶと、硬さ・質量・おさまり・揺らし方が入れ替わり、揺らし方の設定は既定値(プリセットに決まった値があればその値)に戻ります(重さはそのまま)。弾む速さ f と減りかた ζ は表の材質から計算した値です。行を押すと「1つずつ試す」で開きます。</p>
+    <div class="panel table-wrap"><table class="table table-sm" id="preset-table"></table></div>
+  </section>
+
+  <footer class="pt-8 text-xs muted">揺れは PukuPop の自動揺らしと同じ計算(1/120 秒刻み)で、このページの中で動かしています。描き方(正面の網目・横からの断面)はこのページ向けの簡略化で、アプリの3D表示とは見え方が違います。</footer>
+</div>
+
+<script type="module" src="/src/guide/main.ts"></script>
+</body>
+</html>

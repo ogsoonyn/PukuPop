@@ -5,7 +5,7 @@ import { serializeProject, deserializeProject, migrate, FORMAT_VERSION, UNZIP_LI
 import { createDocument, createProject, createLayer, defaultMultiCamera } from '../../src/model/project';
 import { captureFavorite } from '../../src/model/favorites';
 import { takeFromKeys } from '../../src/physics/take';
-import { imageHeaderSize, jpegOrientation, imageOrientedSize, sniffImageMime } from '../../src/storage/imagehead';
+import { imageHeaderSize, jpegOrientation, imageOrientedSize, isImageMime, sniffImageMime } from '../../src/storage/imagehead';
 
 describe('PNG', () => {
   it('グレースケールの往復', () => {
@@ -65,7 +65,7 @@ describe('.pukupop', () => {
     const doc = createDocument({ bytes: new Uint8Array([9, 8, 7, 6]), mime: 'image/jpeg', ext: 'jpg', width: 300, height: 200 }, 'プリン');
     const l1 = doc.layers[0];
     for (let i = 0; i < l1.weights.data.length; i += 3) l1.weights.data[i] = i & 0xff;
-    l1.pop = 1234; l1.physics = { enabled: false, preset: 'bain', hardness: 0.1, mass: 0.9, weight: 0.3, damping: 0.05, motion: 'stretch', motionParams: { 'stretch.amp': 1.5, 'stretch.dir': 3, 'charge.depth': 0.9 } };
+    l1.pop = 1234; l1.physics = { enabled: false, preset: 'bain', hardness: 0.1, mass: 0.9, weight: 0.3, damping: 0.05, motion: 'stretch', motionParams: { 'stretch.amp': 1.5, 'stretch.dir': 3, 'charge2.depth': 0.9 } };
     const l2 = createLayer(doc, '顔'); l2.visible = false; l2.weights.data.fill(77);
     doc.layers.push(l2);
     doc.meshDensity = 256;
@@ -187,6 +187,42 @@ describe('.pukupop', () => {
     expect((await deserializeProject(zipSync(files))).project.keyframes).toEqual([]);
   });
 
+  it('読み込みでレイヤーの ID を振り直したら、記録(今の記録・お気に入りの記録)のつかみの効き具合の ID も合わせる(Issue #59)', async () => {
+    const p = makeProject(), doc = p.documents[0], [l1, l2] = doc.layers;
+    const key = (yaw: number) => ({ view: { yaw, pitch: 0, roll: 0, zoom: 1, target: { x: 0, y: 0, z: 0 } }, seconds: 1, mode: 'smooth' as const });
+    const withGains = (yaw: number) => ({
+      samples: takeFromKeys([key(0), key(yaw)], p.camera.fov)!.samples.map(s => ({ ...s, grabGains: [[l1.id, 0.25], [l2.id, 0.75]] as [string, number][] })),
+    });
+    p.take = withGains(1);
+    // 今の記録とは別の記録を持つお気に入り(motion/favorite-1.json)
+    p.favorites = [{ ...captureFavorite(p, doc, { name: 'a', playing: false }), take: withGains(2) }];
+    // 細工したファイル: 1枚目のレイヤーの ID をドキュメントの ID と同じにする(読み込みで振り直される)
+    const files = unzipSync(serializeProject(p));
+    for (const path of ['project.json', 'motion/take.json', 'motion/favorite-1.json']) {
+      expect(files[path]).toBeDefined();
+      files[path] = strToU8(strFromU8(files[path]).replaceAll(l1.id, doc.id));
+    }
+    const q = (await deserializeProject(zipSync(files))).project;
+    const [m1, m2] = q.documents[0].layers;
+    expect(m1.id).not.toBe(doc.id);
+    expect(m2.id).toBe(l2.id);
+    for (const t of [q.take!, q.favorites[0].take!]) expect(t.samples[0].grabGains).toEqual([[m1.id, 0.25], [m2.id, 0.75]]);
+    expect(q.favorites[0].layers.map(l => l.id)).toEqual([m1.id, m2.id]);
+
+    // 2枚が同じ ID: その ID は先に出てきたレイヤーを指す(振り直した2枚目には当てない)。
+    // 今の記録とお気に入りが同じ記録を指すときは、当て直したあとも同じ記録のまま
+    p.favorites = [captureFavorite(p, doc, { name: 'b', playing: false })];
+    const dup = unzipSync(serializeProject(p));
+    expect(JSON.parse(strFromU8(dup['project.json'])).project.favorites[0].take).toBe('motion/take.json');
+    for (const path of ['project.json', 'motion/take.json']) dup[path] = strToU8(strFromU8(dup[path]).replaceAll(l2.id, l1.id));
+    const r = (await deserializeProject(zipSync(dup))).project;
+    const [n1, n2] = r.documents[0].layers;
+    expect(n1.id).toBe(l1.id);
+    expect(n2.id).not.toBe(l1.id);
+    expect(r.take!.samples[0].grabGains).toEqual([[n1.id, 0.25]]);
+    expect(r.favorites[0].take).toBe(r.take);
+  });
+
   it('3面図の自由角度の視点を保存して戻す。古いファイルや不正な値では初めの視点・範囲内にする', async () => {
     const p = makeProject();
     p.multiCamera = { fov: 30, yaw: -1.2, pitch: 0.3, roll: 0, zoom: 2.5, target: { x: 12, y: -4, z: 7 } };
@@ -236,12 +272,42 @@ describe('.pukupop', () => {
     const json = {
       formatVersion: 1, app: 'PopStage', project: {},
       documents: [{ name: 'x', image: { path: 'images/doc-0.png', width: 10, height: 10 },
-        layers: [{ name: 'L', weights: { path: 'none.png' }, physics: { preset: 'custom', motion: 'charge',
-          motionParams: { 'charge.depth': 5, 'charge.time': 0.5, 'charge.zzz': 1, 'nope.depth': 1, 'circle.dir': 7, 'stretch.dir': 2, 'jump.height': 'x' } } }] }],
+        layers: [{ name: 'L', weights: { path: 'none.png' }, physics: { preset: 'custom', motion: 'charge2',
+          motionParams: { 'charge2.depth': 5, 'charge2.time': 0.5, 'charge2.zzz': 1, 'nope.depth': 1, 'circle.dir': 7, 'stretch.dir': 2, 'jump.height': 'x' } } }] }],
     };
     const zip = zipSync({ 'project.json': strToU8(JSON.stringify(json)), 'images/doc-0.png': new Uint8Array([1]) });
     const { project } = await deserializeProject(zip);
-    expect(project.documents[0].layers[0].physics.motionParams).toEqual({ 'charge.depth': 1, 'charge.time': 0.5, 'stretch.dir': 2 });
+    expect(project.documents[0].layers[0].physics.motionParams).toEqual({ 'charge2.depth': 1, 'charge2.time': 0.5, 'stretch.dir': 2 });
+  });
+
+  it('統合した前の「ためて膨らむ」(charge)は、横の広がり 0% の charge2 として読み、ためる深さ・時間・膨らみの強さを引き継ぐ', async () => {
+    const physics = (o: object, id?: string) => ({ id, name: 'L', weights: { path: 'none.png' }, physics: o });
+    // お気に入りが持つレイヤーの揺れも同じように読む
+    const fav = { id: 'F1', name: 'f', createdAt: new Date(0).toISOString(), autoSwing: { enabled: true, period: 2, strength: 0.5 }, camera: {}, take: null, playing: false,
+      layers: [{ id: 'L1', pop: 10, blend: 'add', physics: { preset: 'tame', motion: 'charge', motionParams: { 'charge.depth': 0.8 } } }] };
+    const json = {
+      formatVersion: 1, app: 'PukuPop', project: { favorites: [fav] },
+      documents: [{ name: 'x', image: { path: 'images/doc-0.png', width: 10, height: 10 }, layers: [
+        physics({ preset: 'tame', motion: 'charge', motionParams: { 'charge.depth': 0.9, 'charge.time': 0.4, 'charge.bulge': 1.2, 'jump.height': 2 } }, 'L1'),
+        // 前に charge2 へ切り替えたときの値は、charge の値(無ければ既定値)で置き換える
+        physics({ preset: 'custom', motion: 'charge', motionParams: { 'charge2.depth': 0.2, 'charge2.spread': 0.4, 'charge2.pinch': 0.3 } }),
+        // 揺らし方の項目が無い古いファイルは、プリセットの揺らし方で補う。固有設定は前の動きを保つのに要るもの(ためてぼよんの横の広がり 0%)だけ補い、
+        // 後から足した値(どきどきの横の広がり)は入れない
+        physics({ preset: 'tame' }),
+        physics({ preset: 'doki' }),
+      ] }],
+    };
+    const { project } = await deserializeProject(zipSync({ 'project.json': strToU8(JSON.stringify(json)), 'images/doc-0.png': new Uint8Array([1]) }));
+    const ph = project.documents[0].layers.map(l => l.physics);
+    expect(ph.map(p => p.motion)).toEqual(['charge2', 'charge2', 'charge2', 'heartbeat']);
+    expect(ph[0].preset).toBe('tame');
+    expect(ph[0].motionParams).toEqual({ 'charge2.depth': 0.9, 'charge2.time': 0.4, 'charge2.bulge': 1.2, 'charge2.spread': 0, 'jump.height': 2 });
+    expect(ph[1].motionParams).toEqual({ 'charge2.spread': 0, 'charge2.pinch': 0.3 });
+    expect(ph[2].motionParams).toEqual({ 'charge2.spread': 0 });
+    expect(ph[3].motionParams).toEqual({});
+    const fp = project.favorites[0].layers[0].physics;
+    expect(fp.motion).toBe('charge2');
+    expect(fp.motionParams).toEqual({ 'charge2.depth': 0.8, 'charge2.spread': 0 });
   });
 
   const oneLayer = (project: object, physics: object = {}) => ({
@@ -405,6 +471,11 @@ describe('.pukupop', () => {
 });
 
 describe('画像のヘッダ', () => {
+  it('扱う画像の種類は自分のプロパティだけで見分ける(constructor などを通さない。Issue #151)', () => {
+    for (const m of ['image/png', 'image/jpeg', 'image/webp']) expect(isImageMime(m)).toBe(true);
+    for (const m of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'image/gif', '', undefined, null, 1]) expect(isImageMime(m)).toBe(false);
+  });
+
   it('種類と寸法を中身から読む', () => {
     expect(sniffImageMime(encodeGrayPng(3, 2, new Uint8Array(6)))).toBe('image/png');
     expect(sniffImageMime(jpegOf(3, 2, 1))).toBe('image/jpeg');
@@ -531,7 +602,7 @@ function webpOf(kind: 'VP8 ' | 'VP8L' | 'VP8X', w: number, h: number): Uint8Arra
 describe('膨らんだ瞬間のエフェクト(レイヤーの effect)', () => {
   it('保存して読むと戻り、項目の無い古いファイルは切ったものとして読む。形の合わない値は既定値', async () => {
     const doc = createDocument({ bytes: new Uint8Array([1, 2, 3]), mime: 'image/png', ext: 'png', width: 40, height: 20 }, 'p');
-    doc.layers[0].effect = { enabled: true, ring: true, timing: 'peak', opacity: 0.8, spread: 0.5, duration: 1.2, color: 'custom', customColor: '#12ab34', blend: 'add' };
+    doc.layers[0].effect = { enabled: true, ring: true, timing: 'peak', opacity: 0.8, spread: 0.5, duration: 1.2, color: 'custom', customColor: '#12ab34', blend: 'add', burstMin: 4.5 };
     const bytes = serializeProject(createProject(doc));
     const back = await deserializeProject(bytes);
     expect(back.project.documents[0].layers[0].effect).toEqual(doc.layers[0].effect);
@@ -543,6 +614,6 @@ describe('膨らんだ瞬間のエフェクト(レイヤーの effect)', () => {
 
     json.documents[0].layers[0].effect = { enabled: 'yes', timing: 'later', opacity: 9, spread: -1, duration: 'x', color: 'red', customColor: 'url(x)', blend: 'screen' };
     const bad = (await deserializeProject(zipSync({ ...files, 'project.json': strToU8(JSON.stringify(json)) }))).project.documents[0].layers[0].effect;
-    expect(bad).toEqual({ enabled: false, ring: false, timing: 'burst', opacity: 1, spread: 0.05, duration: 0.55, color: 'white', customColor: '#ff8ab8', blend: 'normal' });
+    expect(bad).toEqual({ enabled: false, ring: false, timing: 'burst', opacity: 1, spread: 0.05, duration: 0.55, color: 'white', customColor: '#ff8ab8', blend: 'normal', burstMin: 2 });
   });
 });

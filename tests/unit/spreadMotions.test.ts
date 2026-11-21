@@ -39,7 +39,7 @@ describe('ふわっと膨らむ(一瞬だけ上下に揺れて、同時に横に
 
   it('広がり: 上がるのと同時に外へ広がり、上がり終わると元に戻る', () => {
     expect(spreadAt(0)).toBe(0);
-    expect(spreadAt(0.075)).toBeCloseTo(0.2, 9); // 横の広がり 20%(強さ 50% で、ためて膨らむ2 と同じ尺度)
+    expect(spreadAt(0.075)).toBeCloseTo(0.2, 9); // 横の広がり 20%(強さ 50% で、ためて膨らむと同じ尺度)
     for (const u of [0.15, 0.225, 0.5]) expect(spreadAt(u)).toBe(0);
     for (let u = 0; u < 0.15; u += 0.01) expect(spreadAt(u)).toBeGreaterThanOrEqual(0); // 縮みはしない
   });

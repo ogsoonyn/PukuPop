@@ -8,7 +8,8 @@ import { Store, createProject, createDocument, createLayer, cloneLayer, meshSegm
 import { projectDataBytes, sumMemory, type MemoryUsage, type TabMemory } from './model/memory';
 import { History, emptyHistory } from './commands/history';
 import type { Rect } from './model/weightmap';
-import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation } from './commands/commands';
+import { InsertLayer, RemoveLayer, MoveLayer, WeightEdit, SetTake, SetFavorites, SetFov, PatchLayer, PatchProject, Batch, weightOperation, diffTiles } from './commands/commands';
+import { mergeHeights, scaleFavoritePops, MERGE_MODES, MERGE_HIDDEN_NOTE, type MergeMode } from './model/merge';
 import type { Command } from './commands/history';
 import { captureFavorite, favoriteChanges, nextFavoriteName, applyView, FAVORITE_NAME_MAX } from './model/favorites';
 import { Stage, type ViewOptions } from './stage/stage';
@@ -261,7 +262,12 @@ export class App extends Emitter<AppEvents> {
     });
     this.stage.onContextChange = lost => this.onContextChange(lost);
     this.wireStore();
-    this.history.on('change', () => this.trimHiddenHistory());
+    this.history.on('change', () => { this.activeLost = false; this.trimHiddenHistory(); });
+    // 元に戻す・やり直すで選んでいたレイヤーが消えたときは、コマンドが持つレイヤーを選ぶ(一番下へ飛ばないように。LayerSelect)。
+    // 選んでいたレイヤーが残るときは、ユーザーが選び直したものを変えない
+    const reselect = (id: string | undefined) => { if (this.activeLost && id && this.store.findLayer(id)) this.setActiveLayer(id); };
+    this.history.on('undo', cmd => reselect(cmd.select?.undo));
+    this.history.on('redo', cmd => reselect(cmd.select?.redo));
   }
 
   get doc(): Document | undefined { return this.store.doc; }
@@ -303,8 +309,11 @@ export class App extends Emitter<AppEvents> {
       this.stage.setLayers(doc.layers);
       this.perf?.event({ t, d: performance.now() - t, kind: 'layers', detail: 'レイヤー構成の変更(ウェイトの全面転送)' });
       this.pendingUploads.clear(); // 全レイヤーを送り直したので、溜めていた分は要らない
-      if (!this.activeLayerId || !s.findLayer(this.activeLayerId)) this.setActiveLayer(doc.layers[0]?.id ?? null);
-      else {
+      if (!this.activeLayerId || !s.findLayer(this.activeLayerId)) {
+        const lost = !!this.activeLayerId;
+        this.setActiveLayer(doc.layers[0]?.id ?? null);
+        this.activeLost = lost; // やり直しの受け口が見る(setActiveLayer が下ろすので、その後で立てる)
+      } else {
         // 消えたレイヤーを選択から外す(アンドゥで足し直したレイヤーは選び直さない)
         const before = this.selectedLayerIds.size;
         for (const id of [...this.selectedLayerIds]) if (!s.findLayer(id)) this.selectedLayerIds.delete(id);
@@ -422,8 +431,15 @@ export class App extends Emitter<AppEvents> {
     if (this.autoOverlayOff) this.setOverlayMode('off');
   }
 
+  /**
+   * 選んでいたレイヤーが消えて、レイヤー構成の受け口が一番下を選び直したか。レイヤーを選ぶ・アンドゥの積みが動く(change)と下ろす。
+   * 元に戻す・やり直すのときだけ見る(Command の select を当てるかどうか)
+   */
+  private activeLost = false;
+
   /** そのレイヤーだけを選ぶ */
   setActiveLayer(id: string | null): void {
+    this.activeLost = false;
     this.activeLayerId = id;
     this.selectedLayerIds = new Set(id ? [id] : []);
     this.syncView();
@@ -438,6 +454,7 @@ export class App extends Emitter<AppEvents> {
     if (!this.store.findLayer(primary)) return;
     const set = new Set([...ids].filter(id => this.store.findLayer(id)));
     set.add(primary);
+    this.activeLost = false;
     this.activeLayerId = primary;
     this.selectedLayerIds = set;
     this.syncView();
@@ -1086,7 +1103,8 @@ export class App extends Emitter<AppEvents> {
     if (doc.layers.length >= LIMITS.maxLayers) { toast(`レイヤーは最大 ${LIMITS.maxLayers} 枚です。`, 'warning'); return; }
     const layer = createLayer(doc, nextLayerName(doc));
     const index = this.activeIndex >= 0 ? this.activeIndex + 1 : doc.layers.length;
-    this.history.execute(new InsertLayer('レイヤーを追加', doc.id, layer, index));
+    // 元に戻したら、足す前に選んでいたレイヤーを選ぶ
+    this.history.execute(new Batch('レイヤーを追加', [new InsertLayer('レイヤーを追加', doc.id, layer, index)], { undo: this.activeLayerId ?? undefined }));
     this.setActiveLayer(layer.id);
   }
 
@@ -1103,7 +1121,8 @@ export class App extends Emitter<AppEvents> {
       ids.push(copy.id);
       if (l.id === this.activeLayerId) primary = copy.id;
     }
-    this.history.execute(cmds.length === 1 ? cmds[0] : new Batch(countLabel('レイヤーを複製', cmds.length), cmds));
+    // 元に戻したら、最後に押していた元のレイヤーを選ぶ
+    this.history.execute(new Batch(countLabel('レイヤーを複製', cmds.length), cmds, { undo: this.activeLayerId ?? undefined }));
     this.selectLayers(ids, primary || ids[0]);
   }
 
@@ -1115,9 +1134,51 @@ export class App extends Emitter<AppEvents> {
     const i = this.activeIndex, rest = doc.layers.filter(l => !this.selectedLayerIds.has(l.id));
     const next = rest.find(l => doc.layers.indexOf(l) > i) ?? rest[rest.length - 1];
     const cmds = layers.map(l => new RemoveLayer(this.store, l.id));
-    // 上から消すと、残りのレイヤーの位置がずれない(元に戻すときは下から入れ直す)
-    this.history.execute(cmds.length === 1 ? cmds[0] : new Batch(countLabel('レイヤーを削除', cmds.length), cmds.reverse()));
+    // 上から消すと、残りのレイヤーの位置がずれない(元に戻すときは下から入れ直す)。やり直したときも next を選ぶ
+    this.history.execute(new Batch(countLabel('レイヤーを削除', cmds.length), cmds.reverse(), { redo: next.id }));
     this.setActiveLayer(next.id);
+  }
+
+  /**
+   * 結合するレイヤー(一覧の下から順)。複数を選んでいるときは選んだ全部、1枚のときはそれとすぐ下のレイヤー。
+   * 結合できない(1枚だけ選んでいて一番下)ときは空
+   */
+  get mergeTargets(): Layer[] {
+    const doc = this.doc; if (!doc) return [];
+    if (this.multiSelected) return this.selectedLayers;
+    const i = this.activeIndex;
+    return i > 0 ? [doc.layers[i - 1], doc.layers[i]] : [];
+  }
+
+  /**
+   * 結合する(mergeTargets を、その一番下のレイヤーへまとめる)。高さ(ウェイト × ポップ量)を mode で合わせ(model/merge.ts)、
+   * 揺れ・重ね方・名前・エフェクトは一番下のレイヤーのものを残す。ほかのレイヤーは消す。まとめて1手
+   */
+  mergeLayers(mode: MergeMode): void {
+    const doc = this.doc, ls = this.mergeTargets;
+    if (!doc || ls.length < 2 || this.previewing || this.stroking) return;
+    // 非表示のレイヤーは高さに入っていないので、結合すると見た目が変わる。どちらに倒すかを決めずに断る(コマンドの表でも止める)
+    if (ls.some(l => !l.visible)) { toast(MERGE_HIDDEN_NOTE, 'warning'); return; }
+    const [base, ...rest] = ls, fromPop = base.pop;
+    const r = mergeHeights(ls, mode);
+    // 枚数は、複数を選んで結合したときだけ付ける(下へ結合するのはいつも2枚)
+    const label = countLabel(`${MERGE_MODES[mode].label}でレイヤーを結合`, this.multiSelected ? ls.length : 1);
+    const cmds: Command[] = [];
+    const tiles = diffTiles(base.weights.data, r.weights);
+    if (tiles.length) cmds.push(new WeightEdit(label, base.id, tiles));
+    if (r.pop !== base.pop) {
+      cmds.push(PatchLayer.from(this.store, base.id, { pop: r.pop }, label));
+      // お気に入りのポップ量も合わせる(ウェイトは新しいポップ量に合わせて縮むので、そのままだと当てたときに高さが崩れる)
+      const favs = this.project.favorites, scaled = scaleFavoritePops(favs, base.id, fromPop, r.pop);
+      if (scaled !== favs) cmds.push(new SetFavorites(label, favs, scaled));
+    }
+    // 上から消すと、残りのレイヤーの位置がずれない(元に戻すときは下から入れ直す)
+    for (const l of [...rest].reverse()) cmds.push(new RemoveLayer(this.store, l.id));
+    this.history.execute(new Batch(label, cmds, { redo: base.id }));
+    this.setActiveLayer(base.id);
+    if (r.clipped) toast(`足した高さがポップ量の上限(${LIMITS.pop.max}px)を超えた所は、上限で切りました。`, 'warning', 5000);
+    // 揺れのずれはウェイトに比例するので、ポップ量を上げると、元のレイヤーの所はウェイトが縮んだぶん揺れも小さくなる
+    else if (r.pop > fromPop && fromPop > 0) toast(`「${base.name}」のポップ量を ${fromPop}px から ${r.pop}px にしました。元の「${base.name}」の所は、揺れが小さくなることがあります。`, 'info', 5000);
   }
 
   /** 一覧の上を手前(配列の後ろ)として並べ替える。dir: +1 で上へ */

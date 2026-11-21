@@ -22,8 +22,8 @@ export const UI_IDS = {
   pPop: 'input', pPopN: 'input', pBlend: 'select', pBlendDesc: 'p',
   pDensity: 'input', pDensityO: 'output', pOpacity: 'input', pOpacityO: 'output',
   pSwing: 'input', pPreset: 'select', pPresetDesc: 'p', physDetails: 'details', physSummary: 'span', pMotion: 'select', motionParams: 'div',
-  pFx: 'input', pFxNote: 'p', pFxBody: 'div', pFxRing: 'input', pFxTiming: 'select', pFxOpacity: 'input', pFxOpacityO: 'output',
-  pFxSpread: 'input', pFxSpreadO: 'output', pFxDur: 'input', pFxDurO: 'output', pFxColor: 'select', pFxCustom: 'input', pFxBlend: 'select',
+  pFx: 'input', pFxBody: 'div', pFxRing: 'input', pFxTiming: 'select', pFxOpacity: 'input', pFxOpacityO: 'output',
+  pFxSpread: 'input', pFxSpreadO: 'output', pFxDur: 'input', pFxDurO: 'output', pFxMin: 'input', pFxMinO: 'output', pFxColor: 'select', pFxCustom: 'input', pFxBlend: 'select',
   pHard: 'input', pHardO: 'output', pMass: 'input', pMassO: 'output', pDamp: 'input', pDampO: 'output', pWeight: 'input', pWeightO: 'output',
   pAuto: 'input', pPeriod: 'input', pPeriodO: 'output', pAutoStr: 'input', pAutoStrO: 'output',
   animBox: 'section', recSection: 'section', takeInfo: 'span', takeRec: 'button', takePlay: 'button', takeClear: 'button',
@@ -46,6 +46,8 @@ export const UI_IDS = {
   // 膨らませる
   inflateDialog: 'dialog', inflHead: 'div', inflTitle: 'h3', inflCompact: 'button', inflRows: 'div', inflHeightRow: 'div', inflTarget: 'p', inflKind: 'select', inflW: 'input', inflH: 'input', inflHeight: 'input', inflHeightN: 'input',
   inflSoft: 'input', inflSoftN: 'input', inflAngle: 'input', inflAngleN: 'input', inflCorner: 'input', inflWarpReset: 'button', inflRoundRow: 'div', inflRound: 'input', inflRoundN: 'input', inflBulgeRow: 'div', inflBulge: 'input', inflBulgeN: 'input', inflBlur: 'input', inflBlurN: 'input', inflBlend: 'select', inflLayerBlend: 'select', inflNewLayer: 'input', inflNote: 'p', inflCancel: 'button', inflApply: 'button',
+  // レイヤーの結合
+  mergeDialog: 'dialog', mergeTarget: 'p', mergeMode: 'select', mergeCancel: 'button', mergeApply: 'button',
   // 確認・数値入力
   askDialog: 'dialog', askTitle: 'h3', askBody: 'p', askInputWrap: 'div', askInputLabel: 'span', askInput: 'input', askNo: 'button', askYes: 'button',
   // 設定

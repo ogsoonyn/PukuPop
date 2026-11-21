@@ -9,9 +9,18 @@ export interface Command {
   readonly label: string;
   /** 保持しているデータ量の目安(バイト) */
   readonly bytes: number;
+  /** 元に戻す・やり直すで、選んでいたレイヤーが消えたときに選ぶレイヤー(LayerSelect) */
+  readonly select?: LayerSelect;
   apply(store: Store): void;
   revert(store: Store): void;
 }
+
+/**
+ * レイヤーを消す・作る操作で、元に戻す(undo)・やり直す(redo)によって選んでいたレイヤーが消えたときに選ぶレイヤーの id。
+ * 消す操作のやり直しは実行したときに選んだもの(削除はすぐ上、結合はまとめた先)、作る操作の元に戻すは作る前に選んでいたもの。
+ * History は `undo` / `redo` で知らせるだけで、消えたかを見て選ぶのは受けた側(App)。選ぶものはモデルに無いので、id だけを持つ
+ */
+export interface LayerSelect { readonly undo?: string; readonly redo?: string }
 
 export interface HistoryOptions { maxSteps: number; maxBytes: number }
 
@@ -33,7 +42,8 @@ export function shrinkHistory(s: HistoryState, bytes: number): number {
   return freed;
 }
 
-export class History extends Emitter<{ change: void }> {
+/** undo / redo は、戻した・やり直したコマンドを change より先に知らせる(App は change で「選んでいたレイヤーが消えた」印を下ろすため) */
+export class History extends Emitter<{ change: void; undo: Command; redo: Command }> {
   private undoStack: Command[] = [];
   private redoStack: Command[] = [];
   private totalBytes = 0;
@@ -74,6 +84,7 @@ export class History extends Emitter<{ change: void }> {
     if (!cmd) return false;
     cmd.revert(this.store);
     this.redoStack.push(cmd);
+    this.emit('undo', cmd);
     this.emit('change', undefined);
     return true;
   }
@@ -83,6 +94,7 @@ export class History extends Emitter<{ change: void }> {
     if (!cmd) return false;
     cmd.apply(this.store);
     this.undoStack.push(cmd);
+    this.emit('redo', cmd);
     this.emit('change', undefined);
     return true;
   }

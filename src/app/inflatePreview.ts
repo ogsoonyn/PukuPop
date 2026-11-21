@@ -10,7 +10,7 @@
  * App とは InflateHost の分だけでつながる。始まり・変更の知らせと、始めてよいかの確かめは App が受け持つ。
  */
 import { createLayer, LIMITS, type Store, type Document, type Layer, type BlendMode } from '../model/project';
-import { InsertLayer, PatchLayer, WeightEdit, diffTiles } from '../commands/commands';
+import { Batch, InsertLayer, PatchLayer, WeightEdit, diffTiles } from '../commands/commands';
 import type { History } from '../commands/history';
 import { isFlatWarp, type Warp } from '../paint/shapeWarp';
 import { inflateShape, INFLATE_KINDS, type InflateKind, type InflateProfile, type InflateBlend } from '../paint/inflate';
@@ -188,7 +188,7 @@ export class InflatePreview {
     const level = target.pop > 0 ? Math.min(1, st.height / target.pop) : 0;
     inflateShape(wm, base, {
       kind: st.shape, cx: (a.x / doc.image.width + 0.5) * wm.width, cy: (0.5 - a.y / doc.image.height) * wm.height, rx: a.w / 2 * kx, ry: a.h / 2 * ky,
-      angle: st.angle * Math.PI / 180, warp: a.warp, round: st.round, bulge: st.bulge,
+      angle: st.angle * Math.PI / 180, warp: a.warp, round: st.round, bulge: st.bulge, aspect: ky / kx,
     }, { level, softness: st.softness, profile: st.profile, blend: st.blend, blur: st.blur * kx });
     store.weightsChanged(target.id, wm.fullRect, false);
   }
@@ -218,7 +218,9 @@ export class InflatePreview {
     if (newLayer) {
       // 仮に入れたレイヤーをそのまま正式に追加する。戻すとレイヤーごと消え、元のレイヤーは触れていないので元どおり
       const index = doc.layers.indexOf(newLayer);
-      h.history.push(new InsertLayer(`膨らませる(${shape}・高さ ${st.height}px・新しいレイヤー「${newLayer.name}」)`, doc.id, newLayer, index));
+      // 元に戻したら、範囲を描いたレイヤーを選ぶ
+      const label = `膨らませる(${shape}・高さ ${st.height}px・新しいレイヤー「${newLayer.name}」)`;
+      h.history.push(new Batch(label, [new InsertLayer(label, doc.id, newLayer, index)], { undo: s.layerId }));
       store.emit('change', undefined);
       h.setActiveLayer(newLayer.id);
     } else {

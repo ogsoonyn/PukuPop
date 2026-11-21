@@ -12,9 +12,11 @@ export interface Vec3 { x: number; y: number; z: number }
  * 揺らし方。自動揺らしのとき、塗った部分を支える土台(アンカー)をどう動かすか。
  * 塗った部分はバネで土台に繋がっていて、遅れて付いてくる(physics/motion.ts)。
  * ピストンだけは土台ではなく画像全体を動かし、塗った部分はその動きに慣性で遅れて付いてくる。
- * ためて膨らむ2・ふわっと膨らむ・一瞬膨らむは、土台の動きに加えて、塗った範囲を中心から外へ広げる(physics/motion.ts の SPREAD_MOTIONS)。
+ * ためて膨らむ・ゆっくり膨らむ・ふわっと膨らむ・一瞬膨らむ・鼓動は、土台の動きに加えて、塗った範囲を中心から外へ広げる(physics/motion.ts の SPREAD_MOTIONS)。
+ * 'charge'(前の「ためて膨らむ」)は 'charge2' に統合した。'charge2' は横の広がり 0% で前の 'charge' と同じ動きになり、
+ * 'charge' のファイルは読み込みで 'charge2' へ移す(storage/popstage.ts)。保存したファイルとの互換のため、名前は 'charge2' のまま使う
  */
-export type MotionPattern = 'charge' | 'charge2' | 'jiggle' | 'jump' | 'bounce' | 'piston' | 'shiver' | 'float' | 'sway' | 'shake' | 'circle' | 'heartbeat' | 'stretch' | 'puff' | 'pulse' | 'none';
+export type MotionPattern = 'charge2' | 'swell' | 'jiggle' | 'jump' | 'bounce' | 'piston' | 'shiver' | 'float' | 'sway' | 'shake' | 'circle' | 'heartbeat' | 'stretch' | 'puff' | 'pulse' | 'none';
 
 export const MOTIONS: Record<MotionPattern, { label: string; desc: string }> = {
   jiggle: { label: '上下に小刻み', desc: '上下に軽くつついて揺らす' },
@@ -27,8 +29,8 @@ export const MOTIONS: Record<MotionPattern, { label: string; desc: string }> = {
   shake: { label: '左右に振る', desc: '左右に素早く振る' },
   circle: { label: '回転', desc: '円を描いて回る' },
   heartbeat: { label: '鼓動', desc: 'ドクン、ドクンと手前にふくらむ' },
-  charge: { label: 'ためて膨らむ', desc: 'ポップ量をぐーっと縮めてから、いっきにぼよんと膨らませる' },
-  charge2: { label: 'ためて膨らむ2', desc: '塗った範囲ごと内へ縮めてから、手前にも横にもいっきにぼよんと広げる' },
+  charge2: { label: 'ためて膨らむ', desc: 'ぐーっと縮めてから、手前にも横にもいっきにぼよんと広げる(横の広がり 0% で手前だけ)' },
+  swell: { label: 'ゆっくり膨らむ', desc: 'じわじわ手前にも横にも膨らんで大きくなり、しゅっと戻る' },
   stretch: { label: '伸びて戻る', desc: 'ゆっくり引き伸ばして、ぱっと離す' },
   puff: { label: 'ふわっと膨らむ', desc: '一瞬だけふわっと上下に揺れて、同時に塗った範囲が横にも膨らむ' },
   pulse: { label: '一瞬膨らむ', desc: '手前に少し膨らんですぐ戻り、同時に塗った範囲が横にも膨らむ' },
@@ -55,16 +57,11 @@ const pct = (key: string, label: string, def: number, max = 3, min = 0, hint?: s
   ({ key, label, unit: '%', min, max, step: 0.01, def, hint });
 
 export const MOTION_PARAMS: Record<MotionPattern, MotionParamDef[]> = {
-  charge: [
-    pct('depth', 'ためる深さ', 0.7, 1, 0, 'ポップ量をどこまで縮めるか(100% で平らになる)'),
-    pct('time', 'ためる時間', 0.6, 0.9, 0.2, '周期のうち、縮めている時間の割合'),
-    pct('bulge', '膨らみの強さ', 0.3, 2, 0, '離した瞬間に、さらに押し出す量(ポップ量に対する割合)。0% でもバネの勢いで少し膨らむ'),
-  ],
   charge2: [
     pct('depth', 'ためる深さ', 0.7, 1, 0, 'ポップ量をどこまで縮めるか(100% で平らになる)'),
     pct('time', 'ためる時間', 0.6, 0.9, 0.2, '周期のうち、縮めている時間の割合'),
     pct('bulge', '膨らみの強さ', 0.3, 2, 0, '離した瞬間に、さらに手前へ押し出す量(ポップ量に対する割合)'),
-    pct('spread', '横の広がり', 0.2, 0.5, 0, '離した瞬間に、塗った範囲を中心から外へ広げる量(中心からの距離に対する割合)'),
+    pct('spread', '横の広がり', 0.2, 0.5, 0, '離した瞬間に、塗った範囲を中心から外へ広げる量(中心からの距離に対する割合)。0% で手前にだけ膨らむ'),
     pct('pinch', '横の縮み', 0.5, 1, 0, 'ためている間に、塗った範囲を内へ縮める量(横の広がりに対する割合)'),
   ],
   jump: [
@@ -101,7 +98,11 @@ export const MOTION_PARAMS: Record<MotionPattern, MotionParamDef[]> = {
     pct('radius', '半径', 1),
     { key: 'dir', label: '向き', unit: 'select', min: -1, max: 1, step: 2, def: 1, options: [[1, '反時計回り'], [-1, '時計回り']] },
   ],
-  heartbeat: [pct('amp', '膨らみ', 1), pct('second', '2拍目の強さ', 0.7, 1.5), pct('gap', '拍の間隔', 0.2, 0.45, 0.08)],
+  heartbeat: [
+    pct('amp', '膨らみ', 1), pct('second', '2拍目の強さ', 0.7, 1.5), pct('gap', '拍の間隔', 0.2, 0.45, 0.08),
+    // 後から足した項目。既定 0% は、足す前の鼓動と同じ動き
+    pct('spread', '横の広がり', 0, 0.5, 0, '拍に合わせて、塗った範囲を中心から外へ広げる量(中心からの距離に対する割合)'),
+  ],
   stretch: [
     pct('amp', '伸ばす量', 1),
     pct('time', '伸ばす時間', 0.65, 0.9, 0.2),
@@ -112,6 +113,12 @@ export const MOTION_PARAMS: Record<MotionPattern, MotionParamDef[]> = {
     pct('down', '下がる深さ', 0.5, 1.5, 0, '上がったあとに下がる深さ(上がる高さに対する割合)'),
     pct('spread', '横の広がり', 0.2, 0.5, 0, '上がるのと同時に、塗った範囲を中心から外へ広げる量(中心からの距離に対する割合)'),
     pct('time', '揺れる長さ', 0.3, 0.8, 0.1, '周期のうち、上下に揺れている時間の割合。残りは止まっていて、余韻だけが残る'),
+  ],
+  swell: [
+    pct('bulge', '膨らみ', 0.5, 2, 0, '一番膨らんだときの、手前への量(ポップ量に対する割合)'),
+    pct('spread', '横の広がり', 0.2, 0.5, 0, '一番膨らんだときの、塗った範囲の外への広がり(中心からの距離に対する割合)'),
+    pct('time', '膨らむ時間', 0.6, 0.9, 0.2, '周期のうち、膨らみ続けている時間の割合。長いほどじわじわ膨らむ'),
+    pct('ret', '戻る時間', 0.06, 0.3, 0, '一番膨らんでから元に戻るまでの時間(周期に対する割合)。短いほどしゅっと戻って弾む。0% でぱっと離す。膨らむ時間と合わせて周期の 98% までに収める(長すぎる分は効かない)'),
   ],
   pulse: [
     pct('bulge', '膨らみ', 0.3, 2, 0, '手前に膨らむ量(ポップ量に対する割合)'),
@@ -128,7 +135,7 @@ export function motionParam(values: Record<string, number> | undefined, motion: 
   return MOTION_PARAMS[motion].find(d => d.key === key)?.def ?? 0;
 }
 
-export type PresetName = 'puru' | 'bain' | 'poyo' | 'zun' | 'buru' | 'fuwa' | 'yura' | 'furi' | 'guru' | 'doki' | 'tame' | 'puku' | 'biyo' | 'pofu' | 'pon' | 'custom';
+export type PresetName = 'puru' | 'bain' | 'poyo' | 'zun' | 'buru' | 'fuwa' | 'yura' | 'furi' | 'guru' | 'doki' | 'tame' | 'puku' | 'puu' | 'biyo' | 'pofu' | 'pon' | 'custom';
 
 /** 揺れのパラメータ。数値はすべて 0〜1 の正規化値。 */
 export interface PhysicsParams {
@@ -186,9 +193,10 @@ export interface Layer {
 }
 
 /**
- * 膨らんだ瞬間のエフェクト。押し出す時刻がある揺らし方(physics/motion.ts の motionPushes)で、自動揺らしの膨らみに合わせて、
+ * 膨らんだ瞬間のエフェクト。揺らし方を問わず、手前へ膨らんだ瞬間に(physics/effect.ts。自動揺らしでも手で揺らしても)、
  * 膨らんだ部分(ウェイト)の半透明のコピーが外へふわっと広がって消える。ring でその輪郭(波紋)も同じ時刻・同じ大きさで出す。
- * timing: burst = 膨らむ勢いが一番強いとき、peak = 一番膨らんだとき。
+ * timing: burst = 膨らみ始め(膨らむ勢いが burstMin と前の突き出しの勢いの両方を越えたとき)、peak = 一番膨らんだとき。
+ * burstMin: 膨らみ始めで出す勢いの下限(膨らみの量の傾き、1/秒。小さいほど弱い膨らみでも出る)。
  * opacity: 濃さ(0〜1)。spread: 消えるまでに広がる大きさ(重心からの距離に対する割合)。duration: 消えるまでの時間(秒)。
  * color: 色の付け方(画像の色のまま / 白っぽく / customColor に寄せる)。blend: 重ね方(ふつう / 加算)
  */
@@ -202,13 +210,14 @@ export interface LayerEffect {
   color: EffectColor;
   customColor: string;
   blend: EffectBlend;
+  burstMin: number;
 }
 export type EffectTiming = 'burst' | 'peak';
 export type EffectColor = 'image' | 'white' | 'custom';
 export type EffectBlend = 'normal' | 'add';
 
 export const EFFECT_TIMINGS: Record<EffectTiming, { label: string; desc: string }> = {
-  burst: { label: '膨らみ始め', desc: '膨らむ勢いが一番強いときに出します' },
+  burst: { label: '膨らみ始め', desc: '膨らむ勢いが「出る勢い」と前の膨らみの勢いの両方を越えたときに出します' },
   peak: { label: '一番膨らんだとき', desc: '一番膨らんだときに出します' },
 };
 export const EFFECT_COLORS: Record<EffectColor, { label: string }> = {
@@ -221,10 +230,9 @@ export const EFFECT_LIMITS = {
   opacity: { min: 0.1, max: 1, def: 0.55 },
   spread: { min: 0.05, max: 0.8, def: 0.3 },
   duration: { min: 0.2, max: 1.5, def: 0.55 },
+  burstMin: { min: 0.5, max: 12, def: 2 },
 } as const;
 
-/** エフェクトを出せる揺らし方(押し出す時刻がある。時刻は physics/motion.ts の motionPushes) */
-export const EFFECT_MOTIONS: ReadonlySet<MotionPattern> = new Set<MotionPattern>(['heartbeat', 'pulse', 'charge', 'charge2', 'puff']);
 /** 同時に描くエフェクトの数の上限(全レイヤーの合計。多いときは古いものから描かない) */
 export const MAX_EFFECT_DRAWS = 12;
 
@@ -232,7 +240,7 @@ export function defaultEffect(): LayerEffect {
   return {
     enabled: false, ring: false, timing: 'burst',
     opacity: EFFECT_LIMITS.opacity.def, spread: EFFECT_LIMITS.spread.def, duration: EFFECT_LIMITS.duration.def,
-    color: 'white', customColor: '#ff8ab8', blend: 'normal',
+    color: 'white', customColor: '#ff8ab8', blend: 'normal', burstMin: EFFECT_LIMITS.burstMin.def,
   };
 }
 
@@ -388,7 +396,7 @@ export interface Preset {
 /** 揺れのプリセット。材質(硬さ・質量・おさまり)と揺らし方の組み合わせ。 */
 export const PRESETS: Record<Exclude<PresetName, 'custom'>, Preset> = {
   puru: { label: 'ぷるぷる', desc: '上下につついて、細かく震える余韻が残る', hardness: 0.6, mass: 0.04, damping: 0.13, motion: 'jiggle', period: 1.2 },
-  bain: { label: 'ばいんばいん', desc: 'ジャンプして着地すると、どすんと沈んで上下に弾む', hardness: 0.25, mass: 0.25, damping: 0.1, motion: 'jump', period: 1.8 },
+  bain: { label: 'ぴょーん', desc: 'ジャンプして着地すると、どすんと沈んで上下に弾む', hardness: 0.25, mass: 0.25, damping: 0.1, motion: 'jump', period: 1.8 },
   poyo: { label: 'ぽよんぽよん', desc: '小さく弾み続ける', hardness: 0.4, mass: 0.15, damping: 0.19, motion: 'bounce', period: 0.8 },
   zun: { label: 'ずんずん', desc: '画像ごと上下に突き上げられ、塗った所が遅れて付いてきて弾む', hardness: 0.3, mass: 0.25, damping: 0.12, motion: 'piston', period: 1.2 },
   buru: { label: 'ぶるぶる', desc: '細かく速く震える', hardness: 0.9, mass: 0.05, damping: 0.3, motion: 'shiver', period: 2 },
@@ -396,9 +404,11 @@ export const PRESETS: Record<Exclude<PresetName, 'custom'>, Preset> = {
   yura: { label: 'ゆらゆら', desc: '左右にゆったり揺れる', hardness: 0.15, mass: 0.4, damping: 0.25, motion: 'sway', period: 2.5 },
   furi: { label: 'ふりふり', desc: '左右に素早く振る', hardness: 0.45, mass: 0.35, damping: 0.12, motion: 'shake', period: 1.6 },
   guru: { label: 'ぐるぐる', desc: '円を描いて回る', hardness: 0.2, mass: 0.3, damping: 0.3, motion: 'circle', period: 2 },
-  doki: { label: 'どきどき', desc: 'ドクン、ドクンと手前にふくらむ', hardness: 0.55, mass: 0.1, damping: 0.35, motion: 'heartbeat', period: 1 },
-  tame: { label: 'ためてぼよん', desc: 'ぐーっと縮んでから、いっきにぼよんと膨らんで弾む', hardness: 0.3, mass: 0.2, damping: 0.1, motion: 'charge', period: 2 },
+  doki: { label: 'どきどき', desc: 'ドクン、ドクンと手前にふくらむ', hardness: 0.55, mass: 0.1, damping: 0.35, motion: 'heartbeat', period: 1, params: { spread: 0.15 } },
+  // 前は揺らし方 'charge'。統合した 'charge2' の横の広がり 0% が同じ動き
+  tame: { label: 'ためてぼよん', desc: 'ぐーっと縮んでから、いっきにぼよんと膨らんで弾む', hardness: 0.3, mass: 0.2, damping: 0.1, motion: 'charge2', period: 2, params: { spread: 0 } },
   puku: { label: 'ぷっくり', desc: '塗った範囲ごとぐーっと縮んでから、手前にも横にもいっきにぼよんと広がって弾む', hardness: 0.3, mass: 0.2, damping: 0.1, motion: 'charge2', period: 2 },
+  puu: { label: 'ぷくーっ', desc: 'じわじわ手前にも横にも膨らんで大きくなり、しゅっと戻って弾む', hardness: 0.3, mass: 0.2, damping: 0.18, motion: 'swell', period: 2.4 },
   biyo: { label: 'びよーん', desc: 'ゆっくり引き伸ばされて、離すと大きく弾む', hardness: 0.35, mass: 0.2, damping: 0.08, motion: 'stretch', period: 2.4 },
   pofu: { label: 'ぽふん', desc: '一瞬ふわっと上下に揺れて、同時に塗った範囲が横にもぽよんと膨らむ', hardness: 0.3, mass: 0.2, damping: 0.25, motion: 'puff', period: 1.6 },
   pon: { label: 'ぽんっ', desc: '一瞬だけ手前にも横にも少し膨らんで、すぐ戻って弾む', hardness: 0.45, mass: 0.12, damping: 0.25, motion: 'pulse', period: 1.2 },

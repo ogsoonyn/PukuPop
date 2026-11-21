@@ -198,8 +198,8 @@ html.mobile #blurDialog { left: 50%; right: auto; transform: translateX(-50%); b
 .tab-item-close { flex-shrink: 0; font-size: 1.125rem; }
 
 /* ---------- 埋め込みモード(main.ts が html に .embed を付ける。1タブ1ファイルで、ほかのファイルを開かない) ---------- */
-/* data-embed-off は、埋め込みモードで使わないコマンドの部品(ui/actions.ts が付ける) */
-html.embed [data-embed-off], html.embed .doc-tab-close, html.embed .tab-item-close, html.embed #tabOpen { display: none !important; }
+/* data-embed-off は、埋め込みモードで使わないコマンドの部品(ui/actions.ts が付ける)。#helpGuide は公開版にだけある揺らし方図鑑へのリンク */
+html.embed [data-embed-off], html.embed .doc-tab-close, html.embed .tab-item-close, html.embed #tabOpen, html.embed #helpGuide { display: none !important; }
 /* 閉じるボタンの分の余白を、見出しの右に付ける */
 html.embed .doc-tab-name { padding-right: .625rem; }
 

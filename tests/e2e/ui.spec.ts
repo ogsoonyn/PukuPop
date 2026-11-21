@@ -815,7 +815,7 @@ test('プリセットで自動揺らしの周期を変えるのは、揺れて�
   await boot(page);
   const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
   await openTab(page, 'layer');
-  // 揺れているレイヤーが1枚: 周期もおすすめの値(ばいんばいん 1.8 秒)になる
+  // 揺れているレイヤーが1枚: 周期もおすすめの値(ぴょーん 1.8 秒)になる
   await page.locator('#pPreset').selectOption('bain');
   expect(await app(a => a.project.autoSwing.period)).toBe(1.8);
   // 何も塗っていないレイヤーは、揺れているとは数えない
@@ -977,11 +977,16 @@ test('ポップ量のスライダーの最大値は設定で変えられ(既定 
   await expect(page.locator('#pPop')).toHaveAttribute('max', '500');
   await page.locator('#pPop').fill('500');
   expect(await pop()).toBe(500);
-  // 数値の欄は 1500px まで打て、スライダーは右端に止まる
+  // 数値の欄は 1500px まで打てる。最大値より高いレイヤーでは、スライダーの右端をその値まで広げる(触っただけで一気に下がらないように)
   await page.locator('#pPopN').fill('900');
   await page.locator('#pPopN').press('Enter');
   expect(await pop()).toBe(900);
-  await expect(page.locator('#pPop')).toHaveValue('500');
+  await expect(page.locator('#pPop')).toHaveAttribute('max', '900');
+  await expect(page.locator('#pPop')).toHaveValue('900');
+  // 最大値以下に下げると、右端は最大値に戻る
+  await page.locator('#pPop').fill('400');
+  expect(await pop()).toBe(400);
+  await expect(page.locator('#pPop')).toHaveAttribute('max', '500');
   // 設定で 1200px にすると、右端が 1200px になる(1000px を超えるので後半は粗い目盛り)
   await page.locator('#toolOptions [data-cmd=settings]').click();
   await expect(page.locator('#setPopMax')).toHaveValue('500');

@@ -239,6 +239,24 @@ test('膨らませる: 高さがポップ量を超えると新しいレイヤー
   await expect(page.locator('#pPopN')).toHaveValue('140');
 });
 
+test('膨らませる: 新しいレイヤーに作ったのを元に戻すと、範囲を描いたレイヤーを選ぶ(一番下へ飛ばない。Issue #177)', async ({ page }) => {
+  await boot(page);
+  const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
+  // 一番下のプリンの上にレイヤーを足し、そちらに範囲を描く
+  await app(a => { a.addLayer(); a.history.clear(); });
+  const source = await app(a => a.activeLayer.name as string);
+  await page.keyboard.press('i');
+  await dragOnStage(page, [0.3, 0.25], [0.4, 0.35]);
+  await expect(page.locator('#inflateDialog')).toHaveJSProperty('open', true);
+  await page.locator('#inflHeightN').fill('900');
+  await expect.poll(() => app(a => a.doc.layers.length)).toBe(3);
+  await page.locator('#inflApply').click();
+  expect(await app(a => a.activeLayer.name)).toBe('膨らみ1');
+  await app(a => a.history.undo());
+  expect(await app(a => a.doc.layers.length)).toBe(2);
+  expect(await app(a => a.activeLayer.name)).toBe(source);
+});
+
 test('膨らませる: パネルでカマボコ・仕上げのぼかし・レイヤーの重ね方・新しいレイヤーに作るを選べる', async ({ page }) => {
   await boot(page);
   const app = <T>(fn: (a: any) => T): Promise<T> => page.evaluate(`(${fn.toString()})(window.popstage)`);
