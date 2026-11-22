@@ -114,7 +114,8 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
   function cancelDrag(): void {
     if (drag.mode === 'paint') { app.cancelStroke(); app.holdImage(false); }
     else if (drag.mode === 'area') {
-      areaStart = null; app.holdImage(false);
+      // 描き直しをやめたときも「描き直す」を切る(そのあと見回すつもりの1本指で、また描き直さないように)
+      areaStart = null; app.holdImage(false); setRedrawArmed(false);
       if (areaBegan && app.previewingInflate) app.endInflate(false);
       else if (areaBefore && app.previewingInflate) app.updateInflate({ area: areaBefore });
     } else if (drag.mode === 'frame') {

@@ -397,12 +397,12 @@ export class App extends Emitter<AppEvents> {
 
   /* ---------- 状態の切り替え ---------- */
 
-  /** auto を false にすると、重ね表示を自動で入れも切りもしない(起動時に前回のツールを戻すとき、スマホと PC の幅を行き来するとき) */
+  /** auto を false にすると、重ね表示を自動で入れも切りもしない(ツールを内部で戻すときのため。今は呼ぶ所が無い) */
   setTool(t: Tool, auto = true): void {
     const changed = t !== this.tool;
     this.tool = t;
     this.emit('tool', t);
-    // auto が false(起動時の復元・スマホの幅に入るとき)は切らない。PC の幅に戻ってブラシにしたとき、表示が消えたままになるため
+    // auto が false のときは切らない(戻した先で表示が消えたままにならないように)
     if (auto && changed && !PAINT_TOOLS.includes(t)) this.autoHideOverlay();
     // 選び直しでは入れない(手で切った重ね表示を戻さない)。受け手が別のツールに戻したときも入れない
     if (auto && changed && this.tool === t && PAINT_TOOLS.includes(t)) this.autoShowOverlay();

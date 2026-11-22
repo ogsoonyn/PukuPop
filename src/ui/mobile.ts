@@ -14,7 +14,7 @@ import { icon } from './icons';
 import { toolDef } from './tools';
 import { setFineLock, isFineLocked, FINE } from './fine';
 import { orbitCamera } from '../model/project';
-import { setRedrawArmed, onRedrawArmed } from './inflateRedraw';
+import { isRedrawArmed, setRedrawArmed, onRedrawArmed } from './inflateRedraw';
 import { toast } from './dom';
 
 /** スマホの配置にする条件。横向きのスマホ(高さが低く、指で触る)も含める */
@@ -189,21 +189,22 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
   // 指が丸の外へ出ても、離すまで回し続ける。ダブルタップで視点を戻す。再生は止めない(視点の操作なので、ほかの回転と同じ)
   ui.mOrbit.innerHTML = icon('view');
   {
-    let orbit: { id: number; x: number; y: number; t: number; moved: boolean } | null = null;
+    // タップかどうかは、置いた所からどれだけ離れたかで決める(指は押している間にも少し動くため。キャンバスの側と同じ考え方)
+    let orbit: { id: number; x: number; y: number; sx: number; sy: number; t: number; moved: boolean } | null = null;
     let lastTap = 0;
     ui.mOrbit.addEventListener('contextmenu', e => e.preventDefault());
     ui.mOrbit.addEventListener('pointerdown', e => {
       if (orbit || !app.doc) return;
       e.preventDefault();
       ui.mOrbit.setPointerCapture(e.pointerId);
-      orbit = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
+      orbit = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), moved: false };
       ui.mOrbit.classList.add('active');
     });
     ui.mOrbit.addEventListener('pointermove', e => {
       if (!orbit || e.pointerId !== orbit.id) return;
       const f = isFineLocked() ? FINE : 1, dx = (e.clientX - orbit.x) * f, dy = (e.clientY - orbit.y) * f;
       orbit.x = e.clientX; orbit.y = e.clientY;
-      if (dx || dy) orbit.moved = true;
+      if (Math.hypot(e.clientX - orbit.sx, e.clientY - orbit.sy) > 10) orbit.moved = true;
       orbitCamera(app.project.camera, dx, dy);
       app.emit('status', undefined);
     });
@@ -287,7 +288,7 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
 
   // スマホでは、プレビュー中に枠の外を触ると視点が回る(ui/input.ts)。描き直すときは、このボタンを押してから描く
   ui.inflRedraw.addEventListener('click', () => {
-    const on = ui.inflRedraw.getAttribute('aria-pressed') !== 'true';
+    const on = !isRedrawArmed();
     setRedrawArmed(on);
     if (on) toast('画像の上をなぞって、範囲を描き直してください');
   });

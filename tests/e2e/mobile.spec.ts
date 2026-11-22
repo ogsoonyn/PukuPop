@@ -452,8 +452,12 @@ test('回すハンドル: どのツールでもなぞると回り、ダブルタ
   expect(await page.evaluate(() => (window as any).popstage.tool)).toBe('brush');
   // ダブルタップで視点を戻す
   await page.waitForTimeout(400);
-  for (let i = 0; i < 2; i++) { await touch(cdp, 'touchStart', [[ox, oy]]); await touch(cdp, 'touchEnd', []); await page.waitForTimeout(80); }
-  await expect.poll(async () => Math.abs((await cam()).yaw - c1.yaw)).toBeGreaterThan(0.05);
+  // 指は押している間にも少し動くので、数 px 動いてもタップとみなす。
+  // タップは時間で決まるので、描画が重くて間に合わなかったときは間を空けてたたき直す
+  await expect(async () => {
+    for (let i = 0; i < 2; i++) { await touch(cdp, 'touchStart', [[ox, oy]]); await touch(cdp, 'touchMove', [[ox + 3, oy + 2]]); await touch(cdp, 'touchEnd', []); }
+    await expect.poll(async () => Math.abs((await cam()).yaw - c1.yaw), { timeout: 1000 }).toBeGreaterThan(0.05);
+  }).toPass({ intervals: [500], timeout: 15_000 });
 });
 
 test('膨らみのプレビュー中は枠の外を触ると回り、描き直すのは「描き直す」を押したときだけ', async ({ page }) => {
@@ -484,7 +488,19 @@ test('膨らみのプレビュー中は枠の外を触ると回り、描き直�
   await swipe(cdp, [[qx - 50, qy - 50]], [[qx - 10, qy - 10]]);
   expect(await area()).not.toEqual(a0);
   await expect(page.locator('#inflRedraw')).toHaveAttribute('aria-pressed', 'false');
+  // 描き直しを2本目の指でやめたときも切れ、範囲は描き直す前に戻る
+  const a1 = await area();
+  await page.locator('#inflRedraw').click();
+  await touch(cdp, 'touchStart', [[px, py]]);
+  for (let i = 1; i <= 4; i++) await touch(cdp, 'touchMove', [[px + i * 12, py - i * 8]]);
+  await touch(cdp, 'touchStart', [[px + 48, py - 32], [px + 120, py - 100]]);
+  await touch(cdp, 'touchEnd', []);
+  expect(await area()).toEqual(a1);
+  await expect(page.locator('#inflRedraw')).toHaveAttribute('aria-pressed', 'false');
+  // プレビューを終えても切れる
+  await page.locator('#inflRedraw').click();
   await page.locator('#inflCancel').click();
+  await expect(page.locator('#inflRedraw')).toHaveAttribute('aria-pressed', 'false');
 });
 
 test('幅を広げると PC の配置に戻る', async ({ page }) => {

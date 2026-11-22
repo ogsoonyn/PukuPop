@@ -336,7 +336,7 @@ html.mobile #mEditMenu:not([hidden]) { display: flex !important; flex-direction:
 #inflRedraw[aria-pressed="true"] { background: var(--color-primary); color: var(--color-primary-content); border-color: transparent; }
 html.mobile body > main { padding-bottom: var(--m-tools); }
 html.mobile #toasts { top: calc(var(--m-top) + .5rem); bottom: auto; margin-bottom: 0; }
-html.mobile #mFine { display: inline-flex !important; }
+html.mobile #mFine, html.mobile #inflRedraw:not([hidden]) { display: inline-flex !important; }
 html.mobile #helpDialog .m-only { display: grid !important; }
 html.mobile .help-btn { width: 1.5rem; height: 1.5rem; font-size: 12px; }
 html.mobile #mPanes section { padding: 0; border: 0; }
