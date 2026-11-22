@@ -5,13 +5,17 @@
  * (PC の画面の並びを変えても、印が付いたままなら移る中身は変わらない)。スマホで出さない部品には d-only を付ける。
  * イベントの結び付けはそのまま残るので、PC とスマホで同じ処理が動く。幅が戻ったら元の場所へ戻す。
  * シートの一番上には左のツールバーの、その場で効く操作を横1列に並べる(作るのは ui/actions.ts)。
- * ツールは「つかむ・揺らす・移動・視点」を主にし、膨らみ・塗り・消しゴム・ぼかしは「塗って直す」の中に置く。
+ * 下のバーは「つかむ・揺らす・移動・視点」と、編集ツールの枠(膨らみ・ブラシ・消しゴム・ぼかしのうち最後に使ったもの)。
+ * 編集しながら角度を確かめられるよう、3Dビューの右下に回すハンドルを置き、どのツールでもそこから視点を回せる。
  */
 import { PAINT_TOOLS, type App, type Tool } from '../app';
 import { ui } from './ids';
 import { icon } from './icons';
 import { toolDef } from './tools';
-import { setFineLock } from './fine';
+import { setFineLock, isFineLocked, FINE } from './fine';
+import { orbitCamera } from '../model/project';
+import { isRedrawArmed, setRedrawArmed, onRedrawArmed } from './inflateRedraw';
+import { toast } from './dom';
 
 /** スマホの配置にする条件。横向きのスマホ(高さが低く、指で触る)も含める */
 export const MOBILE_QUERY = '(max-width: 767px), (max-height: 500px) and (pointer: coarse)';
@@ -34,10 +38,13 @@ export const MOBILE_SLOTS: readonly { slot: string; tab: Tab; prepend?: boolean 
   { slot: 'camera', tab: 'view' },
 ];
 
-/** 「塗って直す」の中で使うツール。ブラシの設定を出すのは塗りの3つだけ */
+/** 下のバーの編集ツールの枠に入るツール(一覧の並び)。ブラシの設定を出すのは塗りの3つだけ */
+const EDIT_TOOLS: readonly Tool[] = ['inflate', 'brush', 'erase', 'smooth'];
 const BRUSH_TOOLS: Tool[] = ['brush', 'erase', 'smooth'];
+/** 編集ツールの枠を長押しして一覧を開くまでの時間(ms) */
+const LONG_PRESS = 450;
 const TOOL_DESC: Record<Tool, string> = {
-  inflate: '画像の上をドラッグして範囲を描くと、ここで高さや断面を決めて適用できます。範囲は枠で直せます。2本目の指を置くと描くのをやめます。',
+  inflate: '画像の上をドラッグして範囲を描くと、ここで高さや断面を決めて適用できます。描いたあとは、範囲は枠で直せ、枠の外を触ると視点が回ります。描き直すときは「描き直す」を押してから描きます。2本目の指を置くと描くのをやめます。',
   grab: 'つかむ: 画像を引っぱって離すと揺れます。',
   shake: '揺らす: 指で振ると、画像は動かずに揺れだけが出ます。',
   view: '視点: 画像の上でも1本指で回転します。',
@@ -63,7 +70,6 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
 
   /** 移したものと元の場所。戻すときは逆順に戻す */
   let moved: { el: Element; parent: Node; next: Node | null }[] = [];
-  let desktopTool: Tool | null = null;
   const move = (el: Element, to: Element, prepend = false) => {
     if (!el.parentNode) return;
     moved.push({ el, parent: el.parentNode, next: el.nextSibling });
@@ -77,11 +83,8 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
     for (const el of document.querySelectorAll('[data-brush-opt]')) move(el, ui.mBrushOpts);
     // 膨らみの、次に描くときの設定(ウェイトの重ね方。範囲ごとの項目は描く前は押せないので style.css で隠す)
     for (const el of document.querySelectorAll('[data-inflate-opt]')) move(el, ui.mInflOpts);
-    // 3面図は縦長の画面では狭すぎるので使わない。塗りのツールのまま来たら、主のツールにする
+    // 3面図は縦長の画面では狭すぎるので使わない
     if (app.view.multi) app.setViewOption('multi', false);
-    desktopTool = app.tool;
-    if (PAINT_TOOLS.includes(app.tool)) app.setTool('pan', false);
-    setPaintMode(false);
     syncState(); syncTool();
     setSheet('closed', false);
   }
@@ -91,9 +94,7 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
     root.classList.remove('mobile');
     root.style.removeProperty('--m-sheet');
     setFineLock(false); ui.mFine.setAttribute('aria-pressed', 'false');
-    // スマホの間に塗りから切り替えていたら、PC で使っていたツールに戻す
-    if (desktopTool && PAINT_TOOLS.includes(desktopTool) && !PAINT_TOOLS.includes(app.tool)) app.setTool(desktopTool, false);
-    desktopTool = null;
+    closeEditMenu(); setRedrawArmed(false);
   }
 
   /* ---------- シート ---------- */
@@ -182,33 +183,99 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
     setFineLock(on);
   });
 
-  /* ---------- ツールと「塗って直す」 ---------- */
+  /* ---------- 回すハンドル ---------- */
 
-  // 塗って直すモードの帯の高さ(折り返すと変わる)を、3Dビューの下の再生のバーを上へ逃がすのに使う(style.css の #playBar)
-  new ResizeObserver(() => root.style.setProperty('--m-modebar', `${ui.mModeBar.offsetHeight}px`)).observe(ui.mModeBar);
-
-  let lastMain: Tool = 'pan';
-  function setPaintMode(on: boolean): void {
-    root.dataset.mset = on ? 'paint' : 'main';
-    ui.mModeBar.hidden = !on;
-    if (on && !PAINT_TOOLS.includes(app.tool)) app.setTool('brush');
-    if (!on && PAINT_TOOLS.includes(app.tool)) app.setTool(lastMain);
+  // 3Dビューの右下の丸。どのツールを選んでいても、ここからなぞると「視点」と同じように回る(画像の外の1本指と同じ回り方)。
+  // 指が丸の外へ出ても、離すまで回し続ける。ダブルタップで視点を戻す。再生は止めない(視点の操作なので、ほかの回転と同じ)
+  ui.mOrbit.innerHTML = icon('view');
+  {
+    // タップかどうかは、置いた所からどれだけ離れたかで決める(指は押している間にも少し動くため。キャンバスの側と同じ考え方)
+    let orbit: { id: number; x: number; y: number; sx: number; sy: number; t: number; moved: boolean } | null = null;
+    let lastTap = 0;
+    ui.mOrbit.addEventListener('contextmenu', e => e.preventDefault());
+    ui.mOrbit.addEventListener('pointerdown', e => {
+      if (orbit || !app.doc) return;
+      e.preventDefault();
+      ui.mOrbit.setPointerCapture(e.pointerId);
+      orbit = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), moved: false };
+      ui.mOrbit.classList.add('active');
+    });
+    ui.mOrbit.addEventListener('pointermove', e => {
+      if (!orbit || e.pointerId !== orbit.id) return;
+      const f = isFineLocked() ? FINE : 1, dx = (e.clientX - orbit.x) * f, dy = (e.clientY - orbit.y) * f;
+      orbit.x = e.clientX; orbit.y = e.clientY;
+      if (Math.hypot(e.clientX - orbit.sx, e.clientY - orbit.sy) > 10) orbit.moved = true;
+      orbitCamera(app.project.camera, dx, dy);
+      app.emit('status', undefined);
+    });
+    const end = (e: PointerEvent) => {
+      if (!orbit || e.pointerId !== orbit.id) return;
+      const o = orbit; orbit = null;
+      ui.mOrbit.classList.remove('active');
+      if (e.type !== 'pointerup' || o.moved || performance.now() - o.t > 300) { lastTap = 0; return; }
+      const now = performance.now();
+      if (now - lastTap < 350) { lastTap = 0; app.resetView(); } else lastTap = now;
+    };
+    ui.mOrbit.addEventListener('pointerup', end);
+    ui.mOrbit.addEventListener('pointercancel', end);
   }
-  ui.mPaintMode.addEventListener('click', () => { if (app.previewing) return; setPaintMode(true); setSheet('closed'); });
-  ui.mPaintDone.addEventListener('click', () => { if (!app.previewing) setPaintMode(false); });
+
+  /* ---------- ツールと編集ツールの枠 ---------- */
+
   // PC の左のツールボタン(.tool)とは別に結び付ける(同じ data-tool のボタンが2つになるので、クラスは分ける)。
   // アイコンと名前は PC と同じ表(ui/tools.ts・ui/icons.ts)から入れる
-  for (const b of ui.mTools.querySelectorAll<HTMLButtonElement>('[data-mtool]')) {
-    const t = toolDef(b.dataset.mtool as Tool);
-    b.innerHTML = `${icon(t.id)}<span></span>`;
-    b.querySelector('span')!.textContent = t.label;
-  }
+  const toolHtml = (t: Tool) => `${icon(t)}<span></span>`;
+  const fillTool = (b: HTMLElement, t: Tool) => { b.innerHTML = toolHtml(t); b.querySelector('span')!.textContent = toolDef(t).label; };
+  for (const b of ui.mTools.querySelectorAll<HTMLButtonElement>('[data-mtool]')) fillTool(b, b.dataset.mtool as Tool);
+  for (const b of ui.mEditMenu.querySelectorAll<HTMLButtonElement>('[data-medit]')) fillTool(b, b.dataset.medit as Tool);
   for (const b of ui.mTools.querySelectorAll<HTMLButtonElement>('[data-mtool]')) b.addEventListener('click', () => { if (!app.previewing) app.setTool(b.dataset.mtool as Tool); });
+
+  /** 編集ツールの枠に入っているツール。最初は膨らみ(既存のファイルに範囲で膨らみを足すのが、スマホでいちばん多い編集のため) */
+  let lastEdit: Tool = 'inflate';
+  const editMenuOpen = () => !ui.mEditMenu.hidden;
+  function openEditMenu(): void {
+    ui.mEditMenu.hidden = false;
+    ui.mEdit.setAttribute('aria-expanded', 'true');
+  }
+  function closeEditMenu(): void {
+    ui.mEditMenu.hidden = true;
+    ui.mEdit.setAttribute('aria-expanded', 'false');
+  }
+  {
+    // 長押しで一覧を開く。開いたあとの click は、枠のツールへの切り替えに使わない
+    let timer = 0, longPressed = false;
+    const clear = () => { if (timer) { clearTimeout(timer); timer = 0; } };
+    ui.mEdit.addEventListener('contextmenu', e => e.preventDefault());
+    ui.mEdit.addEventListener('pointerdown', () => {
+      longPressed = false; clear();
+      if (app.previewing) return;
+      timer = window.setTimeout(() => { timer = 0; longPressed = true; openEditMenu(); }, LONG_PRESS);
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave'] as const) ui.mEdit.addEventListener(ev, clear);
+    ui.mEdit.addEventListener('click', () => {
+      if (longPressed) { longPressed = false; return; }
+      if (app.previewing) return;
+      // 編集ツールを選んでいる間にもう一度押すと、一覧を開く・閉じる
+      if (PAINT_TOOLS.includes(app.tool)) { if (editMenuOpen()) closeEditMenu(); else openEditMenu(); }
+      else app.setTool(lastEdit);
+    });
+  }
+  for (const b of ui.mEditMenu.querySelectorAll<HTMLButtonElement>('[data-medit]')) b.addEventListener('click', () => {
+    closeEditMenu();
+    if (!app.previewing) app.setTool(b.dataset.medit as Tool);
+  });
+  // 一覧の外を触ったら閉じる(枠のボタンは、上の click で開け閉めする)
+  document.addEventListener('pointerdown', e => {
+    if (editMenuOpen() && !ui.mEditMenu.contains(e.target as Node) && !ui.mEdit.contains(e.target as Node)) closeEditMenu();
+  }, true);
+
   function syncTool(): void {
-    // 画像を開いたときなどに、塗りのツールへ切り替わることがある。スマホでは塗りは「塗って直す」の中だけなので戻す
-    if (mq.matches && root.dataset.mset !== 'paint' && PAINT_TOOLS.includes(app.tool)) { app.setTool(lastMain); return; }
     for (const b of ui.mTools.querySelectorAll<HTMLButtonElement>('[data-mtool]')) b.setAttribute('aria-pressed', String(b.dataset.mtool === app.tool));
-    if (!PAINT_TOOLS.includes(app.tool)) lastMain = app.tool;
+    if (EDIT_TOOLS.includes(app.tool) && app.tool !== lastEdit) { lastEdit = app.tool; fillTool(ui.mEdit, lastEdit); }
+    if (!ui.mEdit.querySelector('svg')) fillTool(ui.mEdit, lastEdit);
+    ui.mEdit.setAttribute('aria-pressed', String(PAINT_TOOLS.includes(app.tool)));
+    for (const b of ui.mEditMenu.querySelectorAll<HTMLButtonElement>('[data-medit]')) b.setAttribute('aria-checked', String(b.dataset.medit === app.tool));
+    if (!PAINT_TOOLS.includes(app.tool)) closeEditMenu();
     ui.mToolDesc.textContent = TOOL_DESC[app.tool];
     ui.mBrushOpts.hidden = !BRUSH_TOOLS.includes(app.tool);
     // 描いたあとはパネル(同じタブに出る)で同じ値を変えるので、重ねて出さない
@@ -216,6 +283,17 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
   }
   app.on('tool', syncTool);
   app.on('inflate', syncTool);
+
+  /* ---------- 膨らみの描き直し ---------- */
+
+  // スマホでは、プレビュー中に枠の外を触ると視点が回る(ui/input.ts)。描き直すときは、このボタンを押してから描く
+  ui.inflRedraw.addEventListener('click', () => {
+    const on = !isRedrawArmed();
+    setRedrawArmed(on);
+    if (on) toast('画像の上をなぞって、範囲を描き直してください');
+  });
+  onRedrawArmed(on => ui.inflRedraw.setAttribute('aria-pressed', String(on)));
+  app.on('inflate', phase => { if (phase === 'end') setRedrawArmed(false); });
 
   // 範囲を描いたら、高さや断面を決められるよう「ツール」タブを開く。終わったら元の高さに戻す
   let before: SheetState | null = null;
