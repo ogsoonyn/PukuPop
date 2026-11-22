@@ -219,6 +219,8 @@
       <button id="playCam" type="button" class="btn btn-ghost btn-sm" data-cmd="resetPlayView" aria-label="カメラを戻す"><span class="play-cam-icon" aria-hidden="true"></span><span class="play-cam-label">カメラを戻す</span></button>
     </div>
     <button id="mFine" class="m-only btn btn-sm rounded-full" aria-pressed="false" title="押すとオン・オフが切り替わります。オンの間は、回転・平行移動・ズーム・つかむ・揺らすの動きが 1/5 になります">微調整</button>
+    <!-- スマホ: 回すハンドル。どのツールを選んでいても、ここからなぞると視点が回る。ダブルタップで視点を戻す(ui/mobile.ts) -->
+    <div id="mOrbit" class="m-only" role="button" tabindex="-1" aria-label="なぞって視点を回す(ダブルタップで戻す)"></div>
     <div id="busy" class="absolute inset-0 bg-base-100/60 hidden items-center justify-center"><span class="loading loading-spinner loading-lg"></span></div>
   </section>
 
@@ -439,7 +441,6 @@
     </div>
     <div class="m-pane" data-mpane="layer">
       <div class="m-btns">
-        <button id="mPaintMode" class="btn btn-sm btn-primary">塗って直す…</button>
         <button class="btn btn-sm" data-cmd="smoothAll">全体ぼかし…</button>
         <button class="btn btn-sm" data-cmd="normalize">正規化</button>
         <button class="btn btn-sm" data-cmd="invert">反転</button>
@@ -463,20 +464,21 @@
     </div>
   </div>
 </section>
-<div id="mModeBar" class="m-only" hidden><b>塗って直す</b> 1本指で膨らませる・塗る・消す・ぼかす。終わったら「完了」</div>
-<!-- スマホ: 下のツールバー。「塗って直す」の間だけ塗りのツールに入れ替える -->
+<!-- スマホ: 下のツールバー。見るツール4つと、編集ツールの枠(最後に使った編集ツール。長押しか、選んでいるときにもう一度押すと選ぶ一覧を開く) -->
 <nav id="mTools" class="m-only" aria-label="ツール">
-  <!-- data-mtool のボタンのアイコンと名前は ui/mobile.ts が ui/tools.ts から入れる -->
-  <button class="m-tool" data-mtool="grab" data-mset="main"></button>
-  <button class="m-tool" data-mtool="shake" data-mset="main"></button>
-  <button class="m-tool" data-mtool="pan" data-mset="main"></button>
-  <button class="m-tool" data-mtool="view" data-mset="main"></button>
-  <button class="m-tool" data-mtool="inflate" data-mset="paint"></button>
-  <button class="m-tool" data-mtool="brush" data-mset="paint"></button>
-  <button class="m-tool" data-mtool="erase" data-mset="paint"></button>
-  <button class="m-tool" data-mtool="smooth" data-mset="paint"></button>
-  <button id="mPaintDone" class="m-tool" data-mset="paint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span>完了</span></button>
+  <!-- data-mtool・data-medit のボタンのアイコンと名前は ui/mobile.ts が ui/tools.ts から入れる -->
+  <button class="m-tool" data-mtool="grab"></button>
+  <button class="m-tool" data-mtool="shake"></button>
+  <button class="m-tool" data-mtool="pan"></button>
+  <button class="m-tool" data-mtool="view"></button>
+  <button id="mEdit" class="m-tool" aria-haspopup="menu" aria-expanded="false" aria-controls="mEditMenu"></button>
 </nav>
+<div id="mEditMenu" class="m-only" role="menu" aria-label="編集ツール" hidden>
+  <button class="m-edit-item" role="menuitemradio" data-medit="inflate"></button>
+  <button class="m-edit-item" role="menuitemradio" data-medit="brush"></button>
+  <button class="m-edit-item" role="menuitemradio" data-medit="erase"></button>
+  <button class="m-edit-item" role="menuitemradio" data-medit="smooth"></button>
+</div>
 
 <!-- ステータスバー -->
 <!-- 文字だけを薄くする(footer に opacity を付けると、メモリの内訳まで透ける) -->
@@ -611,6 +613,8 @@
   </div>
   <p id="inflNote" class="text-xs opacity-80 pt-3 leading-snug"></p>
   <div class="flex justify-end gap-2 mt-3">
+    <!-- スマホ: 描いたあとは枠の外を触ると回るので、描き直すときはこれを押してから描く(ui/mobile.ts) -->
+    <button id="inflRedraw" type="button" class="m-only btn btn-sm mr-auto" aria-pressed="false">描き直す</button>
     <button id="inflCancel" class="btn btn-sm">キャンセル</button>
     <button id="inflApply" class="btn btn-sm btn-primary">適用</button>
   </div>
@@ -720,12 +724,13 @@
     <div class="m-only grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm mb-4">
       <span class="font-bold">1本指</span><span>下で選んだツールで操作</span>
       <span class="font-bold">画像の外</span><span>なぞると回転、ダブルタップで視点を戻す</span>
+      <span class="font-bold">右下の丸</span><span>どのツールでも、なぞると回転</span>
       <span class="font-bold">2本指</span><span>動かすと平行移動、つまむとズーム、ひねると傾く</span>
       <span class="font-bold">2本指タップ</span><span>元に戻す</span>
       <span class="font-bold">3本指タップ</span><span>やり直す</span>
       <span class="font-bold">微調整</span><span>右上のボタンでオンにすると、動きが 1/5 になる</span>
       <span class="font-bold">レイヤーを複数選ぶ</span><span>一覧で長押しして、タップで足す・外す</span>
-      <span class="font-bold">膨らみ・塗る・消す</span><span>シートの「レイヤー」→「塗って直す」</span>
+      <span class="font-bold">膨らみ・塗る・消す</span><span>下のバーの右端。長押しで選ぶ</span>
       <span class="font-bold">操作の記録</span><span>シートの「アニメ」→「操作の記録」</span>
       <span class="font-bold">設定</span><span>右上の「…」→「設定…」</span>
     </div>

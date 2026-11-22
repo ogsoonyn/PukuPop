@@ -404,7 +404,7 @@ export class App extends Emitter<AppEvents> {
     this.emit('tool', t);
     // auto が false(起動時の復元・スマホの幅に入るとき)は切らない。PC の幅に戻ってブラシにしたとき、表示が消えたままになるため
     if (auto && changed && !PAINT_TOOLS.includes(t)) this.autoHideOverlay();
-    // 選び直しでは入れない(手で切った重ね表示を戻さない)。受け手が別のツールに戻したときも入れない(スマホで画像を開いたとき)
+    // 選び直しでは入れない(手で切った重ね表示を戻さない)。受け手が別のツールに戻したときも入れない
     if (auto && changed && this.tool === t && PAINT_TOOLS.includes(t)) this.autoShowOverlay();
   }
 

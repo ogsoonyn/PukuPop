@@ -29,6 +29,14 @@ async function viewCenter(page: Page): Promise<Pt> {
   const b = (await page.locator('#view').boundingBox())!;
   return [b.x + b.width / 2, b.y + b.height / 2];
 }
+/** 編集ツールの枠を長押しして一覧を開き、ツールを選ぶ */
+async function selectEditTool(page: Page, tool: string): Promise<void> {
+  const b = (await page.locator('#mEdit').boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down(); await page.waitForTimeout(600); await page.mouse.up();
+  await page.locator(`#mEditMenu [data-medit="${tool}"]`).click();
+  await expect(page.locator('#mEditMenu')).toBeHidden();
+}
 const weightSum = (page: Page) => page.evaluate(() => (window as any).popstage.activeLayer.weights.data.reduce((s: number, v: number) => s + v, 0));
 
 test('スマホ幅では3Dビューが全面に出て、PC のパネルは隠れる', async ({ page }) => {
@@ -39,11 +47,14 @@ test('スマホ幅では3Dビューが全面に出て、PC のパネルは隠れ
   await expect(page.locator('#mTools')).toBeVisible();
   const view = (await page.locator('#view').boundingBox())!;
   expect(view.width).toBeGreaterThan(400);
-  // 最初は移動のツール(塗りのツールは「塗って直す」の奥にある)
+  // 最初は移動のツール。編集ツールは右端の枠に1つだけ(最初は膨らみ)で、選ぶ一覧は閉じている
   await expect(page.locator('#mTools [data-mtool="pan"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('#mTools [data-mtool="brush"]')).toBeHidden();
-  await expect(page.locator('#mTools [data-mtool="inflate"]')).toBeHidden();
   await expect(page.locator('#mTools [data-mtool="pan"]')).toBeVisible();
+  await expect(page.locator('#mEdit')).toBeVisible();
+  await expect(page.locator('#mEdit span')).toHaveText('膨らみ');
+  await expect(page.locator('#mEdit')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#mEditMenu')).toBeHidden();
+  await expect(page.locator('#mOrbit')).toBeVisible();
 });
 
 test('「移動」では1本指で画像を動かし、画像の上でも外でも回転しない', async ({ page }) => {
@@ -308,12 +319,12 @@ test('2本指タップで戻し、3本指タップでやり直す', async ({ pag
   expect(await layers()).toBe(2);
 });
 
-test('「塗って直す」の膨らみで範囲を描くと「ツール」タブで決めて適用できる', async ({ page }) => {
+test('膨らみで範囲を描くと「ツール」タブで決めて適用できる', async ({ page }) => {
   await boot(page);
   const cdp = await page.context().newCDPSession(page);
-  await page.locator('[data-mtab="layer"]').click();
-  await page.locator('#mPaintMode').click();
-  await page.locator('#mTools [data-mtool="inflate"]').click();
+  await page.locator('#mEdit').click();
+  await expect(page.locator('#mEdit')).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => (window as any).popstage.tool)).toBe('inflate');
   // 描く前の欄は、ウェイトの重ね方だけ(範囲ごとの項目は描くまで押せないので出さない)。パネルをたたむボタンも出さない
   const shown = (sel: string) => page.locator(sel).evaluate(el => getComputedStyle(el.closest('[data-inflate-opt]') ?? el).display !== 'none');
   expect(await shown('#tInflBlend')).toBe(true);
@@ -335,9 +346,7 @@ test('「塗って直す」の膨らみで範囲を描くと「ツール」タ�
 test('膨らみの範囲は指で枠の辺を動かして直せ、2本目の指を置くと直す前に戻る', async ({ page }) => {
   await boot(page);
   const cdp = await page.context().newCDPSession(page);
-  await page.locator('[data-mtab="layer"]').click();
-  await page.locator('#mPaintMode').click();
-  await page.locator('#mTools [data-mtool="inflate"]').click();
+  await page.locator('#mEdit').click();
   const [cx, cy] = await viewCenter(page);
   await swipe(cdp, [[cx - 60, cy - 40]], [[cx + 60, cy + 40]]);
   const area = () => page.evaluate(() => ({ ...(window as any).popstage.inflateState.area }));
@@ -368,13 +377,11 @@ test('膨らみの範囲は指で枠の辺を動かして直せ、2本目の指�
   await page.locator('#inflCancel').click();
 });
 
-test('「塗って直す」で塗れ、2本目の指を置くと塗りは取り消される', async ({ page }) => {
+test('ブラシで塗れ、2本目の指を置くと塗りは取り消される', async ({ page }) => {
   await boot(page);
   const cdp = await page.context().newCDPSession(page);
-  await page.locator('[data-mtab="layer"]').click();
-  await page.locator('#mPaintMode').click();
-  await expect(page.locator('#mTools [data-mtool="brush"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('#mModeBar')).toBeVisible();
+  await selectEditTool(page, 'brush');
+  await expect(page.locator('#mEdit span')).toHaveText('ブラシ');
   const [cx, cy] = await viewCenter(page);
   const before = await weightSum(page), dirty0 = await page.evaluate(() => (window as any).popstage.dirty);
   // 1本指で塗りかけてから2本目を置く → 塗った分は消え、アンドゥにも残らない
@@ -390,8 +397,94 @@ test('「塗って直す」で塗れ、2本目の指を置くと塗りは取り�
   // 1本指で塗ると残る
   await swipe(cdp, [[cx - 80, cy + 60]], [[cx + 20, cy + 60]]);
   expect(await weightSum(page)).not.toBe(before);
-  await page.locator('#mPaintDone').click();
-  await expect(page.locator('#mTools [data-mtool="pan"]')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('編集ツールの枠: 長押しで選び、見るツールから1回で最後の編集ツールに戻る', async ({ page }) => {
+  await boot(page);
+  const tool = () => page.evaluate(() => (window as any).popstage.tool);
+  // 選んでいないときに押すと、枠のツール(最初は膨らみ)になる。選んでいる間にもう一度押すと一覧が開く
+  await page.locator('#mEdit').click();
+  expect(await tool()).toBe('inflate');
+  await expect(page.locator('#mEditMenu')).toBeHidden();
+  await page.locator('#mEdit').click();
+  await expect(page.locator('#mEditMenu')).toBeVisible();
+  await expect(page.locator('#mEditMenu [data-medit="inflate"]')).toHaveAttribute('aria-checked', 'true');
+  await page.locator('#mEditMenu [data-medit="smooth"]').click();
+  await expect(page.locator('#mEditMenu')).toBeHidden();
+  expect(await tool()).toBe('smooth');
+  await expect(page.locator('#mEdit span')).toHaveText('ぼかし');
+  // ブラシの設定(「ツール」タブの中)は、塗りのツールのときだけ出す
+  await expect(page.locator('#mBrushOpts')).not.toHaveAttribute('hidden');
+  // 見るツールへ切り替えて、枠を押すと最後の編集ツールに戻る
+  await page.locator('#mTools [data-mtool="view"]').click();
+  await expect(page.locator('#mEdit')).toHaveAttribute('aria-pressed', 'false');
+  await page.locator('#mEdit').click();
+  expect(await tool()).toBe('smooth');
+  // 見るツールを選んでいるときの長押しで一覧が開き、押しただけではツールは変わらない
+  await page.locator('#mTools [data-mtool="pan"]').click();
+  await selectEditTool(page, 'erase');
+  expect(await tool()).toBe('erase');
+  // 一覧の外を触ると閉じる
+  await page.locator('#mTools [data-mtool="pan"]').click();
+  const b = (await page.locator('#mEdit').boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down(); await page.waitForTimeout(600); await page.mouse.up();
+  await expect(page.locator('#mEditMenu')).toBeVisible();
+  expect(await tool()).toBe('pan');
+  await page.locator('#view').click({ position: { x: 20, y: 20 } });
+  await expect(page.locator('#mEditMenu')).toBeHidden();
+});
+
+test('回すハンドル: どのツールでもなぞると回り、ダブルタップで視点を戻す', async ({ page }) => {
+  await boot(page);
+  const cdp = await page.context().newCDPSession(page);
+  await selectEditTool(page, 'brush');
+  const cam = () => page.evaluate(() => { const c = (window as any).popstage.project.camera; return { yaw: c.yaw, pitch: c.pitch }; });
+  const before = await weightSum(page), c0 = await cam();
+  const b = (await page.locator('#mOrbit').boundingBox())!;
+  const [ox, oy] = [b.x + b.width / 2, b.y + b.height / 2];
+  // 丸の外まで指を動かしても回り続ける。ブラシは塗らない
+  await swipe(cdp, [[ox, oy]], [[ox - 120, oy - 60]]);
+  const c1 = await cam();
+  expect(Math.abs(c1.yaw - c0.yaw)).toBeGreaterThan(0.1);
+  expect(c1.pitch).not.toBeCloseTo(c0.pitch, 3);
+  expect(await weightSum(page)).toBe(before);
+  expect(await page.evaluate(() => (window as any).popstage.tool)).toBe('brush');
+  // ダブルタップで視点を戻す
+  await page.waitForTimeout(400);
+  for (let i = 0; i < 2; i++) { await touch(cdp, 'touchStart', [[ox, oy]]); await touch(cdp, 'touchEnd', []); await page.waitForTimeout(80); }
+  await expect.poll(async () => Math.abs((await cam()).yaw - c1.yaw)).toBeGreaterThan(0.05);
+});
+
+test('膨らみのプレビュー中は枠の外を触ると回り、描き直すのは「描き直す」を押したときだけ', async ({ page }) => {
+  await boot(page);
+  const cdp = await page.context().newCDPSession(page);
+  await page.locator('#mEdit').click();
+  const [cx, cy] = await viewCenter(page);
+  await swipe(cdp, [[cx - 30, cy - 20]], [[cx + 30, cy + 20]]);
+  expect(await page.evaluate(() => (window as any).popstage.previewingInflate)).toBe(true);
+  const area = () => page.evaluate(() => ({ ...(window as any).popstage.inflateState.area }));
+  const yaw = () => page.evaluate(() => (window as any).popstage.project.camera.yaw);
+  const a0 = await area(), y0 = await yaw();
+  // 枠の外の画像の上をなぞる → 範囲はそのまま、視点が回る
+  // 画像の左下寄り(範囲の枠から離れた所)を画面の位置にする
+  const [px, py] = await page.evaluate(() => {
+    const a = (window as any).popstage, im = a.doc.image, p = a.stage.imageToMainScreen(-im.width * 0.38, -im.height * 0.35);
+    const box = document.getElementById('view')!.getBoundingClientRect(), m = a.stage.mainView();
+    return [box.left + m.x + p.x, box.top + m.y + p.y] as Pt;
+  });
+  expect(await page.evaluate(([x, y]) => (window as any).popstage.stage.pick(x, y)?.inside, [px, py])).toBe(true);
+  await swipe(cdp, [[px, py]], [[px + 60, py]]);
+  expect(await area()).toEqual(a0);
+  expect(Math.abs((await yaw()) - y0)).toBeGreaterThan(0.05);
+  // 「描き直す」を押してから描くと、範囲が変わる。描き終えると「描き直す」は切れる
+  await page.locator('#inflRedraw').click();
+  await expect(page.locator('#inflRedraw')).toHaveAttribute('aria-pressed', 'true');
+  const [qx, qy] = await viewCenter(page);
+  await swipe(cdp, [[qx - 50, qy - 50]], [[qx - 10, qy - 10]]);
+  expect(await area()).not.toEqual(a0);
+  await expect(page.locator('#inflRedraw')).toHaveAttribute('aria-pressed', 'false');
+  await page.locator('#inflCancel').click();
 });
 
 test('幅を広げると PC の配置に戻る', async ({ page }) => {

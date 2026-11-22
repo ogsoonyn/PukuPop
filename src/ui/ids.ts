@@ -32,8 +32,8 @@ export const UI_IDS = {
   vOverlayOff: 'input', vOverlaySel: 'input', vOverlayAll: 'input', vAutoOverlay: 'input', vAutoOverlayOff: 'input', setPopMax: 'input', vFade: 'input', vFlat: 'input', vPause: 'input', vMulti: 'input', vGrid: 'input',
   pFov: 'input', pFovO: 'output', pBgTransparent: 'input', pBgColor: 'input',
   // スマホのシート・下のバー
-  mSheet: 'section', mGrip: 'div', mNav: 'div', mPanes: 'div', mToolDesc: 'p', mBrushOpts: 'div', mInflOpts: 'div', mPaintMode: 'button',
-  mModeBar: 'div', mTools: 'nav', mPaintDone: 'button',
+  mSheet: 'section', mGrip: 'div', mNav: 'div', mPanes: 'div', mToolDesc: 'p', mBrushOpts: 'div', mInflOpts: 'div',
+  mTools: 'nav', mEdit: 'button', mEditMenu: 'div', mOrbit: 'div',
   // ステータスバー
   sFps: 'span', sVerts: 'span', sZoom: 'span', sRoll: 'button', sImage: 'span', sRec: 'span', sSave: 'span', sMem: 'div', sMemDetail: 'div',
   fileProject: 'input',
@@ -45,7 +45,7 @@ export const UI_IDS = {
   blurDialog: 'dialog', blurTitle: 'h3', blurTarget: 'p', blurRadius: 'input', blurRadiusN: 'input', blurCancel: 'button', blurApply: 'button',
   // 膨らませる
   inflateDialog: 'dialog', inflHead: 'div', inflTitle: 'h3', inflCompact: 'button', inflRows: 'div', inflHeightRow: 'div', inflTarget: 'p', inflKind: 'select', inflW: 'input', inflH: 'input', inflHeight: 'input', inflHeightN: 'input',
-  inflSoft: 'input', inflSoftN: 'input', inflAngle: 'input', inflAngleN: 'input', inflCorner: 'input', inflWarpReset: 'button', inflRoundRow: 'div', inflRound: 'input', inflRoundN: 'input', inflBulgeRow: 'div', inflBulge: 'input', inflBulgeN: 'input', inflBlur: 'input', inflBlurN: 'input', inflBlend: 'select', inflLayerBlend: 'select', inflNewLayer: 'input', inflNote: 'p', inflCancel: 'button', inflApply: 'button',
+  inflSoft: 'input', inflSoftN: 'input', inflAngle: 'input', inflAngleN: 'input', inflCorner: 'input', inflWarpReset: 'button', inflRoundRow: 'div', inflRound: 'input', inflRoundN: 'input', inflBulgeRow: 'div', inflBulge: 'input', inflBulgeN: 'input', inflBlur: 'input', inflBlurN: 'input', inflBlend: 'select', inflLayerBlend: 'select', inflNewLayer: 'input', inflNote: 'p', inflRedraw: 'button', inflCancel: 'button', inflApply: 'button',
   // レイヤーの結合
   mergeDialog: 'dialog', mergeTarget: 'p', mergeMode: 'select', mergeCancel: 'button', mergeApply: 'button',
   // 確認・数値入力

@@ -8,6 +8,7 @@
  *   揺らし方「ピストン」で画像全体が動いている間は、塗り・膨らませる範囲のドラッグ中だけ画像を止め(app.holdImage)、
  *   止まっているポインタの下のブラシの円は毎フレーム当て直す
  * 指(タッチ)では、1本指は選択中のツール(画像の外では回転)、2本指は平行移動とピンチでズーム。
+ *   スマホの配置では、膨らませるのプレビュー中は枠の外を触ると画像の上でも回転する(描き直すのは「描き直す」を押してから)。
  *   2本目の指を置くと、1本目で始めた塗り・範囲・つかむは取り消す。2本指タップで戻す、3本指タップでやり直す、
  *   画像の外のダブルタップで視点を戻す
  */
@@ -17,6 +18,7 @@ import { fineFactor, wheelFineFactor, wheelDelta, isPinchWheel, FINE, isFineLock
 import { smoothZoom } from './smoothZoom';
 import { toast } from './dom';
 import { wrapAngle as wrapRad, VIEW_LIMITS, clampViewZoom as clampZoom, orbitCamera, panBy } from '../model/project';
+import { isRedrawArmed, setRedrawArmed } from './inflateRedraw';
 import { hitFrame, frameCursor, setRotSide, type FrameHit } from './inflateFrame';
 import { moveArea as shiftArea, resizeArea, roundArea, toLocal, turnBetween, flippedAt, wrapAngle, type Area } from '../paint/areaEdit';
 
@@ -199,7 +201,11 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     const tool = toolFor(e.pointerType === 'touch');
     const outside = e.pointerType === 'touch' && tool !== 'pan' && !app.stage.pick(e.clientX, e.clientY)?.inside
       && !(tool === 'inflate' && app.previewingInflate && (hitFrame(app, e.clientX, e.clientY, true)?.kind ?? 'move') !== 'move');
-    const orbit = e.button === 2 || (e.button === 0 && (tool === 'view' || outside) && !space);
+    // スマホの配置では、膨らませるのプレビュー中に枠の外を触ると、画像の上でも回転にする(角度を確かめようとして範囲を描き直さないように)。
+    // 描き直すのは、パネルの「描き直す」を押したときだけ(ui/inflateRedraw.ts)
+    const keepArea = e.pointerType === 'touch' && tool === 'inflate' && app.previewingInflate && !isRedrawArmed()
+      && document.documentElement.classList.contains('mobile') && !hitFrame(app, e.clientX, e.clientY, true);
+    const orbit = e.button === 2 || (e.button === 0 && (tool === 'view' || outside || keepArea) && !space);
     const pan = !orbit && (e.button === 1 || (e.button === 0 && (space || tool === 'pan')));
     // ループ再生中に画面を触ったら、再生をやめて手の操作を優先する。視点の操作(回転・平行移動)は再生したまま動かせる
     if (!orbit && !pan) app.stopTake();
@@ -281,7 +287,7 @@ export function bindStageInput(app: App, canvas: HTMLCanvasElement): { isSpaceDo
     if (e.pointerId !== drag.id) return;
     if (drag.mode === 'paint') app.endStroke();
     if (drag.mode === 'grab') { app.world.grab = null; app.world.grabGains.clear(); }
-    if (drag.mode === 'area') areaStart = null;
+    if (drag.mode === 'area') { areaStart = null; setRedrawArmed(false); }
     if (drag.mode === 'frame') frameDrag = null;
     if (drag.mode === 'paint' || drag.mode === 'area' || drag.mode === 'frame') app.holdImage(false);
     drag.mode = null; drag.id = -1;
