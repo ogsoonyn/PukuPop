@@ -1,11 +1,10 @@
 /** 最近開いたファイルのダイアログ。縮小画像の一覧から選んで開き直す。 */
 import type { App } from '../app';
-import { recent, type RecentEntry } from '../storage/recent';
+import { recent, readRecent, type RecentEntry } from '../storage/recent';
 import { ask, toast, formatBytes } from './dom';
 import { ui } from './ids';
 
 const KIND_LABEL = { project: 'プロジェクト', image: '画像' } as const;
-const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pukupop: 'application/zip', popstage: 'application/zip' };
 
 function when(t: number): string {
   const d = new Date(t), now = new Date();
@@ -83,20 +82,12 @@ export function bindRecentDialog(app: App): { open: () => Promise<void> } {
     await render(i);
   }
 
-  async function readEntry(e: RecentEntry): Promise<File | null> {
-    if (e.handle) {
-      const h = e.handle;
-      // 開き直すたびにブラウザが読む許可を確かめる。クリックの直後に呼ぶ必要がある
-      if (h.queryPermission && (await h.queryPermission({ mode: 'read' })) !== 'granted') {
-        if ((await h.requestPermission?.({ mode: 'read' })) !== 'granted') { toast('ファイルを読む許可が得られませんでした。', 'warning'); return null; }
-      }
-      return await h.getFile();
-    }
-    if (e.bytes) {
-      const ext = e.name.split('.').pop()?.toLowerCase() ?? '';
-      return new File([e.bytes], e.name, { type: MIME[ext] ?? '' });
-    }
-    throw new DOMException('中身が残っていません', 'NotFoundError');
+  /** 項目の中身を読む。場所から読めずコピーから開くとき(Android の Chrome)は、元のファイルとは別扱いになることを伝える */
+  async function readEntry(e: RecentEntry): Promise<{ file: File; handle?: FileSystemFileHandle } | null> {
+    const r = await readRecent(e);
+    if (r === 'denied') { toast('ファイルを読む許可が得られませんでした。', 'warning'); return null; }
+    if (r.fromCopy) toast('元のファイルを読めなかったので、このブラウザに控えたコピーから開きます。保存するときは保存先を選び直してください。', 'info', 6000);
+    return r;
   }
 
   /** ダブルクリックなどで2回目が来ても無視する */
@@ -110,8 +101,8 @@ export function bindRecentDialog(app: App): { open: () => Promise<void> } {
   }
 
   async function openEntryNow(e: RecentEntry, i: number): Promise<void> {
-    let file: File | null;
-    try { file = await readEntry(e); } catch (err) {
+    let got: { file: File; handle?: FileSystemFileHandle } | null;
+    try { got = await readEntry(e); } catch (err) {
       if ((err as DOMException).name === 'NotFoundError') {
         const r = await ask({ title: `「${e.name}」が見つかりません`, body: '移動・名前の変更・削除をした可能性があります。一覧から外しますか?', yes: '一覧から外す', no: 'そのまま' });
         if (r.ok) await recent.remove(e.id);
@@ -119,11 +110,13 @@ export function bindRecentDialog(app: App): { open: () => Promise<void> } {
       } else toast(`開けませんでした: ${err instanceof Error ? err.message : err}`, 'error', 6000);
       return;
     }
-    if (!file) return;
+    if (!got) return;
     // 新しいタブで開く(開いているプロジェクトならそのタブを出す)。タブの数が上限なら、一覧を出したまま伝える
-    if (!(await app.roomFor(e.handle))) return;
+    if (!(await app.roomFor(got.handle))) return;
     dlg.close();
-    await app.openFile(file, e.handle);
+    await app.openFile(got.file, got.handle);
+    // コピーから開いたら、開いた所で控えのコピーとして一覧に入り直す。場所を覚えた方は読めないので外す(同じファイルが2つ並ばないように)
+    if (e.handle && !got.handle) await recent.remove(e.id);
   }
 
   clear.addEventListener('click', async () => {

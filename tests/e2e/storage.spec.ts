@@ -407,6 +407,41 @@ test('最近開いたファイル: ファイルの場所を覚えて開き直し
   expect(await page.evaluate(() => (window as any).popstage.fileName)).toBe('work.popstage');
 });
 
+// @local: 上と同じ(IndexedDB にファイルハンドルを入れるとクラウドの Chrome が落ちる)
+test('最近開いたファイル: Android では場所と一緒にコピーも覚え、場所から読めなければコピーから開く', { tag: '@local' }, async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36' });
+  });
+  await boot(page);
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    const c = document.createElement('canvas'); c.width = 100; c.height = 100; c.getContext('2d')!.fillRect(0, 0, 50, 50);
+    const b: Blob = await new Promise(r => c.toBlob(x => r(x!), 'image/png'));
+    const h = await root.getFileHandle('android.png', { create: true });
+    const w = await h.createWritable(); await w.write(b); await w.close();
+    const a = (window as any).popstage;
+    await a.openFile(await h.getFile(), h);
+    await a.loadSample();
+  });
+  await waitRecent(page, 1);
+  expect(await recentStored(page)).toEqual([{ name: 'android.png', handle: true, blob: true }]);
+
+  // 読む許可が切れた(アプリを閉じて開き直したときの Android の Chrome)
+  await page.evaluate(() => {
+    const p = FileSystemHandle.prototype as any;
+    p.queryPermission = async () => 'prompt';
+    p.requestPermission = async () => 'denied';
+  });
+  await openRecentDialog(page);
+  await page.locator('#recentList button.recent-open').first().click();
+  await expect(page.locator('#recentDialog')).not.toHaveAttribute('open', '');
+  await expect.poll(() => page.evaluate(() => (window as any).popstage.doc.name)).toBe('android.png');
+  await expect(page.locator('#toasts')).toContainText('控えたコピーから開きます');
+  // 上書き保存の先にはしない。一覧は場所の無いコピーの1件に入れ替わる
+  expect(await page.evaluate(() => (window as any).popstage.fileHandle ?? null)).toBe(null);
+  await expect.poll(() => recentStored(page)).toEqual([{ name: 'android.png', handle: false, blob: true }]);
+});
+
 test('保存領域の永続化は、最初の自動保存のあとに1回だけ頼む(起動直後は頼まない)', async ({ page }) => {
   // persist は通る(true)・persisted は false のまま。通っても印が消えないので、2回目を止めるのは「ページを開いている間に1回だけ」の判定だけになる
   await page.addInitScript(() => {
