@@ -29,7 +29,7 @@ describe('最近開いたファイルを読む(readRecent)', () => {
   }) as unknown as FileSystemFileHandle;
   const item = (h?: FileSystemFileHandle, copy?: string): RecentEntry =>
     ({ id: 'x', name: 'a.png', kind: 'image', openedAt: 0, size: 4, handle: h, bytes: copy ? new Blob([copy]) : undefined });
-  const wait = { check: 20, ask: 20 };
+  const wait = { check: 20, ask: 20, read: 20 };
 
   it('場所から読めれば、そのファイルを返す', async () => {
     expect(await readRecent(item(handle({})), wait)).toBe(file);

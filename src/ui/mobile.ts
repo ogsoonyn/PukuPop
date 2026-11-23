@@ -183,15 +183,15 @@ export function bindMobileLayout(app: App): { readonly active: boolean } {
     setFineLock(on);
   });
 
-  /* ---------- 回すハンドル ---------- */
-
-  // 3Dビューの右下の丸。どのツールを選んでいても、ここからなぞると「視点」と同じように回る(画像の外の1本指と同じ回り方)。
-  // 指が丸の外へ出ても、離すまで回し続ける。ダブルタップで視点を戻す。再生は止めない(視点の操作なので、ほかの回転と同じ)
   // ファイルの操作の「保存」の補足。保存先を選べるブラウザ(PC の Chrome・Android の Chrome 132 から)ではダウンロードにならない。
   // 埋め込みモードでは ui/embedSession.ts が「サーバーへ上書き」に書き換える
   const saveNote = document.querySelector('.m-pane [data-cmd="save"] span');
   if (saveNote && window.showSaveFilePicker && !app.embedded) saveNote.textContent = 'ファイルへ';
 
+  /* ---------- 回すハンドル ---------- */
+
+  // 3Dビューの右下の丸。どのツールを選んでいても、ここからなぞると「視点」と同じように回る(画像の外の1本指と同じ回り方)。
+  // 指が丸の外へ出ても、離すまで回し続ける。ダブルタップで視点を戻す。再生は止めない(視点の操作なので、ほかの回転と同じ)
   ui.mOrbit.innerHTML = icon('view');
   {
     // タップかどうかは、置いた所からどれだけ離れたかで決める(指は押している間にも少し動くため。キャンバスの側と同じ考え方)

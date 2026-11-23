@@ -73,8 +73,8 @@ async function findSame(entries: readonly RecentEntry[], input: { name: string; 
 
 const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pukupop: 'application/zip', popstage: 'application/zip' };
 
-/** 場所から読むときに待つ長さ(ミリ秒)。check は許可の確かめと読み込み、ask は許可を求める画面(人が答える間も待つ) */
-export const READ_WAIT = { check: 5000, ask: 20000 };
+/** 場所から読むときに待つ長さ(ミリ秒)。check は許可の確かめ、ask は許可を求める画面(人が答える間も待つ)、read は読み込み(クラウドのファイルは取り込みに時間がかかる) */
+export const READ_WAIT = { check: 5000, ask: 20000, read: 20000 };
 
 /** 決めた時間で返事が来なければ TimeoutError にする */
 function within<T>(p: Promise<T> | T, ms: number): Promise<T> {
@@ -95,7 +95,7 @@ export async function readRecent(e: RecentEntry, wait = READ_WAIT): Promise<File
     const h = e.handle;
     if (h.queryPermission && (await within(h.queryPermission({ mode: 'read' }), wait.check)) !== 'granted'
       && (await within(h.requestPermission?.({ mode: 'read' }), wait.ask)) !== 'granted') return 'denied';
-    return await within(h.getFile(), wait.check);
+    return await within(h.getFile(), wait.read);
   }
   if (e.bytes) {
     const ext = e.name.split('.').pop()?.toLowerCase() ?? '';
