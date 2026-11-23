@@ -114,9 +114,8 @@ export function bindRecentDialog(app: App): { open: () => Promise<void> } {
     // 新しいタブで開く(開いているプロジェクトならそのタブを出す)。タブの数が上限なら、一覧を出したまま伝える
     if (!(await app.roomFor(got.handle))) return;
     dlg.close();
-    await app.openFile(got.file, got.handle);
-    // コピーから開いたら、開いた所で控えのコピーとして一覧に入り直す。場所を覚えた方は読めないので外す(同じファイルが2つ並ばないように)
-    if (e.handle && !got.handle) await recent.remove(e.id);
+    // コピーから開いたら、開けたときにこの項目を(場所を残したまま)覚え直す。次は許可が通れば場所から開ける
+    await app.openFile(got.file, got.handle, got.handle ? {} : { recentId: e.id });
   }
 
   clear.addEventListener('click', async () => {

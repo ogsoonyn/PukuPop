@@ -437,9 +437,9 @@ test('最近開いたファイル: Android では場所と一緒にコピーも�
   await expect(page.locator('#recentDialog')).not.toHaveAttribute('open', '');
   await expect.poll(() => page.evaluate(() => (window as any).popstage.doc.name)).toBe('android.png');
   await expect(page.locator('#toasts')).toContainText('控えたコピーから開きます');
-  // 上書き保存の先にはしない。一覧は場所の無いコピーの1件に入れ替わる
+  // 上書き保存の先にはしない。一覧は同じ1件のまま(場所も残し、次に許可が通れば場所から開ける)
   expect(await page.evaluate(() => (window as any).popstage.fileHandle ?? null)).toBe(null);
-  await expect.poll(() => recentStored(page)).toEqual([{ name: 'android.png', handle: false, blob: true }]);
+  await expect.poll(() => recentStored(page)).toEqual([{ name: 'android.png', handle: true, blob: true }]);
 });
 
 test('保存領域の永続化は、最初の自動保存のあとに1回だけ頼む(起動直後は頼まない)', async ({ page }) => {

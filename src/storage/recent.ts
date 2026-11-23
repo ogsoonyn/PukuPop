@@ -4,7 +4,7 @@
  *   ほかのブラウザ: 場所を覚えられないので、中身のコピーを覚える(1件 COPY_MAX まで、合計 COPY_TOTAL まで)。
  *   Android の Chrome: 場所を覚えても、開き直すときに読めないことがある(Chrome 132 から場所を受け取れるが、
  *   覚えた場所は読む許可が切れて読めなくなる)。場所と一緒にコピーも覚え、読めなければコピーから開く。
- *   場所を IndexedDB に入れられなかったときも、コピーだけで覚え直す。
+ *   コピーは控えなので、合計の上限を超えたらコピーだけ外して場所は残す。場所を IndexedDB に入れられなかったときは、コピーだけで覚え直す。
  * 一覧はこのブラウザの中だけに残り、サーバーへは送らない。
  */
 const DB_NAME = 'popstage-recent';
@@ -37,13 +37,18 @@ export interface RecentInput {
   size: number;
   thumb?: Blob;
   handle?: FileSystemFileHandle | null;
-  /** 場所が無いときに使う中身。COPY_MAX を超えるなら読まない */
+  /** コピーを覚えるとき(場所が無いとき・Android)に読む中身。COPY_MAX を超えるなら読まない */
   bytes?: () => Promise<Uint8Array> | Uint8Array;
+  /** この項目のコピーから開き直したときの、その項目の id。同じ項目を入れ替え、覚えていた場所は残す */
+  replaceId?: string;
 }
 
 /** 覚えた場所から読めないことがあるので、場所と一緒にコピーも覚えるブラウザか(Android の Chrome) */
 export function keepsCopyWithHandle(): boolean {
-  return typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+  if (typeof navigator === 'undefined') return false;
+  // 「PC 版サイト」にすると UA から Android が消えるので、使えるなら userAgentData も見る
+  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform;
+  return platform === 'Android' || /Android/i.test(navigator.userAgent);
 }
 
 /** 本物のファイルハンドルか(テスト用の作り物などは IndexedDB に入らない) */
@@ -53,19 +58,26 @@ export function isRealHandle(h: unknown): h is FileSystemFileHandle {
 
 /**
  * 新しい項目を先頭に置き、件数と、コピーの合計サイズの上限に収まるよう古いものから外す。
- * 戻り値は残す一覧(新しい順)と、外す項目の id。
+ * 場所も覚えた項目(Android)のコピーは控えなので、上限を超えたらコピーだけ外して残す。
+ * 戻り値は残す一覧(新しい順)と、外す項目の id と、コピーを外して書き直す項目。
  */
-export function trimRecent(entries: readonly RecentEntry[]): { keep: RecentEntry[]; drop: string[] } {
+export function trimRecent(entries: readonly RecentEntry[]): { keep: RecentEntry[]; drop: string[]; stripped: RecentEntry[] } {
   const sorted = [...entries].sort((a, b) => b.openedAt - a.openedAt);
-  const keep: RecentEntry[] = [], drop: string[] = [];
+  const keep: RecentEntry[] = [], drop: string[] = [], stripped: RecentEntry[] = [];
   let copies = 0;
   for (const e of sorted) {
+    if (keep.length >= RECENT_MAX) { drop.push(e.id); continue; }
     const copy = e.bytes?.size ?? 0;
-    if (keep.length >= RECENT_MAX || copies + copy > COPY_TOTAL) { drop.push(e.id); continue; }
+    if (copies + copy > COPY_TOTAL) {
+      if (!e.handle) { drop.push(e.id); continue; }
+      const s = { ...e, bytes: undefined };
+      stripped.push(s); keep.push(s);
+      continue;
+    }
     copies += copy;
     keep.push(e);
   }
-  return { keep, drop };
+  return { keep, drop, stripped };
 }
 
 /** 同じファイルの項目を探す。場所どうしは同じ実体か、コピーどうしは同じ名前・種類かで比べる */
@@ -161,21 +173,25 @@ export const recent = {
         // 場所を覚えたうえでのコピーは控えなので、作れなくても場所だけで覚える
         let bytes = !handle || keepsCopyWithHandle() ? await copy() : undefined;
         if (!handle && !bytes) return false;
+        let keepHandle = true;
         const put = async (): Promise<void> => {
           const entries = await recent.list();
-          const same = await findSame(entries, { name: input.name, kind: input.kind, handle });
+          // コピーから開き直したときは、その項目を入れ替える(覚えていた場所は残す)
+          const replaced = input.replaceId ? entries.find(e => e.id === input.replaceId) : undefined;
+          const same = replaced ?? await findSame(entries, { name: input.name, kind: input.kind, handle });
           const entry: RecentEntry = {
             id: same?.id ?? newId(), name: input.name, kind: input.kind, openedAt: Date.now(), size: input.size,
-            thumb: input.thumb ?? same?.thumb, handle, bytes,
+            thumb: input.thumb ?? same?.thumb, handle: handle ?? (keepHandle ? replaced?.handle : undefined), bytes,
           };
-          const { drop } = trimRecent([entry, ...entries.filter(e => e.id !== entry.id)]);
-          await run('readwrite', s => { s.put(entry); for (const id of drop) s.delete(id); });
+          const { drop, stripped } = trimRecent([entry, ...entries.filter(e => e.id !== entry.id)]);
+          await run('readwrite', s => { s.put(stripped.find(e => e.id === entry.id) ?? entry); for (const e of stripped) if (e.id !== entry.id) s.put(e); for (const id of drop) s.delete(id); });
         };
         try { await put(); } catch (e) {
-          // 場所を IndexedDB に入れられないブラウザがある。コピーだけで覚え直す
-          if (!handle) throw e;
+          // 場所を IndexedDB に入れられないブラウザがある(Android)。コピーだけで覚え直す。
+          // PC で場所と関係なく失敗した(容量が足りないなど)ときは、今までどおり覚えずに終える
+          if (!handle || !(keepsCopyWithHandle() || (e as DOMException).name === 'DataCloneError')) throw e;
           console.warn('recent add with handle failed, keeping a copy instead', e);
-          handle = undefined;
+          handle = undefined; keepHandle = false;
           bytes ??= await copy();
           if (!bytes) return false;
           await put();

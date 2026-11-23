@@ -18,6 +18,15 @@ describe('最近開いたファイルの上限', () => {
     expect(keep.map(e => e.id)).toEqual(['new', 'handleOnly', 'b', 'd']);
     expect(drop).toEqual(['c']);
   });
+
+  it('場所も覚えた項目(Android)は、コピーの合計が上限を超えてもコピーだけ外して残す', () => {
+    const big = Math.floor(COPY_TOTAL / 2) + 1;
+    const withHandle = { ...entry('old', 1, big), handle: {} as FileSystemFileHandle };
+    const { keep, drop, stripped } = trimRecent([entry('new', 3, big), withHandle, entry('copyOnly', 2, big)]);
+    expect(keep.map(e => [e.id, !!e.bytes])).toEqual([['new', true], ['old', false]]);
+    expect(drop).toEqual(['copyOnly']);
+    expect(stripped.map(e => [e.id, !!e.handle, e.bytes])).toEqual([['old', true, undefined]]);
+  });
 });
 
 describe('最近開いたファイルを読む(readRecent)', () => {
