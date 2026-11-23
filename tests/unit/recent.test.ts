@@ -18,49 +18,35 @@ describe('最近開いたファイルの上限', () => {
     expect(keep.map(e => e.id)).toEqual(['new', 'handleOnly', 'b', 'd']);
     expect(drop).toEqual(['c']);
   });
-
-  it('場所も覚えた項目(Android)は、コピーの合計が上限を超えてもコピーだけ外して残す', () => {
-    const big = Math.floor(COPY_TOTAL / 2) + 1;
-    const withHandle = { ...entry('old', 1, big), handle: {} as FileSystemFileHandle };
-    const { keep, drop, stripped } = trimRecent([entry('new', 3, big), withHandle, entry('copyOnly', 2, big)]);
-    expect(keep.map(e => [e.id, !!e.bytes])).toEqual([['new', true], ['old', false]]);
-    expect(drop).toEqual(['copyOnly']);
-    expect(stripped.map(e => [e.id, !!e.handle, e.bytes])).toEqual([['old', true, undefined]]);
-  });
 });
 
 describe('最近開いたファイルを読む(readRecent)', () => {
   const file = new File(['orig'], 'a.png', { type: 'image/png' });
-  const handle = (opts: { perm?: PermissionState; ask?: PermissionState; getFile?: () => Promise<File> }) => ({
+  const handle = (opts: { perm?: PermissionState; ask?: () => Promise<PermissionState>; getFile?: () => Promise<File> }) => ({
     queryPermission: async () => opts.perm ?? 'granted',
-    requestPermission: async () => opts.ask ?? 'granted',
+    requestPermission: opts.ask ?? (async () => 'granted'),
     getFile: opts.getFile ?? (async () => file),
   }) as unknown as FileSystemFileHandle;
   const item = (h?: FileSystemFileHandle, copy?: string): RecentEntry =>
     ({ id: 'x', name: 'a.png', kind: 'image', openedAt: 0, size: 4, handle: h, bytes: copy ? new Blob([copy]) : undefined });
-  const text = async (r: Awaited<ReturnType<typeof readRecent>>) => (r === 'denied' ? r : { body: await r.file.text(), handle: !!r.handle, fromCopy: r.fromCopy, type: r.file.type });
+  const wait = { check: 20, ask: 20 };
 
-  it('場所から読めれば、場所ごと返す(コピーがあっても使わない)', async () => {
-    expect(await text(await readRecent(item(handle({}), 'copy')))).toEqual({ body: 'orig', handle: true, fromCopy: false, type: 'image/png' });
+  it('場所から読めれば、そのファイルを返す', async () => {
+    expect(await readRecent(item(handle({})), wait)).toBe(file);
   });
 
-  it('許可が得られなければ、控えのコピーから開く(Android の Chrome)。コピーが無ければ denied', async () => {
-    const h = handle({ perm: 'prompt', ask: 'denied' });
-    expect(await text(await readRecent(item(h, 'copy')))).toEqual({ body: 'copy', handle: false, fromCopy: true, type: 'image/png' });
-    expect(await readRecent(item(h))).toBe('denied');
+  it('許可が得られなければ denied', async () => {
+    expect(await readRecent(item(handle({ perm: 'prompt', ask: async () => 'denied' })), wait)).toBe('denied');
   });
 
-  it('場所から読めなければ(許可を聞けない・読めない)、控えのコピーから開く。コピーが無ければ例外のまま', async () => {
-    const broken = handle({ perm: 'prompt', getFile: async () => { throw new DOMException('x', 'NotFoundError'); } });
-    (broken as any).requestPermission = async () => { throw new DOMException('ユーザーの操作が要ります', 'SecurityError'); };
-    expect(await text(await readRecent(item(broken, 'copy')))).toEqual({ body: 'copy', handle: false, fromCopy: true, type: 'image/png' });
-    const gone = handle({ getFile: async () => { throw new DOMException('x', 'NotFoundError'); } });
-    await expect(readRecent(item(gone))).rejects.toMatchObject({ name: 'NotFoundError' });
-    expect(await text(await readRecent(item(gone, 'copy')))).toMatchObject({ body: 'copy', fromCopy: true });
+  it('許可の返事・読み込みが止まったままなら、決めた時間で TimeoutError にする(押しても何も起きないままにしない)', async () => {
+    await expect(readRecent(item(handle({ perm: 'prompt', ask: () => new Promise(() => {}) })), wait)).rejects.toMatchObject({ name: 'TimeoutError' });
+    await expect(readRecent(item(handle({ getFile: () => new Promise(() => {}) })), wait)).rejects.toMatchObject({ name: 'TimeoutError' });
   });
 
-  it('場所の無いコピーだけの項目はそのまま開く。どちらも無ければ NotFoundError', async () => {
-    expect(await text(await readRecent(item(undefined, 'copy')))).toEqual({ body: 'copy', handle: false, fromCopy: false, type: 'image/png' });
-    await expect(readRecent(item())).rejects.toMatchObject({ name: 'NotFoundError' });
+  it('場所の無いコピーの項目はコピーから開く。どちらも無ければ NotFoundError', async () => {
+    const r = await readRecent(item(undefined, 'copy'), wait);
+    expect(r !== 'denied' && [await r.text(), r.type]).toEqual(['copy', 'image/png']);
+    await expect(readRecent(item(), wait)).rejects.toMatchObject({ name: 'NotFoundError' });
   });
 });

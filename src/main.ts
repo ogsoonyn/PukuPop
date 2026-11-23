@@ -127,7 +127,7 @@ app.store.on('project', ({ keys }) => {
 const exportDialog = bindExportDialog(app);
 const blurDialog = bindBlurDialog(app);
 const mergeDialog = bindMergeDialog(app);
-const recentDialog = bindRecentDialog(app);
+const recentDialog = bindRecentDialog(app, { pick: startIn => openAny(startIn) });
 bindInflateDialog(app);
 bindFloatPanels([{ dialog: ui.blurDialog, handle: ui.blurTitle }, { dialog: ui.inflateDialog, handle: ui.inflHead }]);
 bindToolOptions(app);
@@ -140,10 +140,10 @@ fileProject.addEventListener('change', () => { const f = fileProject.files?.[0];
 const IMAGE_ACCEPT = { 'image/*': ['.png', '.jpg', '.jpeg', '.webp'] };
 
 /** Chrome 系はファイルの場所(ハンドル)ごと受け取る。最近開いたファイルから開き直すのに使う */
-async function pickAndOpen(types: FilePickerAcceptType[], fallback: HTMLInputElement): Promise<void> {
+async function pickAndOpen(types: FilePickerAcceptType[], fallback: HTMLInputElement, startIn?: FileSystemFileHandle): Promise<void> {
   if (window.showOpenFilePicker) {
     try {
-      const r = await retryWithClick(() => window.showOpenFilePicker!({ types }), 'ファイルを選ぶ…');
+      const r = await retryWithClick(() => window.showOpenFilePicker!(startIn ? { types, startIn } : { types }), 'ファイルを選ぶ…');
       if (!r) return;
       const [h] = r;
       await app.openFile(await h.getFile(), h);
@@ -151,12 +151,12 @@ async function pickAndOpen(types: FilePickerAcceptType[], fallback: HTMLInputEle
   } else fallback.click();
 }
 
-const openAny = () => pickAndOpen([{ description: 'PukuPop プロジェクト / 画像', accept: { 'application/zip': [FILE_EXTENSION, LEGACY_FILE_EXTENSION], ...IMAGE_ACCEPT } }], fileProject);
+const openAny = (startIn?: FileSystemFileHandle) => pickAndOpen([{ description: 'PukuPop プロジェクト / 画像', accept: { 'application/zip': [FILE_EXTENSION, LEGACY_FILE_EXTENSION], ...IMAGE_ACCEPT } }], fileProject, startIn);
 
 /* ---------- コマンド(メニュー・ボタン・ショートカット共通。定義は ui/actions.ts) ---------- */
 // メニューやボタンを結び付けるので、data-cmd の部品をスマホのシートへ移す前に呼ぶ(移しても結び付けは残る)
 bindActions(app, {
-  openProject: openAny,
+  openProject: () => openAny(),
   openRecent: () => recentDialog.open(),
   openExport: () => exportDialog.open(),
   openBlur: () => blurDialog.open(),

@@ -16,7 +16,21 @@ export function toast(message: string, kind: 'info' | 'success' | 'error' | 'war
   el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
   el.textContent = message;
   box.append(el);
-  setTimeout(() => el.remove(), ms);
+  raiseToasts(box);
+  setTimeout(() => { el.remove(); if (!box.childElementCount) setToastsOpen(box, false); }, ms);
+}
+
+/** 知らせの置き場を最前面へ。開いているダイアログ(showModal)の裏に隠れないよう、出し直して一番上に積む */
+function raiseToasts(box: HTMLElement): void {
+  setToastsOpen(box, false);
+  setToastsOpen(box, true);
+}
+function setToastsOpen(box: HTMLElement, open: boolean): void {
+  if (!box.showPopover) return; // popover の無いブラウザでは、ふつうの要素のまま(z-index で前に出す)
+  try {
+    if (open && !box.matches(':popover-open')) box.showPopover();
+    else if (!open && box.matches(':popover-open')) box.hidePopover();
+  } catch { /* 外れた要素などで失敗しても、知らせは置き場に残る */ }
 }
 
 interface AskOptions { title: string; body?: string; yes?: string; no?: string | null; input?: { label: string; value: number; min: number; max: number; step?: number } }

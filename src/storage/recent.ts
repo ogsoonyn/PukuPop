@@ -2,9 +2,6 @@
  * 最近開いたファイルの一覧(IndexedDB)。
  *   Chrome / Edge: ファイルの場所(FileSystemFileHandle)を覚える。開き直すときにブラウザが読む許可を求める。
  *   ほかのブラウザ: 場所を覚えられないので、中身のコピーを覚える(1件 COPY_MAX まで、合計 COPY_TOTAL まで)。
- *   Android の Chrome: 場所を覚えても、開き直すときに読めないことがある(Chrome 132 から場所を受け取れるが、
- *   覚えた場所は読む許可が切れて読めなくなる)。場所と一緒にコピーも覚え、読めなければコピーから開く。
- *   コピーは控えなので、合計の上限を超えたらコピーだけ外して場所は残す。場所を IndexedDB に入れられなかったときは、コピーだけで覚え直す。
  * 一覧はこのブラウザの中だけに残り、サーバーへは送らない。
  */
 const DB_NAME = 'popstage-recent';
@@ -27,7 +24,7 @@ export interface RecentEntry {
   thumb?: Blob;
   /** ファイルの場所(Chrome 系) */
   handle?: FileSystemFileHandle;
-  /** 場所を覚えられないとき(と Android で場所の控えとして)の中身のコピー。Blob なら一覧を読むだけでは中身がメモリに載らない */
+  /** 場所を覚えられないときの中身のコピー。Blob なら一覧を読むだけでは中身がメモリに載らない */
   bytes?: Blob;
 }
 
@@ -37,18 +34,8 @@ export interface RecentInput {
   size: number;
   thumb?: Blob;
   handle?: FileSystemFileHandle | null;
-  /** コピーを覚えるとき(場所が無いとき・Android)に読む中身。COPY_MAX を超えるなら読まない */
+  /** 場所が無いときに使う中身。COPY_MAX を超えるなら読まない */
   bytes?: () => Promise<Uint8Array> | Uint8Array;
-  /** この項目のコピーから開き直したときの、その項目の id。同じ項目を入れ替え、覚えていた場所は残す */
-  replaceId?: string;
-}
-
-/** 覚えた場所から読めないことがあるので、場所と一緒にコピーも覚えるブラウザか(Android の Chrome) */
-export function keepsCopyWithHandle(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  // 「PC 版サイト」にすると UA から Android が消えるので、使えるなら userAgentData も見る
-  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform;
-  return platform === 'Android' || /Android/i.test(navigator.userAgent);
 }
 
 /** 本物のファイルハンドルか(テスト用の作り物などは IndexedDB に入らない) */
@@ -58,26 +45,19 @@ export function isRealHandle(h: unknown): h is FileSystemFileHandle {
 
 /**
  * 新しい項目を先頭に置き、件数と、コピーの合計サイズの上限に収まるよう古いものから外す。
- * 場所も覚えた項目(Android)のコピーは控えなので、上限を超えたらコピーだけ外して残す。
- * 戻り値は残す一覧(新しい順)と、外す項目の id と、コピーを外して書き直す項目。
+ * 戻り値は残す一覧(新しい順)と、外す項目の id。
  */
-export function trimRecent(entries: readonly RecentEntry[]): { keep: RecentEntry[]; drop: string[]; stripped: RecentEntry[] } {
+export function trimRecent(entries: readonly RecentEntry[]): { keep: RecentEntry[]; drop: string[] } {
   const sorted = [...entries].sort((a, b) => b.openedAt - a.openedAt);
-  const keep: RecentEntry[] = [], drop: string[] = [], stripped: RecentEntry[] = [];
+  const keep: RecentEntry[] = [], drop: string[] = [];
   let copies = 0;
   for (const e of sorted) {
-    if (keep.length >= RECENT_MAX) { drop.push(e.id); continue; }
     const copy = e.bytes?.size ?? 0;
-    if (copies + copy > COPY_TOTAL) {
-      if (!e.handle) { drop.push(e.id); continue; }
-      const s = { ...e, bytes: undefined };
-      stripped.push(s); keep.push(s);
-      continue;
-    }
+    if (keep.length >= RECENT_MAX || copies + copy > COPY_TOTAL) { drop.push(e.id); continue; }
     copies += copy;
     keep.push(e);
   }
-  return { keep, drop, stripped };
+  return { keep, drop };
 }
 
 /** 同じファイルの項目を探す。場所どうしは同じ実体か、コピーどうしは同じ名前・種類かで比べる */
@@ -93,32 +73,34 @@ async function findSame(entries: readonly RecentEntry[], input: { name: string; 
 
 const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pukupop: 'application/zip', popstage: 'application/zip' };
 
-function fromCopy(e: RecentEntry, bytes: Blob): File {
-  const ext = e.name.split('.').pop()?.toLowerCase() ?? '';
-  return new File([bytes], e.name, { type: MIME[ext] ?? '' });
+/** 場所から読むときに待つ長さ(ミリ秒)。check は許可の確かめと読み込み、ask は許可を求める画面(人が答える間も待つ) */
+export const READ_WAIT = { check: 5000, ask: 20000 };
+
+/** 決めた時間で返事が来なければ TimeoutError にする */
+function within<T>(p: Promise<T> | T, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new DOMException('ブラウザから返事がありませんでした', 'TimeoutError')), ms);
+    Promise.resolve(p).then(v => { clearTimeout(t); resolve(v); }, err => { clearTimeout(t); reject(err); });
+  });
 }
 
 /**
- * 項目の中身を読む。場所から読めたときだけ handle を返す(上書き保存の先になる)。
- * 場所から読めず(許可が得られない・読めない)控えのコピーがあれば、コピーを返す(fromCopy)。
- * 許可が得られずコピーも無ければ 'denied'。読めずコピーも無ければ例外(見つからなければ NotFoundError)。
+ * 項目の中身を読む。場所(ハンドル)を覚えていればそこから、無ければ覚えたコピーから。
+ * 許可が得られなければ 'denied'。読めなければ例外(見つからなければ NotFoundError、返事が来なければ TimeoutError)。
+ * 返事が来ないまま止まると、押しても何も起きないように見える(一覧は1つずつしか開かないので、ほかも押せなくなる)ので、待つ長さを決めておく。
  * 場所から読むときはブラウザが読む許可を確かめるので、クリックの直後に呼ぶ。
  */
-export async function readRecent(e: RecentEntry): Promise<{ file: File; handle?: FileSystemFileHandle; fromCopy: boolean } | 'denied'> {
+export async function readRecent(e: RecentEntry, wait = READ_WAIT): Promise<File | 'denied'> {
   if (e.handle) {
     const h = e.handle;
-    try {
-      if (h.queryPermission && (await h.queryPermission({ mode: 'read' })) !== 'granted'
-        && (await h.requestPermission?.({ mode: 'read' })) !== 'granted') {
-        return e.bytes ? { file: fromCopy(e, e.bytes), fromCopy: true } : 'denied';
-      }
-      return { file: await h.getFile(), handle: h, fromCopy: false };
-    } catch (err) {
-      if (e.bytes) return { file: fromCopy(e, e.bytes), fromCopy: true };
-      throw err;
-    }
+    if (h.queryPermission && (await within(h.queryPermission({ mode: 'read' }), wait.check)) !== 'granted'
+      && (await within(h.requestPermission?.({ mode: 'read' }), wait.ask)) !== 'granted') return 'denied';
+    return await within(h.getFile(), wait.check);
   }
-  if (e.bytes) return { file: fromCopy(e, e.bytes), fromCopy: false };
+  if (e.bytes) {
+    const ext = e.name.split('.').pop()?.toLowerCase() ?? '';
+    return new File([e.bytes], e.name, { type: MIME[ext] ?? '' });
+  }
   throw new DOMException('中身が残っていません', 'NotFoundError');
 }
 
@@ -164,38 +146,22 @@ export const recent = {
   add(input: RecentInput): Promise<boolean> {
     return serial(async () => {
       try {
-        let handle = isRealHandle(input.handle) ? input.handle : undefined;
-        const copy = async (): Promise<Blob | undefined> => {
-          if (!input.bytes || input.size > COPY_MAX) return undefined;
+        const handle = isRealHandle(input.handle) ? input.handle : undefined;
+        let bytes: Blob | undefined;
+        if (!handle) {
+          if (!input.bytes || input.size > COPY_MAX) return false;
           const data = await input.bytes();
-          return data.byteLength > COPY_MAX ? undefined : new Blob([data as BlobPart]);
-        };
-        // 場所を覚えたうえでのコピーは控えなので、作れなくても場所だけで覚える
-        let bytes = !handle || keepsCopyWithHandle() ? await copy() : undefined;
-        if (!handle && !bytes) return false;
-        let keepHandle = true;
-        const put = async (): Promise<void> => {
-          const entries = await recent.list();
-          // コピーから開き直したときは、その項目を入れ替える(覚えていた場所は残す)
-          const replaced = input.replaceId ? entries.find(e => e.id === input.replaceId) : undefined;
-          const same = replaced ?? await findSame(entries, { name: input.name, kind: input.kind, handle });
-          const entry: RecentEntry = {
-            id: same?.id ?? newId(), name: input.name, kind: input.kind, openedAt: Date.now(), size: input.size,
-            thumb: input.thumb ?? same?.thumb, handle: handle ?? (keepHandle ? replaced?.handle : undefined), bytes,
-          };
-          const { drop, stripped } = trimRecent([entry, ...entries.filter(e => e.id !== entry.id)]);
-          await run('readwrite', s => { s.put(stripped.find(e => e.id === entry.id) ?? entry); for (const e of stripped) if (e.id !== entry.id) s.put(e); for (const id of drop) s.delete(id); });
-        };
-        try { await put(); } catch (e) {
-          // 場所を IndexedDB に入れられないブラウザがある(Android)。コピーだけで覚え直す。
-          // PC で場所と関係なく失敗した(容量が足りないなど)ときは、今までどおり覚えずに終える
-          if (!handle || !(keepsCopyWithHandle() || (e as DOMException).name === 'DataCloneError')) throw e;
-          console.warn('recent add with handle failed, keeping a copy instead', e);
-          handle = undefined; keepHandle = false;
-          bytes ??= await copy();
-          if (!bytes) return false;
-          await put();
+          if (data.byteLength > COPY_MAX) return false;
+          bytes = new Blob([data as BlobPart]);
         }
+        const entries = await recent.list();
+        const same = await findSame(entries, { name: input.name, kind: input.kind, handle });
+        const entry: RecentEntry = {
+          id: same?.id ?? newId(), name: input.name, kind: input.kind, openedAt: Date.now(), size: input.size,
+          thumb: input.thumb ?? same?.thumb, handle, bytes,
+        };
+        const { drop } = trimRecent([entry, ...entries.filter(e => e.id !== entry.id)]);
+        await run('readwrite', s => { s.put(entry); for (const id of drop) s.delete(id); });
         return true;
       } catch (e) { console.warn('recent add failed', e); return false; }
     });

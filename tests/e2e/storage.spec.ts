@@ -407,39 +407,52 @@ test('最近開いたファイル: ファイルの場所を覚えて開き直し
   expect(await page.evaluate(() => (window as any).popstage.fileName)).toBe('work.popstage');
 });
 
+test('最近開いたファイル: 一覧を開いている間の知らせも、一覧の幕の裏に隠れず手前に出る', async ({ page }) => {
+  await boot(page);
+  await openRecentDialog(page);
+  await page.evaluate(async () => { const mod = '/src/ui/dom.ts'; const { toast } = await import(/* @vite-ignore */ mod); toast('テストの知らせ', 'warning', 10000); });
+  await expect(page.locator('#toasts')).toContainText('テストの知らせ');
+  // popover で最前面(top layer)に出す。開いているダイアログより後に出すので、その上に積まれる
+  expect(await page.locator('#toasts').evaluate(el => el.matches(':popover-open'))).toBe(true);
+  // 消えたら閉じる(ダイアログの操作を邪魔しない)
+  await page.evaluate(async () => { document.querySelector('#toasts')!.replaceChildren(); });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#recentDialog')).not.toHaveAttribute('open', '');
+});
+
 // @local: 上と同じ(IndexedDB にファイルハンドルを入れるとクラウドの Chrome が落ちる)
-test('最近開いたファイル: Android では場所と一緒にコピーも覚え、場所から読めなければコピーから開く', { tag: '@local' }, async ({ page }) => {
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36' });
-  });
+test('最近開いたファイル: 場所から読む許可の返事が来なくても止まらず、選び直す画面を出せる', { tag: '@local' }, async ({ page }) => {
   await boot(page);
   await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory();
     const c = document.createElement('canvas'); c.width = 100; c.height = 100; c.getContext('2d')!.fillRect(0, 0, 50, 50);
     const b: Blob = await new Promise(r => c.toBlob(x => r(x!), 'image/png'));
-    const h = await root.getFileHandle('android.png', { create: true });
+    const h = await root.getFileHandle('stuck.png', { create: true });
     const w = await h.createWritable(); await w.write(b); await w.close();
     const a = (window as any).popstage;
     await a.openFile(await h.getFile(), h);
     await a.loadSample();
   });
   await waitRecent(page, 1);
-  expect(await recentStored(page)).toEqual([{ name: 'android.png', handle: true, blob: true }]);
-
-  // 読む許可が切れた(アプリを閉じて開き直したときの Android の Chrome)
-  await page.evaluate(() => {
+  // 許可を確かめると「聞く」になり、聞いても返事が来ない(スマホの Chrome で止まったときの再現)。待つ長さは短くする
+  await page.evaluate(async () => {
+    const mod = '/src/storage/recent.ts';
+    const { READ_WAIT } = await import(/* @vite-ignore */ mod);
+    READ_WAIT.ask = 300;
     const p = FileSystemHandle.prototype as any;
     p.queryPermission = async () => 'prompt';
-    p.requestPermission = async () => 'denied';
+    p.requestPermission = () => new Promise(() => {});
+    // 選び直す画面は、同じファイルを選んだことにする
+    (window as any).showOpenFilePicker = async () => [await (await navigator.storage.getDirectory()).getFileHandle('stuck.png')];
   });
   await openRecentDialog(page);
   await page.locator('#recentList button.recent-open').first().click();
-  await expect(page.locator('#recentDialog')).not.toHaveAttribute('open', '');
-  await expect.poll(() => page.evaluate(() => (window as any).popstage.doc.name)).toBe('android.png');
-  await expect(page.locator('#toasts')).toContainText('控えたコピーから開きます');
-  // 上書き保存の先にはしない。一覧は同じ1件のまま(場所も残し、次に許可が通れば場所から開ける)
-  expect(await page.evaluate(() => (window as any).popstage.fileHandle ?? null)).toBe(null);
-  await expect.poll(() => recentStored(page)).toEqual([{ name: 'android.png', handle: true, blob: true }]);
+  await expect(page.locator('#askTitle')).toHaveText('「stuck.png」を開けませんでした');
+  await expect(page.locator('#askBody')).toContainText('ブラウザから返事がありません');
+  await page.locator('#askYes').click();
+  await expect.poll(() => page.evaluate(() => (window as any).popstage.doc.name)).toBe('stuck.png');
+  // 同じファイルなので、一覧は1件のまま
+  await expect.poll(async () => (await recentStored(page)).map((e: { name: string }) => e.name)).toEqual(['stuck.png']);
 });
 
 test('保存領域の永続化は、最初の自動保存のあとに1回だけ頼む(起動直後は頼まない)', async ({ page }) => {

@@ -752,12 +752,11 @@ export class App extends Emitter<AppEvents> {
   get busy(): boolean { return this.exporting || this.stroking || this.previewingBlur || this.previewingInflate || this.opening; }
   private opening = false;
 
-  /** recentId: 最近開いたファイルの項目のコピーから開いたとき、その項目を入れ替えて覚え直す(場所を覚えた項目を残し、同じファイルを2つ並べない) */
-  async openFile(file: File, handle?: FileSystemFileHandle, opts: { recentId?: string } = {}): Promise<void> {
+  async openFile(file: File, handle?: FileSystemFileHandle): Promise<void> {
     if (this.embedded) return; // 埋め込みモードは、クエリで受け取ったファイルだけを開く(main.ts)
     if (this.busy) { toast('いまはファイルを開けません。処理が終わってからもう一度お試しください。', 'warning'); return; }
     const t = performance.now();
-    await this.whileOpening(() => this.openFileNow(file, handle ? fileTarget(handle) : undefined, opts.recentId));
+    await this.whileOpening(() => this.openFileNow(file, handle ? fileTarget(handle) : undefined));
     this.perf?.event({ t, d: performance.now() - t, kind: 'open', detail: `${file.name}(${(file.size / 1e6).toFixed(1)}MB)` });
   }
 
@@ -779,7 +778,7 @@ export class App extends Emitter<AppEvents> {
     return undefined;
   }
 
-  private async openFileNow(file: File, target: SaveTarget | undefined, recentId?: string): Promise<void> {
+  private async openFileNow(file: File, target: SaveTarget | undefined): Promise<void> {
     const project = isProjectFile(file);
     if (!project && !isImageFile(file)) { toast('PNG / JPEG / WebP の画像か、.pukupop ファイルを選んでください。', 'warning'); return; }
     // 開いているプロジェクトなら、そのタブを出す(同じ作業を2つのタブで別々に変えないように)
@@ -797,19 +796,19 @@ export class App extends Emitter<AppEvents> {
         return;
       }
       // 一覧への記録は待たない(記録が遅れたり失敗したりしても、次のファイルを開けるように)
-      if (await this.openProjectBytes(bytes, file.name, target ?? null)) void this.remember('project', file.name, file.size, target?.handle, () => bytes, undefined, recentId);
-    } else if (await this.openImage(file)) void this.remember('image', file.name, file.size, target?.handle, async () => new Uint8Array(await file.arrayBuffer()), undefined, recentId);
+      if (await this.openProjectBytes(bytes, file.name, target ?? null)) void this.remember('project', file.name, file.size, target?.handle, () => bytes);
+    } else if (await this.openImage(file)) void this.remember('image', file.name, file.size, target?.handle, async () => new Uint8Array(await file.arrayBuffer()));
   }
 
   /**
    * 最近開いたファイルの一覧に足す。縮小画像は今の視点で描く。
    * 一覧に入れられなくても、開く・保存するのは止めない。
    */
-  private async remember(kind: RecentKind, name: string, size: number, handle: FileSystemFileHandle | null | undefined, bytes: () => Promise<Uint8Array> | Uint8Array, thumbPng?: Uint8Array, recentId?: string): Promise<void> {
+  private async remember(kind: RecentKind, name: string, size: number, handle: FileSystemFileHandle | null | undefined, bytes: () => Promise<Uint8Array> | Uint8Array, thumbPng?: Uint8Array): Promise<void> {
     if (this.embedded) return; // 埋め込みモードでは、最近開いたファイルを使わない(埋め込む側のオリジンに残さない)
     const png = thumbPng ?? await this.thumbnail();
     const thumb = png ? new Blob([png as BlobPart], { type: 'image/png' }) : undefined;
-    await recent.add({ name, kind, size, thumb, handle, bytes, replaceId: recentId });
+    await recent.add({ name, kind, size, thumb, handle, bytes });
   }
 
   /**
