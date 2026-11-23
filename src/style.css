@@ -335,6 +335,10 @@ html.mobile #mEditMenu:not([hidden]) { display: flex !important; flex-direction:
 .m-edit-item[aria-checked="true"] { background: color-mix(in oklab, var(--color-primary) 18%, var(--color-base-100)); color: var(--color-primary); font-weight: 600; }
 #inflRedraw[aria-pressed="true"] { background: var(--color-primary); color: var(--color-primary-content); border-color: transparent; }
 html.mobile body > main { padding-bottom: var(--m-tools); }
+/* 知らせは popover で最前面に出す(ui/dom.ts)。ブラウザの popover の見た目(枠・余白・背景・中央寄せの margin)だけを消し、
+   置き方は daisyUI の .toast と mb-8 に任せる(層の外の規則は層の中の mb-8 などに勝つので、base の層に入れる) */
+@layer base { #toasts[popover] { margin: 0; border: 0; padding: 0; color: inherit; overflow: visible; height: auto; } }
+/* daisyUI の .toast は display:flex なので、閉じた popover もふつうの固定配置の要素として出る(popover の無いブラウザでも知らせが見える) */
 html.mobile #toasts { top: calc(var(--m-top) + .5rem); bottom: auto; margin-bottom: 0; }
 html.mobile #mFine, html.mobile #inflRedraw:not([hidden]) { display: inline-flex !important; }
 html.mobile #helpDialog .m-only { display: grid !important; }

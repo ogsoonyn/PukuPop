@@ -1,11 +1,10 @@
 /** 最近開いたファイルのダイアログ。縮小画像の一覧から選んで開き直す。 */
 import type { App } from '../app';
-import { recent, type RecentEntry } from '../storage/recent';
+import { recent, readRecent, type RecentEntry } from '../storage/recent';
 import { ask, toast, formatBytes } from './dom';
 import { ui } from './ids';
 
 const KIND_LABEL = { project: 'プロジェクト', image: '画像' } as const;
-const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pukupop: 'application/zip', popstage: 'application/zip' };
 
 function when(t: number): string {
   const d = new Date(t), now = new Date();
@@ -15,7 +14,12 @@ function when(t: number): string {
   return `${date} ${time}`;
 }
 
-export function bindRecentDialog(app: App): { open: () => Promise<void> } {
+export interface RecentDeps {
+  /** ファイルを選ぶ画面を開いて、選んだファイルを開く。startIn はその画面で最初に出す場所 */
+  pick: (startIn?: FileSystemFileHandle) => Promise<void>;
+}
+
+export function bindRecentDialog(app: App, deps: RecentDeps): { open: () => Promise<void> } {
   const dlg = ui.recentDialog, list = ui.recentList, empty = ui.recentEmpty, clear = ui.recentClear;
   let urls: string[] = [];
   const revoke = () => { urls.forEach(u => URL.revokeObjectURL(u)); urls = []; };
@@ -83,22 +87,6 @@ export function bindRecentDialog(app: App): { open: () => Promise<void> } {
     await render(i);
   }
 
-  async function readEntry(e: RecentEntry): Promise<File | null> {
-    if (e.handle) {
-      const h = e.handle;
-      // 開き直すたびにブラウザが読む許可を確かめる。クリックの直後に呼ぶ必要がある
-      if (h.queryPermission && (await h.queryPermission({ mode: 'read' })) !== 'granted') {
-        if ((await h.requestPermission?.({ mode: 'read' })) !== 'granted') { toast('ファイルを読む許可が得られませんでした。', 'warning'); return null; }
-      }
-      return await h.getFile();
-    }
-    if (e.bytes) {
-      const ext = e.name.split('.').pop()?.toLowerCase() ?? '';
-      return new File([e.bytes], e.name, { type: MIME[ext] ?? '' });
-    }
-    throw new DOMException('中身が残っていません', 'NotFoundError');
-  }
-
   /** ダブルクリックなどで2回目が来ても無視する */
   let opening = false;
 
@@ -110,20 +98,37 @@ export function bindRecentDialog(app: App): { open: () => Promise<void> } {
   }
 
   async function openEntryNow(e: RecentEntry, i: number): Promise<void> {
-    let file: File | null;
-    try { file = await readEntry(e); } catch (err) {
-      if ((err as DOMException).name === 'NotFoundError') {
+    let file: File | 'denied';
+    // 読むのに時間がかかる(許可の確かめを待つ)ときは、押したことが分かるよう知らせる
+    const slow = setTimeout(() => toast(`「${e.name}」を開いています…`), 600);
+    try { file = await readRecent(e); } catch (err) {
+      clearTimeout(slow);
+      const name = (err as DOMException).name;
+      if (name === 'NotFoundError') {
         const r = await ask({ title: `「${e.name}」が見つかりません`, body: '移動・名前の変更・削除をした可能性があります。一覧から外しますか?', yes: '一覧から外す', no: 'そのまま' });
         if (r.ok) await recent.remove(e.id);
         if (dlg.open) await render(i); // 外したカードの位置へフォーカスを戻す
-      } else toast(`開けませんでした: ${err instanceof Error ? err.message : err}`, 'error', 6000);
+      } else await offerRepick(e, `ファイルを読めませんでした(${name === 'TimeoutError' ? 'ブラウザから返事がありません' : err instanceof Error ? err.message : err})。`);
       return;
     }
-    if (!file) return;
+    clearTimeout(slow);
+    if (file === 'denied') { await offerRepick(e, 'ファイルを読む許可が得られませんでした。'); return; }
     // 新しいタブで開く(開いているプロジェクトならそのタブを出す)。タブの数が上限なら、一覧を出したまま伝える
     if (!(await app.roomFor(e.handle))) return;
     dlg.close();
     await app.openFile(file, e.handle);
+  }
+
+  /**
+   * 覚えた場所から読めなかったとき(スマホの Chrome で許可が切れたときなど)、ファイルを選ぶ画面で選び直してもらう。
+   * 同じファイルを選べば、一覧の同じ項目が新しい場所に置き換わる(storage/recent.ts の findSame)
+   */
+  async function offerRepick(e: RecentEntry, why: string): Promise<void> {
+    if (!e.handle) { toast(`開けませんでした: ${why}`, 'error', 6000); return; }
+    const r = await ask({ title: `「${e.name}」を開けませんでした`, body: `${why}ファイルを選ぶ画面から、同じファイルを選び直してください。`, yes: '選び直す…' });
+    if (!r.ok) return;
+    dlg.close();
+    await deps.pick(e.handle);
   }
 
   clear.addEventListener('click', async () => {

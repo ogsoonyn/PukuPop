@@ -71,6 +71,39 @@ async function findSame(entries: readonly RecentEntry[], input: { name: string; 
   return undefined;
 }
 
+const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pukupop: 'application/zip', popstage: 'application/zip' };
+
+/** 場所から読むときに待つ長さ(ミリ秒)。check は許可の確かめ、ask は許可を求める画面(人が答える間も待つ)、read は読み込み(クラウドのファイルは取り込みに時間がかかる) */
+export const READ_WAIT = { check: 5000, ask: 20000, read: 20000 };
+
+/** 決めた時間で返事が来なければ TimeoutError にする */
+function within<T>(p: Promise<T> | T, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new DOMException('ブラウザから返事がありませんでした', 'TimeoutError')), ms);
+    Promise.resolve(p).then(v => { clearTimeout(t); resolve(v); }, err => { clearTimeout(t); reject(err); });
+  });
+}
+
+/**
+ * 項目の中身を読む。場所(ハンドル)を覚えていればそこから、無ければ覚えたコピーから。
+ * 許可が得られなければ 'denied'。読めなければ例外(見つからなければ NotFoundError、返事が来なければ TimeoutError)。
+ * 返事が来ないまま止まると、押しても何も起きないように見える(一覧は1つずつしか開かないので、ほかも押せなくなる)ので、待つ長さを決めておく。
+ * 場所から読むときはブラウザが読む許可を確かめるので、クリックの直後に呼ぶ。
+ */
+export async function readRecent(e: RecentEntry, wait = READ_WAIT): Promise<File | 'denied'> {
+  if (e.handle) {
+    const h = e.handle;
+    if (h.queryPermission && (await within(h.queryPermission({ mode: 'read' }), wait.check)) !== 'granted'
+      && (await within(h.requestPermission?.({ mode: 'read' }), wait.ask)) !== 'granted') return 'denied';
+    return await within(h.getFile(), wait.read);
+  }
+  if (e.bytes) {
+    const ext = e.name.split('.').pop()?.toLowerCase() ?? '';
+    return new File([e.bytes], e.name, { type: MIME[ext] ?? '' });
+  }
+  throw new DOMException('中身が残っていません', 'NotFoundError');
+}
+
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);

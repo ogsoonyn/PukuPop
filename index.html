@@ -723,7 +723,7 @@
     <h3 class="font-bold text-lg mb-2">操作方法</h3>
     <div class="m-only grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm mb-4">
       <span class="font-bold">1本指</span><span>下で選んだツールで操作</span>
-      <span class="font-bold">画像の外</span><span>なぞると回転、ダブルタップで視点を戻す</span>
+      <span class="font-bold">画像の外</span><span>「移動」以外のツールでなぞると回転。ダブルタップで視点を戻す</span>
       <span class="font-bold">右下の丸</span><span>どのツールでも、なぞると回転</span>
       <span class="font-bold">2本指</span><span>動かすと平行移動、つまむとズーム、ひねると傾く</span>
       <span class="font-bold">2本指タップ</span><span>元に戻す</span>
@@ -773,7 +773,8 @@
   <button id="uiRestore" type="button" class="btn btn-ghost btn-sm" title="全画面表示を解除 (Tab / Esc)"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4"/><path d="M15 4v5h5"/><path d="M9 20v-5H4"/><path d="M15 20v-5h5"/></svg>全画面を解除</button>
 </div>
 
-<div id="toasts" class="toast toast-end toast-bottom z-50 mb-8"></div>
+<!-- popover: 開いているダイアログ(showModal)より上に出すため(ui/dom.ts の toast) -->
+<div id="toasts" class="toast toast-end toast-bottom z-50 mb-8" popover="manual"></div>
 
 <script type="module" src="/src/main.ts"></script>
 </body>

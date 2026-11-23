@@ -15,7 +15,7 @@ declare module 'gifenc' {
 /* File System Access API(Chrome 系のみ。無いときはダウンロードで代替する) */
 interface FilePickerAcceptType { description?: string; accept: Record<string, string[]> }
 interface SaveFilePickerOptions { suggestedName?: string; types?: FilePickerAcceptType[]; id?: string }
-interface OpenFilePickerOptions { multiple?: boolean; types?: FilePickerAcceptType[]; id?: string; excludeAcceptAllOption?: boolean }
+interface OpenFilePickerOptions { multiple?: boolean; types?: FilePickerAcceptType[]; id?: string; excludeAcceptAllOption?: boolean; startIn?: FileSystemHandle | string }
 interface Window {
   showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<FileSystemFileHandle>;
   showOpenFilePicker?: (options?: OpenFilePickerOptions) => Promise<FileSystemFileHandle[]>;
